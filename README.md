@@ -11,6 +11,7 @@ everything installable through **Modules ▸ Install** (zip upload or URL).
 | Module | What it does |
 |---|---|
 | [flow-toolkit](modules/flow-toolkit/) | Reference for flow v2: code-editable nodes shipped via `api.registerNodeDefs` (Wobble + Breathe) that pair with per-object flows and embedded Object Flow nodes. |
+| [untangle](modules/untangle/) | The 190 test-flight GAME: drag the dots until no edges cross. Procedural guaranteed-solvable puzzles (seed-deterministic — determinism IS the netcode), desktop+VR drag via `api.pointerRay()`, replicated moves, lockstep win/level advance, generative WebAudio pad + SFX. Needs app ≥ the `api.pointerRay` SDK (core PR #37). |
 
 ## Module format
 
