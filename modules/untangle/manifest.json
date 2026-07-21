@@ -1,0 +1,7 @@
+{
+	"id": "untangle",
+	"name": "Untangle",
+	"version": "1.0.0",
+	"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - built purely on the module SDK.",
+	"entry": "module.js"
+}
