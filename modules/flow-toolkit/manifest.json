@@ -1,0 +1,7 @@
+{
+	"id": "flow-toolkit",
+	"name": "Flow Toolkit",
+	"version": "1.0.0",
+	"description": "Example module: ships code-editable flow nodes (registerNodeDefs) that pair with per-object flows.",
+	"entry": "module.js"
+}
