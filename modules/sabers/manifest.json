@@ -1,0 +1,9 @@
+{
+	"id": "sabers",
+	"name": "Sabers",
+	"version": "1.0.0",
+	"format": 1,
+	"description": "A glowing blade held wherever you point - VR controller or desktop mouse - with hit sparks and peers seeing your blade.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}

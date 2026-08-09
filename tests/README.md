@@ -52,6 +52,12 @@ Then bring up a third peer *after* the fact to prove `registerStateSync`.
   that is not `*.app`/`*.io` as local dev and points PeerJS at `:9001`;
   `helpers.cjs` seeds `peerServerConfig` with the hosted box instead. Override
   with `PEER_CONFIG` if you run your own.
+- **Never write a store from inside its own subscriber**, including inside a
+  `page.evaluate`. `objectsGroup.subscribe(g => { …; objectsGroup.update(v => v) })`
+  re-enters svelte's flush and corrupts its queues — the page then throws
+  `RangeError: Invalid array length` from *unrelated* stores (annotations,
+  locks) and the flight fails somewhere that looks nothing like the cause. Read
+  the ref out first (`subscribe(v => (ref = v))()`), then mutate.
 - **Let the dev server settle after editing app code.** A page loaded while vite
   is still re-transforming sees half-mounted components, and the flight lies.
 - **Synthetic DOM events need `bubbles: true`** to reach Svelte's delegated
