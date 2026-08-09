@@ -1,0 +1,9 @@
+{
+	"id": "fps-player",
+	"name": "FPS Player",
+	"version": "1.0.0",
+	"format": 1,
+	"description": "Walk mode: mouse look with WASD, sprint, jump and crouch, on a capsule that peers can see.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}

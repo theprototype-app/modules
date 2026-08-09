@@ -114,10 +114,10 @@ export default {
 			}
 		}
 
-		// api.haptic is not on the SDK yet (DEVX-REQUESTS #3) — feature-detect so
-		// this module simply gains the pulse the day it lands.
+		// Feature-detected extras (DEVX-REQUESTS #3/#4): apps older than the 17-A1
+		// SDK simply do without them, which is why every call is guarded.
 		function buzz(strength) {
-			if (typeof api.haptic === 'function') api.haptic('pointer', strength, 40);
+			if (typeof api.haptic === 'function') api.haptic(strength, 40); // (intensity, ms, hand?)
 		}
 
 		// ---- visuals ----------------------------------------------------------
@@ -170,16 +170,22 @@ export default {
 			if (entered.length === code.length) {
 				// whoever completes it decides the moment; peers adopt the stamp
 				const stamp = at ?? api.now();
-				open(stamp);
+				open(stamp, local);
 				if (local) api.send({ op: 'unlock', at: stamp });
 			}
 		}
 
-		function open(at) {
+		function open(at, local) {
 			openedAt = at;
 			entered = [];
 			paintButtons();
 			blip(24, 0.5, 0.12);
+			// let USERS extend the module: unlocking pulses the door's flow graph,
+			// so a node graph can react to it (already replicated; guarded because
+			// it is newer than the 1.2 SDK)
+			const door = findDoor();
+			// only the unlocking peer fires it: fireObjectClick is itself replicated
+			if (local && door && typeof api.fireObjectClick === 'function') api.fireObjectClick(door.uuid);
 		}
 
 		function close() {
@@ -210,7 +216,7 @@ export default {
 		// receivers apply the same change, and never re-broadcast
 		api.onMessage((/** @type {any} */ data) => {
 			if (data.op === 'press') press(data.index, data.uuid, data.at, false);
-			else if (data.op === 'unlock') open(data.at ?? api.now());
+			else if (data.op === 'unlock') open(data.at ?? api.now(), false);
 			else if (data.op === 'reset') {
 				entered = [];
 				flashWrong();
@@ -250,7 +256,7 @@ export default {
 			applyState: (/** @type {any} */ state) => {
 				if (!state) return;
 				entered = Array.isArray(state.entered) ? [...state.entered] : [];
-				if (typeof state.openedAt === 'number') open(state.openedAt);
+				if (typeof state.openedAt === 'number') open(state.openedAt, false);
 				else paintButtons();
 			}
 		});

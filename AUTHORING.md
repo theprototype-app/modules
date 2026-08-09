@@ -329,6 +329,29 @@ list when something bites you.
 - **The animation drifts between peers.** Accumulation, `Date.now()`, or a
   frame-rate-dependent step. Recompute from `(base, api.now())` every frame.
 - **Selection steals your interaction.** Return `true` from the click handler.
+- **`api.onInput` misses the first seconds of keys.** It subscribes through an
+  async import inside the SDK, so a listener registered in `register()` is not
+  live yet — a key pressed right after install does nothing, and the same code
+  works later. Edge-detect from the per-frame snapshot instead, which is live
+  from the first frame (`fps-player` does this):
+
+  ```js
+  let was = false;
+  api.registerFrameTask(() => {
+  	const down = api.input().codes.has('KeyJ');
+  	if (down && !was) toggle();
+  	was = down;
+  });
+  ```
+
+- **Keyboard input stops while an app modal is open.** A button on your module
+  card that starts a keyboard-driven mode leaves the user in the Modules
+  manager, where no key reaches you. Offer a key binding as well as the button.
 - **`api.input()` fires while the user is typing in a panel.** Claim the scope
   (`claimInput('keys')`) only while your mode is active, and ignore input when
   it is not.
+- **Capping `dt` turns a slow frame rate into slow motion.** `Math.min(dt, 0.1)`
+  is the right way to stop a physics step tunnelling, but at 7fps (headless
+  Chromium, a background tab) it means sim time advances at 0.7x — a jump that
+  takes 0.9s on your machine takes 2s+ there. Tests must poll for the end state,
+  never sleep for a computed duration.

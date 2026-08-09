@@ -3,9 +3,10 @@
 // Rewritten on the module SDK from the vrvsvr prototype's Sabers.svelte, whose
 // actual point was the FALLBACK: parent the blade to the tracked hand when hand
 // tracking is on, to the controller when it is not. Our SDK collapses that
-// choice into one call — `api.pointerRay()` already resolves to the VR pointer
-// hand or the desktop mouse — so the module poses one blade from one source and
-// works in a headset and at a desk without branching.
+// choice — `api.vrHand()` reports either as one pose, and `api.pointerRay()`
+// resolves the VR pointer hand or the desktop mouse — so the module poses its
+// blades from one place and runs in a headset and at a desk without branching
+// on `isPresenting`.
 //
 // Replication:
 // - the blade is LOCAL scene content (api.scene(), never objectsGroup): it is
@@ -16,10 +17,11 @@
 // - hits are AUTHORITATIVE where physics is: only the peer stepping the sim
 //   applies an impulse, everyone else just sees the sparks
 //
-// Known SDK gaps this module works around (see ../../DEVX-REQUESTS.md):
-//   #2 per-hand VR pose  — one hand only; the off hand is not addressable
-//   #3 api.haptic        — feature-detected, silent until it lands
-//   #6 api.isVR()        — inferred from recent mouse movement
+// Every newer-SDK call is FEATURE-DETECTED, so the module runs unchanged on an
+// app that predates them (see ../../DEVX-REQUESTS.md):
+//   api.vrHand  (#2) — both hands in VR; without it, the one pointerRay() hand
+//   api.haptic  (#3) — a thump on contact; silent without it
+//   api.isVR    (#6) — without it, inferred from recent mouse movement
 
 export default {
 	id: 'sabers',
@@ -41,8 +43,9 @@ export default {
 
 		let drawn = false;
 		let group = null;
-		let blade = null;
-		/** @type {Record<string, any>} peerId -> {mesh, seen} */
+		/** @type {any[]} one blade per held hand */
+		const blades = [];
+		/** @type {Record<string, any>} peerId -> {meshes, seen} */
 		const ghosts = {};
 		/** @type {Record<string, number>} hit object uuid -> last hit (api.now) */
 		const hits = {};
@@ -51,14 +54,20 @@ export default {
 		/** @type {any[]} {mesh, born} */
 		let sparks = [];
 
-		// DEVX #6: no api.isVR(), so infer the holder. A VR trigger never emits a
-		// mouse pointermove, so "a mouse moved recently" is a good enough proxy
-		// for "the ray starts at the camera, not at a hand".
+		// Which hand is holding this? `api.isVR()` and `api.vrHand()` are the 17-A1
+		// SDK (DEVX-REQUESTS #2/#6); on an older app we fall back to inferring it,
+		// because a VR trigger never emits a mouse pointermove — "a mouse moved
+		// recently" means the ray starts at the camera, not at a hand.
 		if (typeof window !== 'undefined')
 			window.addEventListener('pointermove', (event) => {
 				if (event.pointerType !== 'touch') lastMouse = performance.now();
 			});
-		const atDesk = () => performance.now() - lastMouse < 3000;
+		const inVR = () =>
+			typeof api.isVR === 'function' ? api.isVR() : performance.now() - lastMouse >= 3000;
+		const atDesk = () => !inVR();
+		/** per-hand pose when the app has it, else null (one blade off pointerRay) */
+		const handPose = (/** @type {'left'|'right'} */ hand) =>
+			typeof api.vrHand === 'function' ? api.vrHand(hand) : null;
 
 		// ---- colour: stable per peer, so two blades in a room read apart -------
 		function colorFor(id) {
@@ -138,7 +147,7 @@ export default {
 		}
 
 		function buzz(strength) {
-			if (typeof api.haptic === 'function') api.haptic('pointer', strength, 25);
+			if (typeof api.haptic === 'function') api.haptic(strength, 25); // (intensity, ms, hand?)
 		}
 
 		let ac = null;
@@ -164,13 +173,43 @@ export default {
 			drawn = on;
 			const holder = root();
 			if (!holder) return;
-			if (on && !blade) {
-				blade = makeBlade(colorFor(api.peerId()));
-				holder.add(blade);
-			}
-			if (blade) blade.visible = on;
+			if (on && blades.length === 0) blades.push(addBlade(holder, colorFor(api.peerId())));
+			for (const mesh of blades) mesh.visible = on;
 			api.send({ op: on ? 'on' : 'off', peer: api.peerId() });
 			hum(on ? 180 : 90, 0.25, 0.06);
+		}
+
+		function addBlade(holder, color) {
+			const mesh = makeBlade(color);
+			holder.add(mesh);
+			return mesh;
+		}
+
+		/**
+		 * Where the blades are this frame, as [{p, d}].
+		 * With the 17-A1 SDK in VR that is BOTH hands (`api.vrHand`, blade along
+		 * the controller's -Z, the three convention). Everywhere else it is the one
+		 * hand `pointerRay()` resolves — the VR pointer hand, or the desktop mouse
+		 * with the hilt held a little ahead of the camera.
+		 */
+		function heldPoses() {
+			if (inVR() && typeof api.vrHand === 'function') {
+				const poses = [];
+				for (const hand of ['right', 'left']) {
+					const pose = handPose(/** @type {any} */ (hand));
+					if (!pose?.connected || !pose.position || !pose.quaternion) continue;
+					const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
+						new THREE.Quaternion(...pose.quaternion)
+					);
+					poses.push({ p: [...pose.position], d: [forward.x, forward.y, forward.z] });
+				}
+				if (poses.length) return poses;
+			}
+			const ray = api.pointerRay();
+			if (!ray) return [];
+			dir.copy(ray.ray.direction).normalize();
+			hilt.copy(ray.ray.origin).addScaledVector(dir, atDesk() ? DESK_HOLD : 0);
+			return [{ p: [hilt.x, hilt.y, hilt.z], d: [dir.x, dir.y, dir.z] }];
 		}
 
 		api.registerBindings([{ label: 'Draw / sheathe the saber', keys: 'K' }]);
@@ -205,47 +244,50 @@ export default {
 
 			// peer blades fade out when their owner stops reporting
 			for (const ghost of Object.values(ghosts)) {
-				if (time - ghost.seen > GHOST_TTL) ghost.mesh.visible = false;
+				if (time - ghost.seen > GHOST_TTL) for (const mesh of ghost.meshes) mesh.visible = false;
 			}
 
-			if (!drawn || !blade) return;
-			const ray = api.pointerRay();
-			if (!ray) return; // no pointer yet (fresh page, never moved a mouse)
+			if (!drawn) return;
+			const poses = heldPoses();
+			if (poses.length === 0) return; // no pointer yet, no tracked hand
 
-			dir.copy(ray.ray.direction).normalize();
-			hilt.copy(ray.ray.origin).addScaledVector(dir, atDesk() ? DESK_HOLD : 0);
-			poseBlade(blade, hilt.toArray(), dir.toArray());
+			const holder = root();
+			while (holder && blades.length < poses.length)
+				blades.push(addBlade(holder, colorFor(api.peerId())));
+			blades.forEach((mesh, index) => {
+				mesh.visible = index < poses.length;
+				if (poses[index]) poseBlade(mesh, poses[index].p, poses[index].d);
+			});
 
 			const now = performance.now();
 			if (now - lastSent > SEND_MS) {
 				lastSent = now;
-				api.send({
-					op: 'pose',
-					peer: api.peerId(),
-					p: [hilt.x, hilt.y, hilt.z],
-					d: [dir.x, dir.y, dir.z]
-				});
+				api.send({ op: 'pose', peer: api.peerId(), poses });
 			}
 
-			// what is the blade touching?
+			// what are the blades touching?
 			const objects = api.objectsGroup()?.children ?? [];
 			if (objects.length === 0) return;
-			hitRay.set(hilt, dir);
-			hitRay.far = LENGTH;
-			const hit = hitRay.intersectObjects(objects, true)[0];
-			if (!hit) return;
-			const target = hit.object;
-			if (time - (hits[target.uuid] ?? -10) < HIT_COOLDOWN) return;
-			hits[target.uuid] = time;
-			spark(hit.point, colorFor(api.peerId()));
-			hum(320 + Math.random() * 60, 0.07, 0.06);
-			buzz(0.6);
-			api.send({ op: 'hit', peer: api.peerId(), point: hit.point.toArray() });
-			// AUTHORITATIVE half: only the peer stepping the sim may push a body.
-			// Everyone else has already drawn the spark; nobody simulates twice.
-			if (api.physics?.isInitiator?.()) {
-				const uuid = rootUuid(target);
-				if (uuid) api.physics.applyImpulse(uuid, [dir.x * 1.5, 0.6, dir.z * 1.5]);
+			for (const pose of poses) {
+				hilt.set(pose.p[0], pose.p[1], pose.p[2]);
+				dir.set(pose.d[0], pose.d[1], pose.d[2]).normalize();
+				hitRay.set(hilt, dir);
+				hitRay.far = LENGTH;
+				const hit = hitRay.intersectObjects(objects, true)[0];
+				if (!hit) continue;
+				const target = hit.object;
+				if (time - (hits[target.uuid] ?? -10) < HIT_COOLDOWN) continue;
+				hits[target.uuid] = time;
+				spark(hit.point, colorFor(api.peerId()));
+				hum(320 + Math.random() * 60, 0.07, 0.06);
+				buzz(0.6);
+				api.send({ op: 'hit', peer: api.peerId(), point: hit.point.toArray() });
+				// AUTHORITATIVE half: only the peer stepping the sim may push a body.
+				// Everyone else has already drawn the spark; nobody simulates twice.
+				if (api.physics?.isInitiator?.()) {
+					const uuid = rootUuid(target);
+					if (uuid) api.physics.applyImpulse(uuid, [dir.x * 1.5, 0.6, dir.z * 1.5]);
+				}
 			}
 		});
 
@@ -258,30 +300,31 @@ export default {
 		}
 
 		// ---- peers -------------------------------------------------------------
-		function ghostFor(id) {
+		function ghostFor(id, count = 1) {
 			const holder = root();
 			if (!holder) return null;
-			if (!ghosts[id]) {
-				const mesh = makeBlade(colorFor(id));
-				holder.add(mesh);
-				ghosts[id] = { mesh, seen: api.now() };
-			}
-			return ghosts[id];
+			if (!ghosts[id]) ghosts[id] = { meshes: [], seen: api.now() };
+			const ghost = ghosts[id];
+			while (ghost.meshes.length < count) ghost.meshes.push(addBlade(holder, colorFor(id)));
+			return ghost;
 		}
 
 		api.onMessage((/** @type {any} */ data) => {
 			const id = data.peer ?? 'peer';
 			if (data.op === 'pose') {
-				const ghost = ghostFor(id);
+				const poses = data.poses ?? (data.p ? [{ p: data.p, d: data.d }] : []);
+				const ghost = ghostFor(id, poses.length);
 				if (!ghost) return;
 				ghost.seen = api.now();
-				ghost.mesh.visible = true;
-				poseBlade(ghost.mesh, data.p, data.d);
+				ghost.meshes.forEach((mesh, index) => {
+					mesh.visible = index < poses.length;
+					if (poses[index]) poseBlade(mesh, poses[index].p, poses[index].d);
+				});
 			} else if (data.op === 'on') {
 				const ghost = ghostFor(id);
-				if (ghost) ghost.mesh.visible = true;
+				if (ghost) for (const mesh of ghost.meshes) mesh.visible = true;
 			} else if (data.op === 'off') {
-				if (ghosts[id]) ghosts[id].mesh.visible = false;
+				if (ghosts[id]) for (const mesh of ghosts[id].meshes) mesh.visible = false;
 			} else if (data.op === 'hit') {
 				spark(new THREE.Vector3(data.point[0], data.point[1], data.point[2]), colorFor(id));
 			}
@@ -293,7 +336,7 @@ export default {
 			applyState: (/** @type {any} */ state) => {
 				if (!state?.peer || !state.on) return;
 				const ghost = ghostFor(state.peer);
-				if (ghost) ghost.mesh.visible = true;
+				if (ghost) for (const mesh of ghost.meshes) mesh.visible = true;
 			}
 		});
 
