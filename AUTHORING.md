@@ -7,9 +7,16 @@ be read start-to-finish by a person **or** pasted whole into an AI assistant.
 - Full API reference: the docs site's [module-sdk](https://docs.theprototype.app/module-sdk/)
   and [module-package](https://docs.theprototype.app/module-package/) pages, plus
   `MODULES.md` in the core repo.
-- Worked examples in this repo: [`modules/_template`](modules/_template/) (start
-  here), [`modules/flow-toolkit`](modules/flow-toolkit/) (flow nodes),
-  [`modules/untangle`](modules/untangle/) (a full replicated game).
+- Worked examples in this repo, roughly in order of how much they ask of you:
+  [`_template`](modules/_template/) (start here) ·
+  [`door-keypad`](modules/door-keypad/) (replicated objects, a discrete event, a
+  deterministic animation from one timestamp, late-joiner state) ·
+  [`tutorial-room`](modules/tutorial-room/) (derived content: local geometry,
+  replicated *intent*) · [`sabers`](modules/sabers/) (per-frame pose streaming,
+  VR and desktop from one code path) · [`fps-player`](modules/fps-player/)
+  (input claims, `possess`, capability probing) ·
+  [`flow-toolkit`](modules/flow-toolkit/) (flow nodes) ·
+  [`untangle`](modules/untangle/) (a full replicated game).
 - Missing something? [DEVX-REQUESTS.md](DEVX-REQUESTS.md) tracks known SDK gaps —
   check it before you work around one.
 
