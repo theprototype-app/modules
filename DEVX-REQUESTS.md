@@ -145,3 +145,23 @@ indirectly (e.g. `api.pointerRay()` returning a ray while no mouse has moved).
 `api.selectedUuid()` returns the sticky primary only. Since #15-K the
 `selectedObjects` SET is authoritative in core, and menu operations fan over it.
 No module here needed it yet; `api.selectedUuids()` would round out the surface.
+
+---
+
+## Core status (17-A1, 2026-08-09 — filed by the core window, branch `feat/module-platform`)
+
+| # | Ask | Status |
+|---|---|---|
+| 1 | possess first person | **SHIPPED** — `api.possess(uuid, {camera:'first', eyeHeight, mouseLook})` + `api.possessModes` probe. mouseLook = pointer lock; X turns the OBJECT, Y pitches the camera, leaving the lock releases. |
+| 2 | per-hand pose + buttons | **SHIPPED** (first half) — `api.vrHand('left'|'right')` → `{position, quaternion, trigger, gripped, connected}` or null; poll from a frame task. The hook registries (`registerVRFrameHook`/`registerGripDropHook`) on the api → backlog (need teardown journaling). |
+| 3 | api.haptic | **SHIPPED** — `api.haptic(intensity, ms, hand?)` (note the arg order: hand LAST, optional — both hands when omitted). |
+| 4 | fire a flow trigger | **SHIPPED** — `api.fireObjectClick(uuid)` (replicated `nodetrigger` path). |
+| 5 | replicated create/move | **BACKLOG** — needs a design pass (undo attribution, viewer `__localOnly` gating, spawn parity). Keep the derived-content pattern. |
+| 6 | api.isVR | **SHIPPED** — `api.isVR()`. |
+| 7 | selectedUuids | **BACKLOG** (no module needs it yet). |
+
+Also in the same branch: user modules now install/update/disable/remove **LIVE**
+(full teardown journal), every card has a **Dev URL + Reload + Auto-poll** row
+(A2 — no page reload while you iterate), and the manager grew a **Browse** tab
+reading this repo's `index.json` off jsDelivr (A3) — add your modules to
+`index.json` (id/name/version/description/author/source/zip) when they land.

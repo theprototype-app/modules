@@ -1,0 +1,38 @@
+[
+	{
+		"id": "flow-toolkit",
+		"name": "Flow Toolkit",
+		"version": "1.0.0",
+		"description": "Example module: ships code-editable flow nodes (registerNodeDefs) that pair with per-object flows.",
+		"author": "theprototype-app",
+		"source": "modules/flow-toolkit",
+		"zip": "flow-toolkit.zip"
+	},
+	{
+		"id": "untangle",
+		"name": "Untangle",
+		"version": "1.0.0",
+		"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - built purely on the module SDK.",
+		"author": "theprototype-app",
+		"source": "modules/untangle",
+		"zip": "untangle.zip"
+	},
+	{
+		"id": "door-keypad",
+		"name": "Door & Keypad",
+		"version": "1.0.0",
+		"description": "A combination-lock keypad that opens an actuated door. Replicated, VR and desktop, with late-joiner catch-up.",
+		"author": "theprototype-app",
+		"source": "modules/door-keypad",
+		"zip": "door-keypad.zip"
+	},
+	{
+		"id": "sabers",
+		"name": "Sabers",
+		"version": "1.0.0",
+		"description": "A glowing blade held wherever you point - VR controller or desktop mouse - with hit sparks and peers seeing your blade.",
+		"author": "theprototype-app",
+		"source": "modules/sabers",
+		"zip": "sabers.zip"
+	}
+]
