@@ -197,6 +197,7 @@ No module here needed it yet; `api.selectedUuids()` would round out the surface.
 | 5 | replicated create/move | **BACKLOG** — needs a design pass (undo attribution, viewer `__localOnly` gating, spawn parity). Keep the derived-content pattern. |
 | 6 | api.isVR | **SHIPPED** — `api.isVR()`. |
 | 7 | selectedUuids | **BACKLOG** (no module needs it yet). |
+| 8 | onInput drops early keys | **FIXED** - onInput (and claim/release/registerBindings) now goes through the primed inputRuntimeRef, so a subscription made in register() is live from the first keypress; pre-settle unsubscribe sticks. e2e-proven in the core user-modules suite. |
 
 Also in the same branch: user modules now install/update/disable/remove **LIVE**
 (full teardown journal), every card has a **Dev URL + Reload + Auto-poll** row
