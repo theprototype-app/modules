@@ -1,0 +1,9 @@
+{
+	"id": "my-module",
+	"name": "My Module",
+	"version": "1.0.0",
+	"format": 1,
+	"description": "One line describing what this module adds to a session.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}

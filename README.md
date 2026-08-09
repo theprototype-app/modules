@@ -6,10 +6,25 @@ app releases via its `manifest.json`. Core modules that ship in the app bundle
 live in the main repo (`theprototype-app/core`, `src/modules/`); this repo is for
 everything installable through **Modules ▸ Install** (zip upload or URL).
 
+**Writing one?** [AUTHORING.md](AUTHORING.md) is the single entry point — the
+rules, the API digest and the testing recipe. Known SDK gaps are tracked in
+[DEVX-REQUESTS.md](DEVX-REQUESTS.md).
+
+```bash
+npm install
+npm run new -- my-module "My Module"   # scaffold from modules/_template
+npm run pack -- my-module              # -> my-module.zip, ready to install
+```
+
 ## Modules
 
 | Module | What it does |
 |---|---|
+| [_template](modules/_template/) | The starting point: a working clickable beacon demonstrating primitives, click handling, replication and late-joiner state in ~120 commented lines. |
+| [door-keypad](modules/door-keypad/) | A combination-lock keypad that opens an actuated door. Code entry checked locally, unlock replicated as one timestamp (the door animation is deterministic from it), late joiners arrive at the right door state. Desktop clicks and the VR trigger, one handler. |
+| [sabers](modules/sabers/) | Hand-held glowing blades: a tool posed per frame from the pointer hand in VR and the mouse ray on desktop, with hit sparks and attachment state shared with peers. |
+| [fps-player](modules/fps-player/) | Walk mode: pointer-lock look, camera-relative WASD with sprint/jump/crouch, ground and step raycasts, input claims that pause the editor's own WASD, one undo entry per ride. First-person camera pending an SDK seam (see DEVX-REQUESTS #1). |
+| [tutorial-room](modules/tutorial-room/) | An in-scene onboarding room built from one menu button: signs teaching select/move/gizmo, connect/invite, flow basics and VR entry, plus clickable demo interactables. Asset-free (primitives + canvas text). |
 | [flow-toolkit](modules/flow-toolkit/) | Reference for flow v2: code-editable nodes shipped via `api.registerNodeDefs` (Wobble + Breathe) that pair with per-object flows and embedded Object Flow nodes. |
 | [untangle](modules/untangle/) | The 190 test-flight GAME: drag the dots until no edges cross. Procedural guaranteed-solvable puzzles (seed-deterministic — determinism IS the netcode), desktop+VR drag via `api.pointerRay()`, replicated moves, lockstep win/level advance, generative WebAudio pad + SFX. Needs app ≥ the `api.pointerRay` SDK (core PR #37). |
 
@@ -17,26 +32,56 @@ everything installable through **Modules ▸ Install** (zip upload or URL).
 
 A module is a folder with:
 
-- `manifest.json` — `{ id, name, version, description, entry }` (`entry` defaults
-  to `module.js`)
+- `manifest.json` — `{ id, name, version, format, description, entry, files }`
+  (`entry` defaults to `module.js`)
 - `module.js` — **self-contained** (no `import` statements; everything comes from
   the `api` argument): `export default { id, name, version, description, register(api) }`
 
-The `api` surface is documented in the main repo's `MODULES.md` (nodes, effects,
-primitives, click handlers, input, physics, possess, state sync, **registerNodeDefs**).
+Full contract: [AUTHORING.md](AUTHORING.md) §2–§3 and the docs site's
+[module-package](https://docs.theprototype.app/module-package/) page. The `api`
+surface is documented in the core repo's `MODULES.md` and on the docs site's
+[module-sdk](https://docs.theprototype.app/module-sdk/) page.
 
 ## Build a zip to install
 
-Zip the CONTENTS of the module folder (manifest.json + module.js at the zip root,
-not nested in a directory):
+`npm run pack -- <id>` writes `<id>.zip` with `manifest.json` at the zip **root**
+(what the manager expects) and refuses a module with a top-level `import`:
 
-```powershell
-Compress-Archive -Path modules/flow-toolkit/* -DestinationPath flow-toolkit.zip -Force
+```bash
+npm run pack -- door-keypad     # one
+npm run pack -- --all           # every module
 ```
 
-Then in the app: burger menu ▸ Modules ▸ install from zip (or serve the folder and
-install by URL). Peers receive installed modules automatically (module bytes
-replicate through the manager).
+Do **not** use `Compress-Archive` on the folder — it nests the directory inside
+the zip and the manager rejects it with "zip has no manifest.json at its root".
+
+Then in the app: burger menu ▸ **Modules ▸ User ▸ Install from zip** (or serve
+the folder and install by URL).
+
+## Installing does NOT install for your peers
+
+Each peer installs modules themselves. What actually crosses the wire is:
+
+- the `{id, version}` **list** of loaded modules, exchanged on connect — a
+  mismatch (missing module, or a different version) raises a toast on both sides
+  and nothing else;
+- your module's own `api.send()` messages, and its `registerStateSync` state for
+  late joiners.
+
+The module's **code and assets never travel**. A peer without the module simply
+drops its messages, and only sees whatever plain scene objects it created
+through `/create`. Share the zip (or a URL) with the people you session with.
+
+## Testing
+
+Every module ships a Playwright test-flight that installs the real zip through
+the real manager and drives the app — see [tests/README.md](tests/README.md).
+
+```bash
+npx playwright install chromium                    # once
+npm run pack -- --all
+APP_URL=https://localhost:5188/ npm test
+```
 
 ## Testing the flow-toolkit example (batch H demo)
 

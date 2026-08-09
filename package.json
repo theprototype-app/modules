@@ -1,0 +1,23 @@
+{
+	"name": "theprototype-modules",
+	"version": "1.0.0",
+	"private": true,
+	"license": "MIT",
+	"description": "Optional/community modules for theprototype.app — one folder per module under modules/.",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/theprototype-app/modules.git"
+	},
+	"scripts": {
+		"pack": "node scripts/pack.cjs",
+		"new": "node scripts/new.cjs",
+		"test": "node tests/run.cjs"
+	},
+	"devDependencies": {
+		"fflate": "^0.8.3",
+		"playwright": "^1.62.0"
+	},
+	"engines": {
+		"node": ">=24"
+	}
+}
