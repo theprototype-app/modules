@@ -34,5 +34,23 @@
 		"author": "theprototype-app",
 		"source": "modules/sabers",
 		"zip": "sabers.zip"
+	},
+	{
+		"id": "fps-player",
+		"name": "FPS Player",
+		"version": "1.0.0",
+		"description": "Walk mode: mouse look with WASD, sprint, jump and crouch, on a capsule that peers can see.",
+		"author": "theprototype-app",
+		"source": "modules/fps-player",
+		"zip": "fps-player.zip"
+	},
+	{
+		"id": "tutorial-room",
+		"name": "Tutorial Room",
+		"version": "1.0.0",
+		"description": "An in-scene onboarding room: signs and clickable stations teaching select, build, connect, flow and VR.",
+		"author": "theprototype-app",
+		"source": "modules/tutorial-room",
+		"zip": "tutorial-room.zip"
 	}
 ]
