@@ -1,0 +1,9 @@
+{
+	"id": "door-keypad",
+	"name": "Door & Keypad",
+	"version": "1.0.0",
+	"format": 1,
+	"description": "A combination-lock keypad that opens an actuated door. Replicated, VR and desktop, with late-joiner catch-up.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}
