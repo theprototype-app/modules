@@ -77,15 +77,14 @@ h.run(async () => {
 	const C = await h.setupPage(browser, 'C');
 	await h.installModule(C, '_template', 'my-module');
 	await h.connect(C, A);
-	h.check(
-		await C.page.evaluate(
-			() =>
-				new Promise((r) =>
-					window.__stores.moduleSDK.loadedModules.length >= 0 &&
-					window.__stores.objectsGroup.subscribe((g) => r(!!g.children.find((c) => c.name === 'Mybeacon')))()
-				)
-		),
-		'a late joiner sees the beacon object'
+	// scene sync for a late joiner is a GLTF transfer, not an instant read — poll
+	// for it. (A single evaluate here passed on an idle machine and failed under
+	// load, which is the definition of a flaky check.)
+	await h.eventually(
+		() => h.objectNames(C.page),
+		(names) => names.includes('Mybeacon'),
+		'a late joiner sees the beacon object',
+		25000
 	);
 
 	await h.finish(browser);

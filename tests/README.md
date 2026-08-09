@@ -58,6 +58,9 @@ Then bring up a third peer *after* the fact to prove `registerStateSync`.
   `RangeError: Invalid array length` from *unrelated* stores (annotations,
   locks) and the flight fails somewhere that looks nothing like the cause. Read
   the ref out first (`subscribe(v => (ref = v))()`), then mutate.
+- **Poll anything asynchronous; never read it once.** Scene sync to a late joiner
+  is a GLTF transfer, a module op is a network hop. A single `evaluate` passes on
+  an idle machine and fails under load. Use `eventually`.
 - **Let the dev server settle after editing app code.** A page loaded while vite
   is still re-transforming sees half-mounted components, and the flight lies.
 - **Synthetic DOM events need `bubbles: true`** to reach Svelte's delegated
