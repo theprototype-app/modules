@@ -1,21 +1,21 @@
 [
 	{
-		"id": "flow-toolkit",
-		"name": "Flow Toolkit",
-		"version": "1.0.0",
-		"description": "Example module: ships code-editable flow nodes (registerNodeDefs) that pair with per-object flows.",
+		"id": "avatar",
+		"name": "Avatar Controller",
+		"version": "1.1.0",
+		"description": "Possess the selected object: WASD drives it with a chase or first-person camera (Esc releases).",
 		"author": "theprototype-app",
-		"source": "modules/flow-toolkit",
-		"zip": "flow-toolkit.zip"
+		"source": "modules/avatar",
+		"zip": "avatar.zip"
 	},
 	{
-		"id": "untangle",
-		"name": "Untangle",
-		"version": "1.0.0",
-		"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - built purely on the module SDK.",
+		"id": "car",
+		"name": "Drivable Car",
+		"version": "1.2.0",
+		"description": "Spawn a jointed demo car; click its body to claim it, then drive with WASD in Play mode while a simulation runs.",
 		"author": "theprototype-app",
-		"source": "modules/untangle",
-		"zip": "untangle.zip"
+		"source": "modules/car",
+		"zip": "car.zip"
 	},
 	{
 		"id": "door-keypad",
@@ -27,13 +27,22 @@
 		"zip": "door-keypad.zip"
 	},
 	{
-		"id": "sabers",
-		"name": "Sabers",
-		"version": "1.0.0",
-		"description": "A glowing blade held wherever you point - VR controller or desktop mouse - with hit sparks and peers seeing your blade.",
+		"id": "essentials",
+		"name": "VR Essentials",
+		"version": "1.1.0",
+		"description": "Clickable starter interactables: button, lever, spawner, teleport pad, sound tile, target.",
 		"author": "theprototype-app",
-		"source": "modules/sabers",
-		"zip": "sabers.zip"
+		"source": "modules/essentials",
+		"zip": "essentials.zip"
+	},
+	{
+		"id": "flow-toolkit",
+		"name": "Flow Toolkit",
+		"version": "1.0.0",
+		"description": "Example module: ships code-editable flow nodes (registerNodeDefs) that pair with per-object flows.",
+		"author": "theprototype-app",
+		"source": "modules/flow-toolkit",
+		"zip": "flow-toolkit.zip"
 	},
 	{
 		"id": "fps-player",
@@ -45,6 +54,24 @@
 		"zip": "fps-player.zip"
 	},
 	{
+		"id": "piano",
+		"name": "Piano",
+		"version": "1.1.0",
+		"description": "One-octave synth keyboard - every peer hears and sees your notes.",
+		"author": "theprototype-app",
+		"source": "modules/piano",
+		"zip": "piano.zip"
+	},
+	{
+		"id": "sabers",
+		"name": "Sabers",
+		"version": "1.0.0",
+		"description": "A glowing blade held wherever you point - VR controller or desktop mouse - with hit sparks and peers seeing your blade.",
+		"author": "theprototype-app",
+		"source": "modules/sabers",
+		"zip": "sabers.zip"
+	},
+	{
 		"id": "tutorial-room",
 		"name": "Tutorial Room",
 		"version": "1.0.0",
@@ -52,5 +79,14 @@
 		"author": "theprototype-app",
 		"source": "modules/tutorial-room",
 		"zip": "tutorial-room.zip"
+	},
+	{
+		"id": "untangle",
+		"name": "Untangle",
+		"version": "1.0.0",
+		"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - built purely on the module SDK.",
+		"author": "theprototype-app",
+		"source": "modules/untangle",
+		"zip": "untangle.zip"
 	}
 ]

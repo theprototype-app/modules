@@ -1,0 +1,9 @@
+{
+	"id": "piano",
+	"name": "Piano",
+	"version": "1.1.0",
+	"format": 1,
+	"description": "One-octave synth keyboard - every peer hears and sees your notes.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}

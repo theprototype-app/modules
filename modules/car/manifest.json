@@ -1,0 +1,9 @@
+{
+	"id": "car",
+	"name": "Drivable Car",
+	"version": "1.2.0",
+	"format": 1,
+	"description": "Spawn a jointed demo car; click its body to claim it, then drive with WASD in Play mode while a simulation runs.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}

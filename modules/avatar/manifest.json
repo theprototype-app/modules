@@ -1,0 +1,9 @@
+{
+	"id": "avatar",
+	"name": "Avatar Controller",
+	"version": "1.1.0",
+	"format": 1,
+	"description": "Possess the selected object: WASD drives it with a chase or first-person camera (Esc releases).",
+	"entry": "module.js",
+	"files": ["module.js"]
+}
