@@ -278,10 +278,42 @@ Two that are easy to miss:
 
 ## 7. Testing your module
 
-**Two windows, always.** A module that looks perfect in one browser is untested:
-open the app twice, connect the two peers, and do the thing in one window while
-watching the other. Then reload the second window (late joiner) and check it
-catches up.
+### Live reload while you build
+
+Serve the module folder over HTTP and point the app at it — then every save is
+one click (or zero) away from running, with no page reload:
+
+```bash
+cd modules/my-module
+npx serve -l 8099 --cors .     # any static server with CORS works
+```
+
+In the app: **Menu ▸ Modules ▸ User**, paste `http://localhost:8099` into the
+install field, press **Install**. The card then carries a **Dev URL** row:
+
+- **Reload** re-fetches the files and swaps the new code in live. Everything
+  `register(api)` added is torn down first — menu entries, nodes, effects,
+  frame tasks, click handlers, input claims, your scene-root groups — so
+  repeated reloads cannot stack up duplicates.
+- **Auto** polls the URL every ~2s and reloads whenever `module.js` changes.
+- A syntax error or a throw during `register()` leaves the **previous version
+  running** and toasts the reason; fix the file and reload again.
+- Objects your module created inside `objectsGroup()` stay (they are shared
+  user content); your own scene-root groups are removed and rebuilt by the new
+  code.
+
+Two caveats worth knowing:
+
+- If a peer is connected, bumping `version` re-triggers their "module version
+  differs" toast on every reload. That is correct — your dev copy really does
+  differ — but keep the version stable while iterating and bump it when you ship.
+- When the static server goes away, Auto stops silently (the poll failure is
+  deliberately quiet so restarting your server does not spam toasts). If Auto
+  seems to stop picking up edits, check the server is still up.
+
+**Two windows, always.** A module that looks perfect in one browser is untested.
+Run a second window against the same app, connect the peers, act in one and
+watch the other; then reload the second (late joiner) and check it catches up.
 
 **Automated test-flight.** Every module in this repo ships a Playwright script
 that installs the **real zip through the real manager** and drives the app:
@@ -321,9 +353,10 @@ list when something bites you.
   actual stack.
 - **"zip has no manifest.json at its root".** The zip contains the module
   *folder*. `npm run pack` builds the right layout.
-- **Your change did not take.** Installing a zip over a loaded module stores it
-  but keeps the old code running ("updated — reload to run the new version").
-  Reload the page. Same for disable and remove.
+- **Your change did not take.** Fixed in the app: installing over a loaded
+  module, updating, disabling and removing all apply **live** now, and a Dev URL
+  card gives you Reload / Auto (see "Live reload while you build"). On an older
+  build the zip was stored but the old code kept running until a page reload.
 - **Peers do not see your objects.** You added meshes to `api.scene()` (local by
   design) instead of creating them through `/create`, or you moved an object in
   `objectsGroup()` without telling anyone — a module cannot broadcast a plain
@@ -336,11 +369,12 @@ list when something bites you.
 - **The animation drifts between peers.** Accumulation, `Date.now()`, or a
   frame-rate-dependent step. Recompute from `(base, api.now())` every frame.
 - **Selection steals your interaction.** Return `true` from the click handler.
-- **`api.onInput` misses the first seconds of keys.** It subscribes through an
-  async import inside the SDK, so a listener registered in `register()` is not
-  live yet — a key pressed right after install does nothing, and the same code
-  works later. Edge-detect from the per-frame snapshot instead, which is live
-  from the first frame (`fps-player` does this):
+- **`api.onInput` missed the first seconds of keys.** Fixed in the app: the
+  subscription is synchronous now, so a listener registered in `register()` is
+  live from the first keypress. On an older build it went through an async
+  import and a key pressed right after install did nothing while the same code
+  worked later. Edge-detecting from the per-frame snapshot is still a fine
+  pattern and works on every build (`fps-player` does this):
 
   ```js
   let was = false;
