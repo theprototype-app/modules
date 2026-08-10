@@ -27,6 +27,15 @@
 		"zip": "door-keypad.zip"
 	},
 	{
+		"id": "dungeon",
+		"name": "Dungeon Generator",
+		"version": "1.1.0",
+		"description": "Seed-replicated procedural dungeon (rooms, corridors, torches) with a key-and-door objective; publishes userData.play so the app walks it in play mode.",
+		"author": "theprototype-app",
+		"source": "modules/dungeon",
+		"zip": "dungeon.zip"
+	},
+	{
 		"id": "essentials",
 		"name": "VR Essentials",
 		"version": "1.1.0",
