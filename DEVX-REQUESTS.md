@@ -20,6 +20,13 @@ promise from core.
 | 6 | know whether we are in VR | `sabers` | yes — inferred from `pointerRay()` shape |
 | 7 | multi-selection uuids | — | yes — `selectedUuid()` is enough so far |
 | 8 | **BUG**: `api.onInput` misses keys for ~2s after register | `fps-player` | yes — edge-detect from `api.input()` in a frame task |
+| 9 | module flow nodes can't OUTPUT values or fire triggers | `dungeon-realms` | yes — rule-ownership pattern; buttons use action selects instead of trigger sockets |
+| 10 | seed a wired example graph on module load | `dungeon-realms` | no — reference graph documented in the README instead |
+| 11 | play-mode signal (`api.isPlaying()` / `onPlayMode`) | `dungeon-realms` | yes — observes `#dungeon-minimap` visibility (brittle DOM) |
+| 12 | `text` param kind for module nodes | `dungeon-realms` | yes — button labels derive from their action select |
+| 13 | play contract is name-keyed to `'dungeon-module'` | `dungeon-realms` | yes — squats the core module's group name |
+| 14 | grounded (no-fly) play-mode option | `dungeon-realms` | yes — window-capture swallows Q/E while the game runs |
+| 15 | peer roster + disconnect hook | `dungeon-realms` | partly — any player can free a stuck P1/P2 slot from the menu |
 
 ---
 
@@ -183,6 +190,103 @@ looks correct and mostly works.
 `api.selectedUuid()` returns the sticky primary only. Since #15-K the
 `selectedObjects` SET is authoritative in core, and menu operations fan over it.
 No module here needed it yet; `api.selectedUuids()` would round out the surface.
+
+## 9. Module flow nodes are effect SINKS — no value outputs, no triggers
+
+**Found in:** `modules/dungeon-realms` (asked to put the *entire game logic* on
+the node canvas).
+
+`registerNodeGroup` + `registerEffect` give a module node exactly one runtime
+behavior: a per-frame call `(object, base, data, time)` when the node is wired
+to an object target (or implicitly owns an object graph). `resolveInputs`
+already feeds WIRED VALUES into `data` (every `range` param gets an input
+socket for free — that half is great). But a module node cannot:
+
+- **output a value** (`evalNode` has no module hook) — "current gem count" can
+  never feed a core Number/If node;
+- **fire or receive a trigger pulse** — a GUI button cannot expose a trigger
+  OUT socket, an event node cannot start a module action;
+- receive the node **id** — two nodes of one type are indistinguishable except
+  by their param values.
+
+**Ask:** `registerValueNode(type, (data, time, ctx) => value)` +
+`api.fireNodeTrigger(nodeId/handle)` + pass `anim.id` into module effects.
+
+**Meanwhile:** dungeon-realms uses a *rule-ownership* pattern — a node ALIVE in
+a running graph overrides that rule group (its replicated data is identical on
+every peer, so no netcode); buttons "program what happens next" through an
+action `select` param instead of a wired trigger.
+
+## 10. No way to seed a wired example graph on module load
+
+**Found in:** `modules/dungeon-realms` — the ask was literally "when the module
+loads the nodes should show, already connected, in the node editor".
+
+Nodes/edges are replicated flow-graph DATA (`flowGraphs`), and the api exposes
+no write path (`registerNodeDefs` seeds *definitions*, not instances). A module
+that wants to greet the user with a working, editable graph cannot.
+
+**Ask:** `api.seedFlowGraph(graphId, {nodes, edges})`, absent-only like
+`registerNodeDefs` (never clobber a user's edit), or a manifest `exampleGraph`
+the manager offers to insert.
+
+**Meanwhile:** the README documents the reference graph and every node works
+dropped-in with zero wiring (implicit owner) — but nothing appears "already
+connected".
+
+## 11. No play-mode signal
+
+**Found in:** `modules/dungeon-realms` — the GUI must appear "only after the
+red Play button".
+
+Core modules read `sceneStore.isLocked` (the car module's play-gate). An
+external module has nothing: no store import, no api. dungeon-realms watches
+`#dungeon-minimap`'s `hidden` class — semantically exact (minimap visible ⇔
+play mode + a dungeon play contract) but DOM-brittle.
+
+**Ask:** `api.isPlaying()` + `api.onPlayMode(fn)` (fires on enter/leave).
+
+## 12. No `text` param kind for module nodes
+
+**Found in:** `modules/dungeon-realms` — "buttons with text", "GUI node needs
+an editor". `NodeParam.kind` is `'range' | 'select' | 'toggle'`; there is no
+free-text input, so menu titles and button labels cannot be authored on the
+node. Labels derive from the action select instead ("start" → "Start
+adventure"). A `{kind: 'text'}` param (rendered as the ⚙-tab name/note fields
+already are) would unlock authored GUI copy.
+
+## 13. The play contract is name-keyed to `'dungeon-module'`
+
+**Found in:** `modules/dungeon-realms`. `src/lib/dungeonPlay.js: dungeonData()`
+does `scene.getObjectByName('dungeon-module')` — the ONLY door into play-mode
+walking/collision/spawns/minimap is squatting the core dungeon module's group
+name. It works (this module does it, and gets WASD + collision + minimap for
+free), but two dungeon-ish modules cannot coexist, and `clearGroup` in either
+module deletes the other's world.
+
+**Ask:** `dungeonData()` scans scene-root children for `userData.play` (first
+match wins, name kept as tiebreak), or an explicit `api.registerPlayData(fn)`.
+
+## 14. No grounded (no-fly) play-mode option
+
+**Found in:** `modules/dungeon-realms`. Play mode's Q/E fly keys let players
+leave the dungeon vertically; `slideMove` clamps only XZ. A module cannot
+constrain the player (no camera-rig access — correctly so). dungeon-realms
+swallows Q/E keydowns at window capture while the game runs, which works but is
+the kind of DOM interception this file exists to retire.
+
+**Ask:** honor `userData.play.grounded: true` in PointerLockControls (skip the
+translateY keys, optionally snap Y to eye height), so the CONTRACT carries it.
+
+## 15. No peer roster or disconnect hook
+
+**Found in:** `modules/dungeon-realms` — the travel-together portal rule needs
+"every slotted player stands on the portal", but a module cannot see who is
+still connected (`peerId()` is self-only; `handleDisconnected` is core). A
+vanished peer wedges the gate until someone frees their slot manually.
+
+**Ask:** `api.peers()` → `[{id, name}]` + `api.onPeerConnected/Disconnected`.
+The name half would also fix the HUD showing id prefixes instead of nicknames.
 
 ---
 

@@ -1,0 +1,9 @@
+{
+	"id": "dungeon-realms",
+	"name": "Dungeon Realms",
+	"version": "1.0.0",
+	"format": 1,
+	"description": "Co-op dungeon crawl: seeded multi-floor generator, gem-gated portals, P1/P2 play - every rule editable as flow nodes.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}

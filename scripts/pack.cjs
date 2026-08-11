@@ -57,9 +57,18 @@ function pack(id) {
 				'(use api.THREE / api.assetUrl, or bundle with esbuild; see AUTHORING.md)'
 		);
 
-	// README.md is documentation for the repo, not payload for the app
-	const files = collect(dir);
+	// README.md is documentation for the repo, not payload for the app.
+	// A manifest with a `files` allowlist packs ONLY those files (+ the
+	// manifest) — that is already its meaning for URL installs, and it keeps
+	// bundled-module sources (src/, test/) out of the zip.
+	let files = collect(dir);
 	delete files['README.md'];
+	if (Array.isArray(manifest.files) && manifest.files.length) {
+		const keep = new Set(['manifest.json', ...manifest.files]);
+		files = Object.fromEntries(Object.entries(files).filter(([name]) => keep.has(name)));
+		for (const name of manifest.files)
+			if (!files[name]) throw new Error(id + ': manifest lists missing file "' + name + '"');
+	}
 
 	const out = path.join(ROOT, id + '.zip');
 	fs.writeFileSync(out, Buffer.from(zipSync(files, { level: 9 })));
