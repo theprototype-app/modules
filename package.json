@@ -11,13 +11,19 @@
 	"scripts": {
 		"pack": "node scripts/pack.cjs",
 		"new": "node scripts/new.cjs",
-		"test": "node tests/run.cjs"
+		"test": "node tests/run.cjs",
+		"build:dungeon-realms": "esbuild modules/dungeon-realms/src/index.js --bundle --format=esm --outfile=modules/dungeon-realms/module.js",
+		"test:dungeon-realms": "node modules/dungeon-realms/test/run.mjs"
 	},
 	"devDependencies": {
+		"esbuild": "0.28.2",
 		"fflate": "^0.8.3",
 		"playwright": "^1.62.0"
 	},
 	"engines": {
 		"node": ">=24"
+	},
+	"allowScripts": {
+		"esbuild@0.28.2": true
 	}
 }
