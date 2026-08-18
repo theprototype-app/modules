@@ -6,7 +6,12 @@
 		"description": "Possess the selected object: WASD drives it with a chase or first-person camera (Esc releases).",
 		"author": "theprototype-app",
 		"source": "modules/avatar",
-		"zip": "avatar.zip"
+		"zip": "avatar.zip",
+		"category": "tool",
+		"tags": [
+			"camera",
+			"movement"
+		]
 	},
 	{
 		"id": "car",
@@ -15,7 +20,12 @@
 		"description": "Spawn a jointed demo car; click its body to claim it, then drive with WASD in Play mode while a simulation runs.",
 		"author": "theprototype-app",
 		"source": "modules/car",
-		"zip": "car.zip"
+		"zip": "car.zip",
+		"category": "game",
+		"tags": [
+			"vehicle",
+			"physics"
+		]
 	},
 	{
 		"id": "door-keypad",
@@ -24,7 +34,13 @@
 		"description": "A combination-lock keypad that opens an actuated door. Replicated, VR and desktop, with late-joiner catch-up.",
 		"author": "theprototype-app",
 		"source": "modules/door-keypad",
-		"zip": "door-keypad.zip"
+		"zip": "door-keypad.zip",
+		"category": "example",
+		"tags": [
+			"puzzle",
+			"vr",
+			"replication"
+		]
 	},
 	{
 		"id": "dungeon",
@@ -33,7 +49,28 @@
 		"description": "Seed-replicated procedural dungeon (rooms, corridors, torches) with a key-and-door objective; publishes userData.play so the app walks it in play mode.",
 		"author": "theprototype-app",
 		"source": "modules/dungeon",
-		"zip": "dungeon.zip"
+		"zip": "dungeon.zip",
+		"category": "tool",
+		"tags": [
+			"procedural",
+			"level design"
+		]
+	},
+	{
+		"id": "dungeon-realms",
+		"name": "Dungeon Realms",
+		"version": "1.0.0",
+		"description": "Co-op dungeon crawl: seeded multi-floor generator, gem-gated portals, P1/P2 play - every rule editable as flow nodes.",
+		"author": "theprototype-app",
+		"source": "modules/dungeon-realms",
+		"zip": "dungeon-realms.zip",
+		"category": "game",
+		"tags": [
+			"vr",
+			"co-op",
+			"procedural"
+		],
+		"template": "games/dungeon-realms"
 	},
 	{
 		"id": "essentials",
@@ -42,7 +79,12 @@
 		"description": "Clickable starter interactables: button, lever, spawner, teleport pad, sound tile, target.",
 		"author": "theprototype-app",
 		"source": "modules/essentials",
-		"zip": "essentials.zip"
+		"zip": "essentials.zip",
+		"category": "tool",
+		"tags": [
+			"vr",
+			"interactables"
+		]
 	},
 	{
 		"id": "flow-toolkit",
@@ -51,7 +93,12 @@
 		"description": "Example module: ships code-editable flow nodes (registerNodeDefs) that pair with per-object flows.",
 		"author": "theprototype-app",
 		"source": "modules/flow-toolkit",
-		"zip": "flow-toolkit.zip"
+		"zip": "flow-toolkit.zip",
+		"category": "example",
+		"tags": [
+			"nodes",
+			"authoring"
+		]
 	},
 	{
 		"id": "fps-player",
@@ -60,7 +107,12 @@
 		"description": "Walk mode: mouse look with WASD, sprint, jump and crouch, on a capsule that peers can see.",
 		"author": "theprototype-app",
 		"source": "modules/fps-player",
-		"zip": "fps-player.zip"
+		"zip": "fps-player.zip",
+		"category": "tool",
+		"tags": [
+			"movement",
+			"first person"
+		]
 	},
 	{
 		"id": "piano",
@@ -69,7 +121,12 @@
 		"description": "One-octave synth keyboard - every peer hears and sees your notes.",
 		"author": "theprototype-app",
 		"source": "modules/piano",
-		"zip": "piano.zip"
+		"zip": "piano.zip",
+		"category": "example",
+		"tags": [
+			"audio",
+			"vr"
+		]
 	},
 	{
 		"id": "sabers",
@@ -78,7 +135,12 @@
 		"description": "A glowing blade held wherever you point - VR controller or desktop mouse - with hit sparks and peers seeing your blade.",
 		"author": "theprototype-app",
 		"source": "modules/sabers",
-		"zip": "sabers.zip"
+		"zip": "sabers.zip",
+		"category": "game",
+		"tags": [
+			"vr",
+			"rhythm"
+		]
 	},
 	{
 		"id": "tutorial-room",
@@ -87,7 +149,12 @@
 		"description": "An in-scene onboarding room: signs and clickable stations teaching select, build, connect, flow and VR.",
 		"author": "theprototype-app",
 		"source": "modules/tutorial-room",
-		"zip": "tutorial-room.zip"
+		"zip": "tutorial-room.zip",
+		"category": "example",
+		"tags": [
+			"onboarding",
+			"vr"
+		]
 	},
 	{
 		"id": "untangle",
@@ -96,6 +163,11 @@
 		"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - built purely on the module SDK.",
 		"author": "theprototype-app",
 		"source": "modules/untangle",
-		"zip": "untangle.zip"
+		"zip": "untangle.zip",
+		"category": "game",
+		"tags": [
+			"puzzle",
+			"co-op"
+		]
 	}
 ]
