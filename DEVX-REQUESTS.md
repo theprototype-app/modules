@@ -302,6 +302,23 @@ The name half would also fix the HUD showing id prefixes instead of nicknames.
 | 6 | api.isVR | **SHIPPED** — `api.isVR()`. |
 | 7 | selectedUuids | **BACKLOG** (no module needs it yet). |
 | 8 | onInput drops early keys | **FIXED** - onInput (and claim/release/registerBindings) now goes through the primed inputRuntimeRef, so a subscription made in register() is live from the first keypress; pre-settle unsubscribe sticks. e2e-proven in the core user-modules suite. |
+| 9 | module nodes are effect sinks | **SHIPPED** (21-A1) — `api.registerValueNode(type, fn, {vtype, inputs})` for a node that OUTPUTS a value, and `api.fireNodeTrigger(type, match?)` for one that fires an EVENT. `registerEffect` takes the same `{inputs}`. The blocking bug was in `flowSockets.outputType`: it answered `'effect'` for every unknown type, and an effect output may only reach an effect input, so a module value could not be wired to anything at all. **Two contracts to read before you use it:** the evaluator must be a PURE function of `(data, time)` (values are never sent — every peer derives them, so unreplicated local state desyncs silently), and `fireNodeTrigger` REPLICATES, so call it on ONE peer or a Counter counts it once per peer. |
+| 12 | no `text` param kind | **SHIPPED** (21-A1) — `{key, kind: 'text', placeholder?, maxLength?}`. It writes on COMMIT (change/blur), never on `input`: a node edit replicates the whole node, so a per-keystroke write is one broadcast per character. |
+| — | a module node cannot learn its own id | **SHIPPED** (21-A1) — an effect's 5th arg and a value node's 3rd are `{id, graphId}`. Additive, so a four-parameter effect is byte-unchanged. This is what lets one module host several instances of the same node type. |
+| — | no module UI surface (the `#dr-gui` / `#dungeon-panel` workaround) | **SHIPPED** (21-A5) — `api.registerToolbox({id, title, mount, …})` over core's shared ToolboxWindow: write plain DOM and inherit header drag + position persistence, the width grip, z-band focus, the <=640px bottom sheet and the whole `.tbx-*` CSS contract. Opened from the sidebar's Modules section, the viewport menu and an optional `shortcut`. Retire the hand-rolled fixed overlays — they sit in z bands they do not own. |
+
+### 21-A (2026-08-18, core branch `feat/21-module-node-io`)
+
+`#9`, `#12` and the module UI surface are all in. Together they unblock the thing every
+game needed and no module could express: **module state reaching a core HUD**. A score
+kept in your own replicated state becomes `registerValueNode` -> a HUD Text node; a
+level cleared becomes `fireNodeTrigger` -> a Counter; your host settings become a
+toolbox instead of an overlay at `z-index: 900`.
+
+Still open from this list: **#5** (replicated create/move — partly answered by the 17-A
+world api: `api.create`/`api.moveObject` exist), **#7**, **#10** (answered differently:
+a TEMPLATE carries the placed nodes, so the api needs no graph write path — closing),
+**#13** and **#14** (21-B's play-mode work), **#15**.
 
 Also in the same branch: user modules now install/update/disable/remove **LIVE**
 (full teardown journal), every card has a **Dev URL + Reload + Auto-poll** row
