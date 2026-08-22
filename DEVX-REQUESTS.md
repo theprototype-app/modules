@@ -27,6 +27,9 @@ promise from core.
 | 13 | play contract is name-keyed to `'dungeon-module'` | `dungeon-realms` | yes — squats the core module's group name |
 | 14 | grounded (no-fly) play-mode option | `dungeon-realms` | yes — window-capture swallows Q/E while the game runs |
 | 15 | peer roster + disconnect hook | `dungeon-realms` | partly — any player can free a stuck P1/P2 slot from the menu |
+| 16 | `api.flow.nodes()` carries no node POSITION | `collectible` | yes — the recipe derives its row from how many of its own nodes exist |
+| 17 | no change signal for the graph / game state | `collectible` | yes — a 500ms toolbox poll and a ~10Hz frame-task sweep |
+| 18 | the flow TRIGGER LOG has no handshake reply, so a late joiner never learns past pulses | `collectible` | no — a joiner sees collected gems as un-collected (pre-existing: the recipe had it too) |
 
 ---
 
@@ -287,6 +290,70 @@ vanished peer wedges the gate until someone frees their slot manually.
 
 **Ask:** `api.peers()` → `[{id, name}]` + `api.onPeerConnected/Disconnected`.
 The name half would also fix the HUD showing id prefixes instead of nicknames.
+
+## 16. `api.flow.nodes()` snapshots carry no POSITION
+
+**Found in:** `modules/collectible` — the manager's "Make collectible" recipe
+creates a node pair per selected object and has to lay the rows out, but a
+snapshot is `{id, type, graphId, data}` with no `x`/`y`. So a recipe cannot ask
+"where is the graph already occupied" and every module that writes nodes will
+invent its own guess; two of them will stack on each other.
+
+The workaround is honest but coarse: derive the row index from how many of MY
+OWN node type the graph already holds (`collectibles.length`), which is
+deterministic and idempotent, and wrong the moment a user drags one of them.
+
+**Ask:** add `x`, `y` to the snapshot (read-only is fine — `addNodes` already
+takes them on the way in), or an `api.flow.freeRegion({w, h})` that answers
+"somewhere empty" so layout stays core's problem.
+
+## 17. No change signal for the graph, the trigger log or the game state
+
+**Found in:** `modules/collectible` — the manager toolbox and the debug line are
+both views over the graph, so both POLL: the toolbox on a 500ms interval,
+the collect/touch sweeps on a ~10Hz frame-task throttle. Polling is right for the
+respawn countdown (it is a clock, not an event) and wasteful for everything else —
+a node's params only change when someone edits them.
+
+Note this is not fatal, and the two rules that make it survivable are worth
+keeping if a signal ever lands: the toolbox rebuilds its rows only when a
+STRUCTURE signature changes (so an inline `<select>` keeps its focus), and the
+counts are written in place with `textContent`.
+
+**Ask:** `api.flow.onChange(fn)` (any node/edge/data change in any graph) and
+`api.game.onChange(fn)`, both journalled for teardown like every other
+`register*`. `api.hud.registerDebugLine` already has the model — core samples it
+on its own 500ms timer, so the module does not own a timer at all.
+
+## 18. The flow TRIGGER LOG has no full-state reply, so a late joiner never learns past pulses
+
+**Found in:** `modules/collectible`, and it is **pre-existing core behaviour** —
+21-F's seven-node recipe stood on exactly the same stamps and behaved the same
+way, so this is a gap the module inherited rather than introduced.
+
+`sendHandshake` asks for objects, nodes, annotations, joints, animations, the
+post stack, shader graphs, HUDs, HUD values, node defs, module state and the
+project — but there is nothing for `flowTriggers`. A pulse is a message, not a
+document, so a peer that was not connected when it went out has no way to reach
+it. The visible consequence: **a player who joins mid-game sees every collected
+gem back on the table** (its Latch reads un-collected, so `whilePlaying` shows
+the object again), while a NEW pickup converges perfectly. `nodesync`'s periodic
+hash compare covers the graph, not the log, so it never heals either.
+
+The module cannot fix this from outside. Anything it could do — carry its own
+"collected" set through `registerStateSync` — would be a **second source of truth
+for latch state**, which is precisely what `ctx.trigger` exists to avoid: the
+module would then have to re-implement `perRound` retirement, respawn ageing and
+the per-player split against its own copy, and the two answers would drift.
+
+**Ask:** a `gettriggers` / `triggers` pair in the handshake carrying the current
+`flowTriggers` map (latest stamp per node id). It is small, it is already
+latest-wins per node, and every consumer of it — Latch, Once, Counter, HUD timer
+and now a collectible — is a pure function of it, so a late joiner would land on
+the same world as everyone else with no per-feature work at all.
+
+Meanwhile `tests/module-collectible.test.cjs` ASSERTS the limitation (a joiner
+reads 0 collected) rather than skipping it, so a core fix flips that check loudly.
 
 ---
 

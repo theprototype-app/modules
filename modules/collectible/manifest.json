@@ -1,0 +1,9 @@
+{
+	"id": "collectible",
+	"name": "Collectibles",
+	"version": "1.0.0",
+	"format": 1,
+	"description": "One node makes an object collectible: click it or walk into it, it hides and counts. Shared or per-player, with respawn.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}
