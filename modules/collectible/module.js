@@ -203,10 +203,22 @@ export default {
 		// a new stamp and therefore a new point.
 		//
 		// FIRST SIGHT NEVER COUNTS. A stamp minted before this module was watching is not a
-		// pulse it witnessed — that is core's own `actionSeenAt` reasoning, and skipping it
-		// is what stops a late joiner banking the whole scene's history on connect.
+		// pulse it witnessed — that is core's own `actionSeenAt` reasoning.
+		//
+		// SEEDING THE STAMP IS NOT ENOUGH, and core gaining a trigger-log handshake reply
+		// (DEVX #18) is what exposed it: on a JOINER the seed can happen while the log is
+		// still empty — `info` is null, so we seed null — and the history arrives a moment
+		// later. The next sweep then sees a stamp where there was none, reads it as a fresh
+		// pulse, and banks a point for every gem somebody else already collected.
+		//
+		// So we remember WHEN we first saw each node, in the same synced clock the stamps
+		// are in, and a stamp older than that is history: adopted without counting. That is
+		// `actionSeenAt`'s rule spelled out module-side, and it holds however the log
+		// arrives — the handshake reply, a later nodesync heal, or an explicit sendNodes.
 		/** @type {Map<string, number|null>} node id -> the last stamp we counted */
 		const counted = new Map();
+		/** @type {Map<string, number>} node id -> when THIS module first saw it */
+		const firstSeen = new Map();
 
 		/** @param {any} data */
 		function bank(data) {
@@ -223,15 +235,27 @@ export default {
 				const info = api.flow.triggerStamp(node.id);
 				if (!counted.has(node.id)) {
 					counted.set(node.id, info ? info.stamp : null); // seed, never count
+					firstSeen.set(node.id, api.now());
 					continue;
 				}
 				if (!info || counted.get(node.id) === info.stamp) continue;
+				// a stamp OLDER than our first sight of the node is somebody else's pulse,
+				// arriving late. Adopt it so it is not re-tested every sweep, and do not bank.
+				const seenAt = firstSeen.get(node.id) ?? 0;
+				if (info.stamp < seenAt) {
+					counted.set(node.id, info.stamp);
+					continue;
+				}
 				counted.set(node.id, info.stamp);
 				bank(node.data ?? {});
 			}
 			// a deleted node forgets its stamp, so an undo that brings it back re-seeds
 			// rather than re-counting the collect it already banked
-			for (const id of [...counted.keys()]) if (!live.has(id)) counted.delete(id);
+			for (const id of [...counted.keys()])
+				if (!live.has(id)) {
+					counted.delete(id);
+					firstSeen.delete(id);
+				}
 		}
 
 		// =====================================================================
@@ -979,6 +1003,9 @@ export default {
 
 		// A new scene has none of the old scene's pulses; forget the stamps rather than
 		// carrying them into a graph whose node ids may repeat.
-		api.onSceneClear(() => counted.clear());
+		api.onSceneClear(() => {
+			counted.clear();
+			firstSeen.clear();
+		});
 	}
 };

@@ -93,7 +93,7 @@ reason this module is thin.
 | Round rules | `ctx.trigger` arrives already folded through `perRound` against the **replicated** round. This module does no round arithmetic at all. |
 | The hide | The effect only ever sets `visible = false`. Giving the object **back** is core's restore loop — the only path that also lets manual visibility win outside Play. |
 | Counting once | From **stamp edges**: a pulse is identified by its stamp, so "count it once" is "count it when the stamp changes". No Once node and no state to replicate — and a respawn re-collect is a new stamp, so it counts again. |
-| First sight | A stamp minted before the module was watching is **not** a pulse it witnessed (core's own `actionSeenAt` reasoning), so the first sweep seeds each node's stamp without counting. That is what stops a late joiner banking the whole scene's history on connect. |
+| First sight | A stamp minted before the module was watching is **not** a pulse it witnessed (core's own `actionSeenAt` reasoning). The first sweep seeds each node's stamp *and records when this module first saw the node*, so a stamp older than that is adopted without counting. Seeding the stamp alone was not enough once core learned to hand a joiner the trigger log (DEVX #18): the seed can happen while the log is still empty, and the history arriving a moment later would otherwise read as a fresh pulse and bank a point per gem somebody else already took. |
 | Touch | **Self-proximity**: every peer tests its own camera against the object and fires its own pulse. No sensor, no physics body, no initiator — and it works in VR and in walk mode because in Play mode the camera *is* the player. |
 | The counts | Derived from the **graph**, never from the score. A score only goes up, so `left` would go negative the first time something respawned. `collected + left === total` by construction. |
 | Legacy scenes | The count node also finds core's old seven-node chains (`SetVariable ← Once ← event → Latch`) and reads each Latch through `api.flow.nodeValue` — core's own round-aware answer, not a second implementation. |
@@ -102,21 +102,26 @@ reason this module is thin.
 | Where a setting is edited | By **who owns it**, which is what a sixty-gem scene forces: `trigger` and `scope` are what a whole score's worth of pickups share, so they live on the **group** header; `respawn` is genuinely per-object, so it stays on the **row**. That is also why a group is a fold-away unit — sixty rows can be one line. |
 | A group control over members that disagree | An **em-dash**, never one of the values (core's Inspector rule for a multi-selection). Showing "click" over a mixed set is a lie the next pointer trip silently makes true. Picking a value out of the mixed control applies it to everyone, which is the reason the control exists. |
 
-### A player who joins mid-round sees the gems back
+### A player who joins mid-round arrives up to date
 
-A pickup is an **event**, and the flow trigger log has no full-state reply in the
-handshake — so a peer who connects after a collect cannot learn it happened, and
-its Latch (and therefore the object) reads un-collected. Everything from the
-moment they join is in sync.
+This section used to say the opposite, and the change is core's rather than this
+module's. A pickup is an **event**, and the flow trigger log had no full-state reply in
+the handshake — so a peer who connected after a collect could not learn it happened, and
+its latch (and therefore the object) read un-collected. That was filed as
+[DEVX-REQUESTS #18](../../DEVX-REQUESTS.md) and **shipped**: the log now travels with
+the rest of the handshake, so a joiner sees the gems that are already gone.
 
-This is **core's** behaviour, not something this module chose: the seven-node
-recipe stood on exactly the same stamps and did the same thing. The module
-deliberately does not paper over it with its own `registerStateSync` "collected"
-set, because that would be a second source of truth for latch state — and it
-would then have to re-implement `perRound` retirement, respawn ageing and the
-per-player split against its own copy, which is the drift `ctx.trigger` exists to
-prevent. Filed as [DEVX-REQUESTS #18](../../DEVX-REQUESTS.md); the test-flight
-asserts the limitation so a core fix flips that check loudly.
+What the module had to do about it is the *first sight* rule above. The module counts on
+a stamp EDGE, so history arriving right after the seed looked exactly like a live pulse —
+a joiner would have banked a point for every gem already collected. It now remembers when
+it first saw each node and treats anything older as history: adopted, never counted. The
+test-flight asserts both halves — the joiner AGREES with the host on the count, and the
+score does not move when the history lands.
+
+The module still ships no `registerStateSync` "collected" set, and that is the same
+decision as before: it would be a second source of truth for latch state, and it would
+then have to re-implement `perRound` retirement, respawn ageing and the per-player split
+against its own copy — the drift `ctx.trigger` exists to prevent.
 
 ### The known race, inherited on purpose
 
@@ -190,7 +195,7 @@ is `perRound`, derived from the replicated round with nothing sent.
 - **Clicking in the editor collects but nothing vanishes.** The pulse lands; the hide
   only applies while playing. Press Play and it is already gone.
 - **The toolbox disappears in Play mode** — it is an authoring tool.
-- **A peer joining mid-round sees collected objects back.** See the section above.
+- **A peer joining mid-round now arrives up to date** — gems already taken are already gone for them. That was not true before core shipped the trigger-log handshake reply; if you see the old behaviour, the app predates it (see the section above).
 
 **If you would rather read numbers than click:**
 

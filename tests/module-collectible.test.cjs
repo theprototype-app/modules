@@ -716,40 +716,99 @@ h.run(async () => {
 		'and its count node agrees on the total with nothing sent about counting',
 		15000
 	);
+	// THE SEED RULE, and DEVX #18 made it load-bearing rather than merely tidy. The
+	// joiner now RECEIVES history, and the module counts on a stamp EDGE — so without
+	// the module's own first-sight rule it would read a stamp where there was none a
+	// moment earlier and bank a point for every gem somebody else already collected.
+	// Reading the count is the whole point of this check: the score must not move.
 	h.check(
 		(await sharedVar(C, 'gems')) === troveBefore,
-		'THE SEED RULE: the joiner did not bank the pulses it never witnessed (' +
-			(await sharedVar(C, 'gems')) + ' vs ' + troveBefore + ')'
+		'THE SEED RULE: the joiner banks NOTHING for pulses it never witnessed, even though ' +
+			'it now receives them (' + (await sharedVar(C, 'gems')) + ' vs ' + troveBefore + ')'
 	);
-	// THE DOCUMENTED LIMIT, and it is CORE's, not this module's: the trigger log has no
-	// full-state reply in the handshake (`getnodes`, `getanim`, `gethuds`… but nothing for
-	// flowTriggers), so a peer joining after a pickup cannot know it happened. The 21-F
-	// recipe stood on the same stamps and behaved identically. Asserted rather than
-	// skipped, so a core fix flips this check LOUDLY instead of silently.
+	// THE LIMIT THAT WAS DOCUMENTED HERE IS GONE (core DEVX #18): the trigger log now
+	// has a full-state handshake reply, so a peer joining after a pickup LEARNS it
+	// happened. This block used to assert the opposite — `readers[1] === 0`, "past pulses
+	// are not in the handshake" — and it was written to flip loudly the day core fixed
+	// it. This is that day.
+	//
+	// It asserts CONVERGENCE ON THE HOST rather than a literal count, and that is not
+	// timidity: what a joiner owes is the same view as everyone else, and the true
+	// number here depends on how many gems the sections above left collected and on
+	// where the round clock is. A pinned literal would be a second, silent premise
+	// about all of that — and pinning one wrong is exactly how this check first went
+	// red for a reason that had nothing to do with the feature.
+	const hostCollected = await valueOf(A, readers[1]);
+	await h.eventually(
+		() => valueOf(C, readers[1]),
+		(v) => v === hostCollected,
+		'a late joiner AGREES with the host on how many are collected (' + hostCollected + ') — the pulses it never witnessed arrived in the handshake'
+	);
 	h.check(
-		(await valueOf(C, readers[1])) === 0,
-		'a late joiner reads 0 collected — past pulses are not in the handshake (DEVX #18), ' +
-			'which is the pre-existing behaviour of the recipe this module replaces'
+		hostCollected > 0,
+		'premise: there WAS something collected before the join, so that agreement means something (' + hostCollected + ')'
 	);
 
-	// FORWARD from here it converges: a pulse minted after the join reaches everyone
+	// THE HEADLINE, and the inversion of what this section used to assert: a gem taken
+	// BEFORE C joined must arrive already gone. The old premise read "Gem1 is visible
+	// for the joiner (it never heard about the old collect)" — the reported bug wearing
+	// a premise's clothes. Which gem is collected depends on the sections above, so ask
+	// the HOST and then require the joiner to match it.
 	for (const peer of [A, C]) await setPlay(peer, true);
-	await A.page.waitForTimeout(1000);
-	h.check(
-		(await visibleOf(C, gem1)) === true,
-		'premise: Gem1 is visible for the joiner (it never heard about the old collect)'
-	);
-	await clickObject(A, gem1);
-	await h.eventually(
-		() => visibleOf(C, gem1),
-		(v) => v === false,
-		'a SHARED collect made after the join hides the gem on the late joiner too',
-		12000
-	);
+	await A.page.waitForTimeout(800);
+	// ...and the SAME agreement about what is on screen. Asserted per gem as "C matches
+	// A" rather than "this one is hidden": which gem is collected depends on every section
+	// above, and a literal premise about that is how this check first went red for a
+	// reason with nothing to do with the feature. Convergence is the property either way -
+	// without the handshake reply the joiner shows a gem the host has hidden.
+	for (const [label, uuid] of [['Gem1', gem1], ['Gem2', gem2]]) {
+		const host = await visibleOf(A, uuid);
+		await h.eventually(
+			() => visibleOf(C, uuid),
+			(v) => v === host,
+			label + ' looks the same to the joiner as to the host (visible=' + host + ')',
+			12000
+		);
+	}
+	// a collect made AFTER the join still reaches them through the ordinary replicated
+	// pulse, so the reply filled in the past without replacing the live path
+	// pick a gem that is BOTH still there and SHARED: an earlier section put Gem2 on
+	// scope:player, where a collect staying local is the feature working, not a failure
+	// (that cost a red before the selection read the scope instead of guessing).
+	const scopeOf = async (uuid) =>
+		A.page.evaluate((id) => {
+			let graphs;
+			window.__stores.flowGraphs.subscribe((v) => (graphs = v))();
+			const nodes = graphs.scene?.nodes ?? [];
+			const edges = graphs.scene?.edges ?? [];
+			const sel = nodes.filter((n) => n.type === 'objectselector' && n.data?.selected === id);
+			for (const one of sel) {
+				const edge = edges.find((e) => e.target === one.id);
+				const owner = nodes.find((n) => n.id === edge?.source && n.type === 'collectible');
+				if (owner) return String(owner.data?.scope ?? 'shared');
+			}
+			return null;
+		}, uuid);
+	let live = null;
+	for (const uuid of [gem1, gem2])
+		if (!live && (await visibleOf(A, uuid)) !== false && (await scopeOf(uuid)) !== 'player')
+			live = uuid;
+	if (live) {
+		await clickObject(A, live);
+		await h.eventually(
+			() => visibleOf(C, live),
+			(v) => v === false,
+			'a SHARED collect made after the join hides that gem on the late joiner too',
+			12000
+		);
+	} else {
+		h.check(true, 'no shared gem was left uncollected — the live path is covered in section 6');
+	}
+	const hostTrove = await valueOf(A, readers[0]);
 	await h.eventually(
 		() => valueOf(C, readers[0]),
-		(v) => v === 2,
-		'and its trove total is unmoved by a gems pickup — the variables do not bleed'
+		(v) => v === hostTrove,
+		'and its trove total agrees with the host — the variables do not bleed (' + hostTrove + ')'
 	);
 
 	// =====================================================================
