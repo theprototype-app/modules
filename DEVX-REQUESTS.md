@@ -29,7 +29,7 @@ promise from core.
 | 15 | peer roster + disconnect hook | `dungeon-realms` | partly — any player can free a stuck P1/P2 slot from the menu |
 | 16 | `api.flow.nodes()` carries no node POSITION | `collectible` | yes — the recipe derives its row from how many of its own nodes exist |
 | 17 | no change signal for the graph / game state | `collectible` | yes — a 500ms toolbox poll and a ~10Hz frame-task sweep |
-| 18 | the flow TRIGGER LOG has no handshake reply, so a late joiner never learns past pulses | `collectible` | no — a joiner sees collected gems as un-collected (pre-existing: the recipe had it too) |
+| 18 | ~~the flow TRIGGER LOG has no handshake reply, so a late joiner never learns past pulses~~ | `collectible` | **SHIPPED** — `gettriggers`/`triggers` carries the log; the module gained a first-sight rule so arriving history is not banked |
 
 ---
 
@@ -325,7 +325,15 @@ counts are written in place with `textContent`.
 `register*`. `api.hud.registerDebugLine` already has the model — core samples it
 on its own 500ms timer, so the module does not own a timer at all.
 
-## 18. The flow TRIGGER LOG has no full-state reply, so a late joiner never learns past pulses
+## 18. The flow TRIGGER LOG has no full-state reply — **SHIPPED**
+
+> Delivered exactly as asked: a `gettriggers` request in the handshake and a `triggers`
+> reply carrying the map, merged per node on the newer stamp. Arriving history is made to
+> FIRE nothing through a history epoch in `flowRuntime`, so a restored log changes what
+> nodes read and never re-runs an action. **This module needed a change too**: it counts
+> on a stamp edge, so it now records when it first saw each node and adopts anything older
+> without counting — otherwise a joiner banked a point per already-collected gem. The
+> original request is kept below for the reasoning.
 
 **Found in:** `modules/collectible`, and it is **pre-existing core behaviour** —
 21-F's seven-node recipe stood on exactly the same stamps and behaved the same

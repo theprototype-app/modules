@@ -203,10 +203,22 @@ export default {
 		// a new stamp and therefore a new point.
 		//
 		// FIRST SIGHT NEVER COUNTS. A stamp minted before this module was watching is not a
-		// pulse it witnessed — that is core's own `actionSeenAt` reasoning, and skipping it
-		// is what stops a late joiner banking the whole scene's history on connect.
+		// pulse it witnessed — that is core's own `actionSeenAt` reasoning.
+		//
+		// SEEDING THE STAMP IS NOT ENOUGH, and core gaining a trigger-log handshake reply
+		// (DEVX #18) is what exposed it: on a JOINER the seed can happen while the log is
+		// still empty — `info` is null, so we seed null — and the history arrives a moment
+		// later. The next sweep then sees a stamp where there was none, reads it as a fresh
+		// pulse, and banks a point for every gem somebody else already collected.
+		//
+		// So we remember WHEN we first saw each node, in the same synced clock the stamps
+		// are in, and a stamp older than that is history: adopted without counting. That is
+		// `actionSeenAt`'s rule spelled out module-side, and it holds however the log
+		// arrives — the handshake reply, a later nodesync heal, or an explicit sendNodes.
 		/** @type {Map<string, number|null>} node id -> the last stamp we counted */
 		const counted = new Map();
+		/** @type {Map<string, number>} node id -> when THIS module first saw it */
+		const firstSeen = new Map();
 
 		/** @param {any} data */
 		function bank(data) {
@@ -223,15 +235,27 @@ export default {
 				const info = api.flow.triggerStamp(node.id);
 				if (!counted.has(node.id)) {
 					counted.set(node.id, info ? info.stamp : null); // seed, never count
+					firstSeen.set(node.id, api.now());
 					continue;
 				}
 				if (!info || counted.get(node.id) === info.stamp) continue;
+				// a stamp OLDER than our first sight of the node is somebody else's pulse,
+				// arriving late. Adopt it so it is not re-tested every sweep, and do not bank.
+				const seenAt = firstSeen.get(node.id) ?? 0;
+				if (info.stamp < seenAt) {
+					counted.set(node.id, info.stamp);
+					continue;
+				}
 				counted.set(node.id, info.stamp);
 				bank(node.data ?? {});
 			}
 			// a deleted node forgets its stamp, so an undo that brings it back re-seeds
 			// rather than re-counting the collect it already banked
-			for (const id of [...counted.keys()]) if (!live.has(id)) counted.delete(id);
+			for (const id of [...counted.keys()])
+				if (!live.has(id)) {
+					counted.delete(id);
+					firstSeen.delete(id);
+				}
 		}
 
 		// =====================================================================
@@ -453,6 +477,26 @@ export default {
 		// LOCAL, always (registerToolbox's contract): this window is this viewer's. What it
 		// CHANGES goes through the replicated paths — api.flow.setNodeData for an edit,
 		// api.flow.addNodes for the recipe.
+		//
+		// THE LAYOUT IS SHAPED BY THE SCENE THAT BROKE IT. A real game has sixty gems, and
+		// the first version gave every one of them a two-line card carrying its own trigger
+		// and scope select: a hundred and twenty lines of chrome to scroll past, and no way
+		// to say "all of these are touch" short of sixty pointer trips. So the panel now
+		// splits the settings by WHO OWNS THEM:
+		//
+		//   - the GROUP HEADER owns `trigger` and `scope`, because those are what a whole set
+		//     of pickups shares. Every gem in a level is collected the same way, and the
+		//     score it counts into is already the group's own identity — so a group is
+		//     exactly the unit those two settings want to be edited at.
+		//   - the ROW owns `respawn`, and nothing else. That one genuinely is per-object
+		//     tuning: the gem behind the waterfall comes back, the rest do not.
+		//   - a GROUP COLLAPSES, so sixty rows can be one line while you work on another
+		//     variable.
+		//
+		// A group-level control then has to answer the question core's Inspector already
+		// answered for a multi-selection: what does it show when the members DISAGREE? An
+		// EM-DASH — never one of the values, because showing "click" over a mixed set is a
+		// lie that the next pointer trip silently makes true.
 		/** @param {string} tag @param {Record<string, any>=} props @param {string=} css */
 		function elem(tag, props, css) {
 			const node = document.createElement(tag);
@@ -473,6 +517,111 @@ export default {
 			'background:rgba(0,0,0,0.25);color:inherit;border:1px solid rgba(255,255,255,0.15);' +
 			'border-radius:4px;font-size:11px;padding:1px 3px;';
 		const INPUT_CSS = SELECT_CSS + 'width:100%;';
+
+		// ---- which groups are folded shut ------------------------------------
+		// A LOCAL preference, keyed by variable NAME — the only stable identity a group has,
+		// because a group has no id, it IS its name. It goes to localStorage rather than a
+		// closure variable for one reason: `mount` runs again every time the window is
+		// opened, so an in-memory-only flag forgets on close, which is the same as not
+		// remembering at all. The Map in front of it is the authority for this session, so a
+		// localStorage that throws (private mode, a sandboxed frame) costs the persistence
+		// and nothing else.
+		const COLLAPSE_PREFIX = 'mod-collectible:collapsed:';
+		/** @type {Map<string, boolean>} */
+		const collapsedGroups = new Map();
+		/** @param {string} name */
+		function isCollapsed(name) {
+			if (!collapsedGroups.has(name)) {
+				let stored = null;
+				try {
+					stored = localStorage.getItem(COLLAPSE_PREFIX + name);
+				} catch {}
+				// DEFAULT OPEN: the rows are what the panel is for, and a list that starts
+				// folded shut looks empty. You fold it once and it stays folded.
+				collapsedGroups.set(name, stored === '1');
+			}
+			return collapsedGroups.get(name) === true;
+		}
+		/** @param {string} name @param {boolean} value */
+		function setCollapsed(name, value) {
+			collapsedGroups.set(name, value);
+			try {
+				localStorage.setItem(COLLAPSE_PREFIX + name, value ? '1' : '0');
+			} catch {}
+		}
+
+		// ---- the group-wide controls -----------------------------------------
+		/** core's Inspector rule in one character: a control over members that disagree
+		 * shows NEITHER of their values. */
+		const MIXED_LABEL = '—';
+		const MIXED_VALUE = '';
+
+		/**
+		 * The one value every member of a group carries for `key`, or `null` for MIXED.
+		 * `fallback` is the node's own default, because an absent field and an explicit one
+		 * are the same SETTING — without it a group where one node predates a param would
+		 * read mixed forever.
+		 * @param {any[]} items @param {string} key @param {string} fallback
+		 * @returns {string|null}
+		 */
+		function agreedOn(items, key, fallback) {
+			/** @type {string|null} */
+			let seen = null;
+			for (const item of items) {
+				const value = String(item.data?.[key] ?? fallback);
+				if (seen === null) seen = value;
+				else if (seen !== value) return null;
+			}
+			return seen ?? fallback;
+		}
+
+		/**
+		 * A group-wide select. `value === null` means the members disagree, which adds an
+		 * em-dash option that is SELECTED and cannot be chosen back into — picking a real
+		 * value out of a mixed control applies it to everyone, which is the whole point of
+		 * the control. `data-mixed` is on the element so the state is readable from outside
+		 * (a test, a screenshot review) and not only from the glyph.
+		 * @param {string[]} options @param {string|null} value @param {string} label
+		 */
+		function bulkSelect(options, value, label) {
+			const node = select(options, value ?? MIXED_VALUE);
+			node.title =
+				label + ' for EVERY collectible in this group' + (value === null ? ' (they differ right now)' : '');
+			if (value !== null) return node;
+			// DISABLED, and not merely "not chosen by default": the option stays in the list
+			// while the control is open, so without this a user could pick the em-dash BACK
+			// and every member would be written the empty string. The mixed marker is a
+			// READOUT, never a value.
+			const mixed = /** @type {any} */ (elem('option', { value: MIXED_VALUE, textContent: MIXED_LABEL }));
+			mixed.disabled = true;
+			node.insertBefore(mixed, node.firstChild);
+			node.value = MIXED_VALUE;
+			node.dataset.mixed = '1';
+			return node;
+		}
+
+		/**
+		 * Apply one setting to every member of a group, through the SAME replicated path a
+		 * row edit uses — there is no batch write in the SDK and a module does not get to
+		 * invent one. So N members is N `nodedata` messages, and members that ALREADY agree
+		 * are skipped: making a mixed group uniform sends only the difference, and pressing a
+		 * value a group already holds sends nothing at all.
+		 * @param {any[]} items @param {string} key @param {string} value @param {string} fallback
+		 * @returns {number} how many members actually changed
+		 */
+		function bulkApply(items, key, value, fallback) {
+			// the other half of the mixed guard above: "they differ" is not a setting, so a
+			// writer that reaches here with it does nothing rather than writing an empty
+			// string over the whole group
+			if (value === MIXED_VALUE) return 0;
+			let changed = 0;
+			for (const item of items) {
+				if (String(item.data?.[key] ?? fallback) === value) continue;
+				api.flow.setNodeData(item.id, { [key]: value });
+				changed++;
+			}
+			return changed;
+		}
 
 		/** rows grouped by variable, with the target object resolved for display */
 		function managerModel() {
@@ -557,15 +706,32 @@ export default {
 						'.cm-form{display:grid;grid-template-columns:auto 1fr;gap:4px 6px;align-items:center}' +
 						'.cm-form label{opacity:0.75;font-size:11px}' +
 						'.cm-group{margin-top:6px}' +
-						'.cm-head{font-size:11px;letter-spacing:0.02em;opacity:0.8;margin:4px 0 2px}' +
-						'.cm-row{display:flex;flex-direction:column;gap:2px;padding:4px 5px;border-radius:5px;' +
-						'background:rgba(255,255,255,0.04);cursor:pointer;margin-bottom:3px}' +
+						// the header is TWO lines at the default width: the disclosure heading,
+						// then the group-wide controls under it. Both take the full row, so the
+						// selects cannot squeeze the variable name off the end of its line.
+						'.cm-head{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px}' +
+						'.cm-disc{flex:1 1 100%;background:transparent;border:0;cursor:pointer;min-width:0}' +
+						// .tbx-sec-chev's rotate-on-expanded comes from the shell, but a
+						// transform does nothing to a non-replaced INLINE element
+						'.cm-disc .tbx-sec-chev{display:inline-block;font-size:9px}' +
+						// the variable name is user data and the counts are prose: neither wants
+						// .tbx-sec-head's uppercase heading treatment, only its hit area
+						'.cm-var{text-transform:none;font-size:11px;letter-spacing:0.01em}' +
+						'.cm-counts{text-transform:none;letter-spacing:0;font-weight:400;font-size:10px;' +
+						'opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+						// the separator is a PSEUDO-ELEMENT so the counts stay one readable string
+						// (and one readable assertion) rather than a name glued to a number
+						'.cm-counts::before{content:"\\00b7";opacity:0.6;margin-right:4px}' +
+						'.cm-bulk{flex:1 1 100%;display:flex;align-items:center;gap:4px;margin:1px 0 3px}' +
+						'.cm-bulk-label{font-size:10px;opacity:0.55;flex:0 0 auto}' +
+						'.cm-bulk select{flex:1 1 0;min-width:0}' +
+						// ONE LINE per collectible: name · state · respawn
+						'.cm-row{display:flex;align-items:center;gap:6px;padding:3px 5px;border-radius:5px;' +
+						'background:rgba(255,255,255,0.04);cursor:pointer;margin-bottom:2px}' +
 						'.cm-row:hover{background:rgba(255,255,255,0.09)}' +
-						'.cm-row-top{display:flex;align-items:center;gap:6px}' +
-						'.cm-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
-						'.cm-status{font-size:10px;opacity:0.7;white-space:nowrap}' +
-						'.cm-ctl{display:flex;gap:4px;align-items:center}' +
-						'.cm-ctl input{width:46px}' +
+						'.cm-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+						'.cm-status{flex:0 0 auto;font-size:10px;opacity:0.7;white-space:nowrap}' +
+						'.cm-respawn{flex:0 0 auto;width:38px}' +
 						'.cm-empty{opacity:0.6;font-size:11px}'
 				})
 			);
@@ -619,16 +785,37 @@ export default {
 			/** rebuilt only when the STRUCTURE changes, so an inline edit keeps its focus */
 			let signature = '';
 			/** @type {Map<string, HTMLElement>} */
-			const headEls = new Map();
+			const countEls = new Map();
 			/** @type {Map<string, HTMLElement>} */
 			const statusEls = new Map();
+
+			/**
+			 * The live word for one row. It is the only place a respawn is legible while you
+			 * look at the list: "collected" and "back in 4s" are the same latch state, and
+			 * telling them apart is the difference between a gem that is gone and one you are
+			 * waiting for.
+			 * @param {any} item
+			 */
+			function statusText(item) {
+				if (item.missing) return 'missing';
+				const trigger = api.flow.triggerStamp(item.id);
+				if (!collectedFrom(trigger, item.data.respawn)) return 'waiting';
+				const seconds = Number(item.data.respawn) || 0;
+				if (seconds > 0 && trigger)
+					return 'back in ' + Math.max(1, Math.ceil(seconds - trigger.age)) + 's';
+				return 'collected';
+			}
 
 			/** @param {boolean=} force */
 			function refresh(force) {
 				const model = managerModel();
+				// the group-wide selects derive from the members, so the members' own fields
+				// are the whole signature — a bulk apply changes them and the rebuild that
+				// follows re-reads the agreed value (or drops the em-dash)
 				const next = JSON.stringify(
 					model.map(([name, items]) => [
 						name,
+						isCollapsed(name),
 						items.map((i) => [i.id, i.label, i.data.trigger, i.data.scope, i.data.respawn, i.data.hide])
 					])
 				);
@@ -636,20 +823,20 @@ export default {
 					signature = next;
 					rebuild(model);
 				}
-				// counts change with the clock (a respawn ages), so they are written in place
-				// rather than rebuilt — see the focus note above
-				for (const [name, head] of headEls) {
+				// counts and states change with the CLOCK (a respawn ages), so they are written
+				// in place rather than rebuilt — see the focus note above
+				for (const [name, counts] of countEls) {
 					const stats = statsFor(name);
-					head.textContent =
-						name + ' — ' + stats.collected + ' collected, ' + stats.left + ' left of ' + stats.total;
+					counts.textContent =
+						stats.collected + ' collected, ' + stats.left + ' left of ' + stats.total;
 				}
 				for (const [, items] of model)
 					for (const item of items) {
 						const status = statusEls.get(item.id);
 						if (!status) continue;
-						const collected = collectedFrom(api.flow.triggerStamp(item.id), item.data.respawn);
-						status.textContent = item.missing ? 'missing' : collected ? 'collected' : 'waiting';
-						status.style.opacity = collected ? '1' : '0.6';
+						const text = statusText(item);
+						status.textContent = text;
+						status.style.opacity = text === 'waiting' ? '0.6' : '1';
 					}
 				// the variable suggestions follow the scene
 				const suggestions = variablesInUse();
@@ -660,10 +847,112 @@ export default {
 				}
 			}
 
+			/**
+			 * THE GROUP HEADER: a disclosure heading carrying the live counts, plus the two
+			 * settings a whole group shares.
+			 * @param {string} name @param {any[]} items
+			 */
+			function buildHead(name, items) {
+				const head = elem('div', { className: 'cm-head' });
+				const collapsed = isCollapsed(name);
+
+				// `tbx-sec-head` is core's own collapsible-section header, so the typography,
+				// the hover, the focus ring and the chevron rotation all come from the shell
+				// — the same treatment every collapsible section in the app has.
+				const disc = /** @type {HTMLButtonElement} */ (
+					elem('button', { className: 'cm-disc tbx-sec-head', type: 'button' })
+				);
+				disc.setAttribute('aria-expanded', String(!collapsed));
+				disc.appendChild(elem('span', { className: 'tbx-sec-chev', textContent: '▸' }));
+				disc.appendChild(elem('span', { className: 'cm-var', textContent: name }));
+				const counts = elem('span', { className: 'cm-counts', textContent: '' });
+				countEls.set(name, counts);
+				disc.appendChild(counts);
+				disc.addEventListener('click', () => {
+					setCollapsed(name, !isCollapsed(name));
+					// the rows are DROPPED rather than hidden (see rebuild), so folding is a
+					// rebuild — and the flag rides the signature, so the 500ms refresh cannot
+					// quietly unfold what you just closed
+					refresh(true);
+				});
+				head.appendChild(disc);
+
+				// THE BULK CONTROLS. Both write through api.flow.setNodeData, per member — the
+				// replicated path a row edit always used, just aimed at the whole group.
+				const bulk = elem('div', { className: 'cm-bulk' });
+				bulk.appendChild(elem('span', { className: 'cm-bulk-label', textContent: 'all' }));
+				const groupTrigger = bulkSelect(['click', 'touch'], agreedOn(items, 'trigger', 'click'), 'Trigger');
+				const groupScope = bulkSelect(['shared', 'player'], agreedOn(items, 'scope', 'shared'), 'Scope');
+				groupTrigger.addEventListener('change', () => {
+					const changed = bulkApply(items, 'trigger', groupTrigger.value, 'click');
+					announceBulk(changed, name, 'trigger', groupTrigger.value);
+				});
+				groupScope.addEventListener('change', () => {
+					const changed = bulkApply(items, 'scope', groupScope.value, 'shared');
+					announceBulk(changed, name, 'scope', groupScope.value);
+				});
+				for (const control of [groupTrigger, groupScope]) bulk.appendChild(control);
+				head.appendChild(bulk);
+				return head;
+			}
+
+			/** A bulk edit can touch sixty nodes off one pointer trip, and a control that
+			 * looks like a per-row one has to say how far it reached.
+			 * @param {number} changed @param {string} name @param {string} what @param {string} value */
+			function announceBulk(changed, name, what, value) {
+				api.toast(
+					changed
+						? changed + ' collectible' + (changed === 1 ? '' : 's') + ' in "' + name + '" set to ' + what + ' ' + value
+						: 'Every collectible in "' + name + '" was already ' + what + ' ' + value
+				);
+				refresh(true);
+			}
+
+			/** @param {any} item */
+			function buildRow(item) {
+				// ONE LINE, three children: which object · what it is doing · when it returns.
+				const row = elem('div', { className: 'cm-row' });
+				row.dataset.node = item.id;
+				row.addEventListener('click', () => {
+					if (item.uuid) api.selectObject(item.uuid);
+				});
+				row.appendChild(elem('div', { className: 'cm-name', textContent: item.label }));
+				const status = elem('div', { className: 'cm-status', textContent: '' });
+				statusEls.set(item.id, status);
+				row.appendChild(status);
+
+				// respawn STAYS on the row: it is the one setting that is genuinely per-object,
+				// and it writes through the same replicated nodedata path as everything else
+				const rowRespawn = /** @type {HTMLInputElement} */ (
+					elem(
+						'input',
+						{
+							type: 'number',
+							min: '0',
+							max: '120',
+							step: '1',
+							value: String(Number(item.data.respawn) || 0),
+							className: 'cm-respawn'
+						},
+						SELECT_CSS
+					)
+				);
+				rowRespawn.title = 'Respawn seconds (0 = gone for good)';
+				// a control is not the row: clicking it must not also re-select
+				rowRespawn.addEventListener('click', (event) => event.stopPropagation());
+				rowRespawn.addEventListener('change', () =>
+					api.flow.setNodeData(item.id, {
+						respawn: Math.max(0, Math.min(120, Number(rowRespawn.value) || 0))
+					})
+				);
+				row.appendChild(rowRespawn);
+				return row;
+			}
+
 			/** @param {any[]} model */
 			function rebuild(model) {
 				list.textContent = '';
-				headEls.clear();
+				countEls.clear();
 				statusEls.clear();
 				if (!model.length) {
 					list.appendChild(
@@ -676,52 +965,13 @@ export default {
 				}
 				for (const [name, items] of model) {
 					const group = elem('div', { className: 'cm-group' });
-					const head = elem('div', { className: 'cm-head' });
-					headEls.set(name, head);
-					group.appendChild(head);
-					for (const item of items) {
-						const row = elem('div', { className: 'cm-row' });
-						row.addEventListener('click', () => {
-							if (item.uuid) api.selectObject(item.uuid);
-						});
-						const top = elem('div', { className: 'cm-row-top' });
-						top.appendChild(elem('div', { className: 'cm-name', textContent: item.label }));
-						const status = elem('div', { className: 'cm-status', textContent: '' });
-						statusEls.set(item.id, status);
-						top.appendChild(status);
-						row.appendChild(top);
-
-						// inline edits write through the replicated nodedata path
-						const controls = elem('div', { className: 'cm-ctl' });
-						const rowTrigger = select(['click', 'touch'], item.data.trigger ?? 'click');
-						const rowScope = select(['shared', 'player'], item.data.scope ?? 'shared');
-						const rowRespawn = /** @type {HTMLInputElement} */ (
-							elem(
-								'input',
-								{ type: 'number', min: '0', max: '120', step: '1', value: String(Number(item.data.respawn) || 0) },
-								SELECT_CSS
-							)
-						);
-						rowRespawn.title = 'Respawn seconds (0 = gone for good)';
-						for (const control of [rowTrigger, rowScope, rowRespawn]) {
-							// a control is not the row: clicking it must not also re-select
-							control.addEventListener('click', (event) => event.stopPropagation());
-							controls.appendChild(control);
-						}
-						rowTrigger.addEventListener('change', () =>
-							api.flow.setNodeData(item.id, { trigger: rowTrigger.value })
-						);
-						rowScope.addEventListener('change', () =>
-							api.flow.setNodeData(item.id, { scope: rowScope.value })
-						);
-						rowRespawn.addEventListener('change', () =>
-							api.flow.setNodeData(item.id, {
-								respawn: Math.max(0, Math.min(120, Number(rowRespawn.value) || 0))
-							})
-						);
-						row.appendChild(controls);
-						group.appendChild(row);
-					}
+					group.dataset.var = name;
+					// a collapsed group DROPS its rows rather than hiding them: sixty number
+					// inputs left in the DOM are sixty things the 500ms refresh keeps writing to
+					const rows = elem('div', { className: 'cm-rows' });
+					group.appendChild(buildHead(name, items));
+					if (!isCollapsed(name)) for (const item of items) rows.appendChild(buildRow(item));
+					group.appendChild(rows);
 					list.appendChild(group);
 				}
 			}
@@ -753,6 +1003,9 @@ export default {
 
 		// A new scene has none of the old scene's pulses; forget the stamps rather than
 		// carrying them into a graph whose node ids may repeat.
-		api.onSceneClear(() => counted.clear());
+		api.onSceneClear(() => {
+			counted.clear();
+			firstSeen.clear();
+		});
 	}
 };

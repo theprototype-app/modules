@@ -387,28 +387,35 @@ h.run(async () => {
 	// =====================================================================
 	// 3. PER-PLAYER — the pulse never leaves the collector
 	// =====================================================================
-	// gem2 goes per-player through the manager's own inline edit (the replicated
-	// nodedata path), which also exercises that control
+	// SCOPE IS A GROUP-LEVEL CONTROL NOW (section 10): it lives on the manager's group
+	// header, not on the row, because every pickup counting into one score is collected the
+	// same way. Gem2 shares the "gems" group with Gem1, whose SHARED collect sections 6 and
+	// 9 still lean on — so this ONE node is flipped through core's own editor path, which
+	// sends exactly the `nodedata` message the panel sends, and the panel's own bulk apply
+	// gets covered on a group of its own further down.
 	const nodeGem2 = await resolveNode(gem2);
 	h.check(!!nodeGem2, 'premise: Gem2\'s node resolved');
 	await setPlay(A, null); // the toolbox is hidden in play mode by design
 	await A.page.waitForTimeout(400);
 	await openToolbox(A);
-	const rowScope = A.page
-		.locator('.collectible-manager .cm-row')
-		.filter({ hasText: 'Gem2' })
-		.locator('select')
-		.nth(1);
-	await rowScope.selectOption('player');
+	const gem2Row = A.page.locator('.collectible-manager .cm-row').filter({ hasText: 'Gem2' });
+	h.check(
+		(await gem2Row.count()) === 1 && (await gem2Row.locator('select').count()) === 0,
+		'an item row carries NO select of its own — trigger and scope live on the group header'
+	);
+	await A.page.evaluate(
+		(id) => window.__stores.nodesHandler.setNodeData(id, { scope: 'player' }, 'scene'),
+		nodeGem2.id
+	);
 	await A.page.waitForTimeout(1000);
 	h.check(
 		(await nodesOf(A, 'collectible')).find((n) => n.id === nodeGem2.id)?.data.scope === 'player',
-		'the toolbox row flipped Gem2 to per-player'
+		'Gem2 alone flipped to per-player'
 	);
 	await h.eventually(
 		() => nodesOf(B, 'collectible'),
 		(nodes) => nodes.find((n) => n.id === nodeGem2.id)?.data.scope === 'player',
-		'and that inline edit replicated (api.flow.setNodeData)'
+		'and that edit replicated (the nodedata path api.flow.setNodeData writes through)'
 	);
 
 	await setPlay(A, true);
@@ -657,15 +664,24 @@ h.run(async () => {
 	const panel = A.page.locator('.collectible-manager');
 	const rowCount = await panel.locator('.cm-row').count();
 	h.check(rowCount === 5, 'the manager lists every collectible in the scene (' + rowCount + ' rows)');
-	const heads = await panel.locator('.cm-head').allInnerTexts();
-	h.check(
-		heads.some((t) => /^trove — \d+ collected, \d+ left of 2$/.test(t.trim())),
-		'grouped by variable with live counts (' + JSON.stringify(heads) + ')'
+	const groupVars = await panel.locator('.cm-group').evaluateAll((els) =>
+		els.map((el) => el.getAttribute('data-var'))
 	);
-	const troveHead = heads.find((t) => t.startsWith('trove'));
 	h.check(
-		troveHead?.includes('2 collected, 0 left of 2'),
-		'and the header agrees with the count node (' + troveHead + ')'
+		groupVars.includes('trove') && groupVars.includes('gems'),
+		'grouped by variable, one group per score (' + JSON.stringify(groupVars) + ')'
+	);
+	const troveGroup = panel.locator('.cm-group[data-var="trove"]');
+	// textContent, not innerText: the header's separator is a ::before, which textContent
+	// cannot see — so the counts read as the one string the group is really reporting
+	const troveCounts = ((await troveGroup.locator('.cm-counts').textContent()) ?? '').trim();
+	h.check(
+		/^\d+ collected, \d+ left of 2$/.test(troveCounts),
+		'each group header carries its own live counts (' + troveCounts + ')'
+	);
+	h.check(
+		troveCounts === '2 collected, 0 left of 2',
+		'and the header agrees with the count node (' + troveCounts + ')'
 	);
 	const gateRow = panel.locator('.cm-row').filter({ hasText: 'Gate' });
 	h.check(await gateRow.count() === 1, 'a row is named after its target object');
@@ -700,40 +716,437 @@ h.run(async () => {
 		'and its count node agrees on the total with nothing sent about counting',
 		15000
 	);
+	// THE SEED RULE, and DEVX #18 made it load-bearing rather than merely tidy. The
+	// joiner now RECEIVES history, and the module counts on a stamp EDGE — so without
+	// the module's own first-sight rule it would read a stamp where there was none a
+	// moment earlier and bank a point for every gem somebody else already collected.
+	// Reading the count is the whole point of this check: the score must not move.
 	h.check(
 		(await sharedVar(C, 'gems')) === troveBefore,
-		'THE SEED RULE: the joiner did not bank the pulses it never witnessed (' +
-			(await sharedVar(C, 'gems')) + ' vs ' + troveBefore + ')'
+		'THE SEED RULE: the joiner banks NOTHING for pulses it never witnessed, even though ' +
+			'it now receives them (' + (await sharedVar(C, 'gems')) + ' vs ' + troveBefore + ')'
 	);
-	// THE DOCUMENTED LIMIT, and it is CORE's, not this module's: the trigger log has no
-	// full-state reply in the handshake (`getnodes`, `getanim`, `gethuds`… but nothing for
-	// flowTriggers), so a peer joining after a pickup cannot know it happened. The 21-F
-	// recipe stood on the same stamps and behaved identically. Asserted rather than
-	// skipped, so a core fix flips this check LOUDLY instead of silently.
+	// THE LIMIT THAT WAS DOCUMENTED HERE IS GONE (core DEVX #18): the trigger log now
+	// has a full-state handshake reply, so a peer joining after a pickup LEARNS it
+	// happened. This block used to assert the opposite — `readers[1] === 0`, "past pulses
+	// are not in the handshake" — and it was written to flip loudly the day core fixed
+	// it. This is that day.
+	//
+	// It asserts CONVERGENCE ON THE HOST rather than a literal count, and that is not
+	// timidity: what a joiner owes is the same view as everyone else, and the true
+	// number here depends on how many gems the sections above left collected and on
+	// where the round clock is. A pinned literal would be a second, silent premise
+	// about all of that — and pinning one wrong is exactly how this check first went
+	// red for a reason that had nothing to do with the feature.
+	const hostCollected = await valueOf(A, readers[1]);
+	await h.eventually(
+		() => valueOf(C, readers[1]),
+		(v) => v === hostCollected,
+		'a late joiner AGREES with the host on how many are collected (' + hostCollected + ') — the pulses it never witnessed arrived in the handshake'
+	);
 	h.check(
-		(await valueOf(C, readers[1])) === 0,
-		'a late joiner reads 0 collected — past pulses are not in the handshake (DEVX #18), ' +
-			'which is the pre-existing behaviour of the recipe this module replaces'
+		hostCollected > 0,
+		'premise: there WAS something collected before the join, so that agreement means something (' + hostCollected + ')'
 	);
 
-	// FORWARD from here it converges: a pulse minted after the join reaches everyone
+	// THE HEADLINE, and the inversion of what this section used to assert: a gem taken
+	// BEFORE C joined must arrive already gone. The old premise read "Gem1 is visible
+	// for the joiner (it never heard about the old collect)" — the reported bug wearing
+	// a premise's clothes. Which gem is collected depends on the sections above, so ask
+	// the HOST and then require the joiner to match it.
 	for (const peer of [A, C]) await setPlay(peer, true);
-	await A.page.waitForTimeout(1000);
-	h.check(
-		(await visibleOf(C, gem1)) === true,
-		'premise: Gem1 is visible for the joiner (it never heard about the old collect)'
-	);
-	await clickObject(A, gem1);
-	await h.eventually(
-		() => visibleOf(C, gem1),
-		(v) => v === false,
-		'a SHARED collect made after the join hides the gem on the late joiner too',
-		12000
-	);
+	await A.page.waitForTimeout(800);
+	// ...and the SAME agreement about what is on screen. Asserted per gem as "C matches
+	// A" rather than "this one is hidden": which gem is collected depends on every section
+	// above, and a literal premise about that is how this check first went red for a
+	// reason with nothing to do with the feature. Convergence is the property either way -
+	// without the handshake reply the joiner shows a gem the host has hidden.
+	for (const [label, uuid] of [['Gem1', gem1], ['Gem2', gem2]]) {
+		const host = await visibleOf(A, uuid);
+		await h.eventually(
+			() => visibleOf(C, uuid),
+			(v) => v === host,
+			label + ' looks the same to the joiner as to the host (visible=' + host + ')',
+			12000
+		);
+	}
+	// a collect made AFTER the join still reaches them through the ordinary replicated
+	// pulse, so the reply filled in the past without replacing the live path
+	// pick a gem that is BOTH still there and SHARED: an earlier section put Gem2 on
+	// scope:player, where a collect staying local is the feature working, not a failure
+	// (that cost a red before the selection read the scope instead of guessing).
+	const scopeOf = async (uuid) =>
+		A.page.evaluate((id) => {
+			let graphs;
+			window.__stores.flowGraphs.subscribe((v) => (graphs = v))();
+			const nodes = graphs.scene?.nodes ?? [];
+			const edges = graphs.scene?.edges ?? [];
+			const sel = nodes.filter((n) => n.type === 'objectselector' && n.data?.selected === id);
+			for (const one of sel) {
+				const edge = edges.find((e) => e.target === one.id);
+				const owner = nodes.find((n) => n.id === edge?.source && n.type === 'collectible');
+				if (owner) return String(owner.data?.scope ?? 'shared');
+			}
+			return null;
+		}, uuid);
+	let live = null;
+	for (const uuid of [gem1, gem2])
+		if (!live && (await visibleOf(A, uuid)) !== false && (await scopeOf(uuid)) !== 'player')
+			live = uuid;
+	if (live) {
+		await clickObject(A, live);
+		await h.eventually(
+			() => visibleOf(C, live),
+			(v) => v === false,
+			'a SHARED collect made after the join hides that gem on the late joiner too',
+			12000
+		);
+	} else {
+		h.check(true, 'no shared gem was left uncollected — the live path is covered in section 6');
+	}
+	const hostTrove = await valueOf(A, readers[0]);
 	await h.eventually(
 		() => valueOf(C, readers[0]),
-		(v) => v === 2,
-		'and its trove total is unmoved by a gems pickup — the variables do not bleed'
+		(v) => v === hostTrove,
+		'and its trove total agrees with the host — the variables do not bleed (' + hostTrove + ')'
+	);
+
+	// =====================================================================
+	// 10. THE MANAGER v2 — folded groups, GROUP-WIDE settings, one-line rows
+	// =====================================================================
+	// The first panel gave every collectible its own two-line card with its own trigger and
+	// scope select, which is unusable at the only scale that matters: a real game has sixty
+	// gems. So the settings moved to whoever owns them — trigger and scope UP to the group
+	// (every pickup in one score is collected the same way), respawn DOWN on the row (the one
+	// genuinely per-object knob) — and a group folds.
+	await setPlay(A, null);
+	await setPlay(C, null);
+	await A.page.waitForTimeout(700);
+
+	/** @type {string[]} */
+	const rubies = [];
+	for (const name of ['Ruby1', 'Ruby2', 'Ruby3']) rubies.push(await makeBox(A, name));
+	h.check(
+		rubies.every(Boolean) && new Set(rubies).size === 3,
+		'premise: three fresh boxes for a group of their own'
+	);
+	await A.page.evaluate((list) => {
+		const s = window.__stores;
+		s.objectActions.selectObject(list[0]);
+		for (const uuid of list.slice(1)) s.objectActions.selectObject(uuid, false, true);
+	}, rubies);
+	await A.page.waitForTimeout(500);
+	await openToolbox(A);
+	await runRecipe(A, { variable: 'rubies', scope: 'shared', trigger: 'click', hide: 'on', respawn: 0 });
+	await A.page.evaluate(() => window.__stores.objectActions.deselectObject());
+	await A.page.waitForTimeout(700);
+
+	const panel2 = A.page.locator('.collectible-manager');
+	const rubyGroup = panel2.locator('.cm-group[data-var="rubies"]');
+	h.check((await rubyGroup.count()) === 1, 'the new variable got a group of its own');
+	h.check((await rubyGroup.locator('.cm-row').count()) === 3, 'holding one row per collectible');
+	const rubyNodes = async (peer) =>
+		(await nodesOf(peer, 'collectible')).filter((n) => n.data.variable === 'rubies');
+
+	// ---- 10a. ONE LINE PER ITEM ---------------------------------------------------
+	// Measured, not assumed: three children, all on the same line, and no select inside.
+	const shape = await rubyGroup.locator('.cm-row').first().evaluate((el) => {
+		const kids = [...el.children];
+		const top = kids[0]?.getBoundingClientRect().top ?? 0;
+		return {
+			classes: kids.map((c) => c.className),
+			selects: el.querySelectorAll('select').length,
+			numbers: el.querySelectorAll('input[type=number]').length,
+			sameLine: kids.every((c) => Math.abs(c.getBoundingClientRect().top - top) < 6)
+		};
+	});
+	h.check(
+		shape.classes.length === 3 &&
+			shape.classes[0].includes('cm-name') &&
+			shape.classes[1].includes('cm-status') &&
+			shape.classes[2].includes('cm-respawn'),
+		'a row is name · state · respawn and nothing else (' + JSON.stringify(shape.classes) + ')'
+	);
+	h.check(shape.selects === 0, 'with no trigger/scope select on it at all');
+	h.check(shape.numbers === 1, 'and exactly one number field — respawn stayed per object');
+	h.check(shape.sameLine, 'all three sit on ONE line (measured off their client rects)');
+
+	// ---- 10b. THE GROUP FOLDS -----------------------------------------------------
+	h.check(
+		(await rubyGroup.locator('.cm-disc').getAttribute('aria-expanded')) === 'true',
+		'a group starts open — the rows are what the panel is for'
+	);
+	await rubyGroup.locator('.cm-disc').click();
+	await A.page.waitForTimeout(500);
+	h.check((await rubyGroup.locator('.cm-row').count()) === 0, 'clicking the header FOLDS it — the rows are gone');
+	h.check(
+		(await rubyGroup.locator('.cm-disc').getAttribute('aria-expanded')) === 'false',
+		'and the disclosure says so'
+	);
+	const foldedCounts = ((await rubyGroup.locator('.cm-counts').textContent()) ?? '').trim();
+	h.check(
+		/left of 3$/.test(foldedCounts),
+		'a folded group still reports its counts (' + foldedCounts + ')'
+	);
+	h.check(
+		(await panel2.locator('.cm-group[data-var="gems"] .cm-row').count()) >= 2,
+		'folding one group leaves the others alone'
+	);
+	await A.page.waitForTimeout(1600); // two turns of the 500ms refresh
+	h.check(
+		(await rubyGroup.locator('.cm-row').count()) === 0,
+		'and the refresh cannot quietly unfold it (the flag rides the rebuild signature)'
+	);
+	// the fold is a LOCAL PREF, not panel state: it has to survive a re-mount, which is what
+	// closing and reopening the window is
+	await A.page.evaluate((id) => window.__stores.moduleToolboxes.closeModuleToolbox(id), TOOLBOX);
+	await A.page.waitForTimeout(500);
+	await openToolbox(A);
+	h.check(
+		(await rubyGroup.locator('.cm-row').count()) === 0,
+		'the fold survives closing and reopening the window'
+	);
+	await rubyGroup.locator('.cm-disc').click();
+	await A.page.waitForTimeout(500);
+	h.check((await rubyGroup.locator('.cm-row').count()) === 3, 'and it unfolds again');
+
+	// ---- 10c. THE HEADER'S BULK TRIGGER ------------------------------------------
+	const bulkTrigger = () => rubyGroup.locator('.cm-bulk select').nth(0);
+	const bulkScope = () => rubyGroup.locator('.cm-bulk select').nth(1);
+	h.check(
+		(await bulkTrigger().inputValue()) === 'click',
+		'the header shows the value the whole group agrees on'
+	);
+	await bulkTrigger().selectOption('touch');
+	await A.page.waitForTimeout(1300);
+	const afterBulk = await rubyNodes(A);
+	h.check(
+		afterBulk.length === 3 && afterBulk.every((n) => n.data.trigger === 'touch'),
+		'ONE header select set trigger on EVERY member (' +
+			JSON.stringify(afterBulk.map((n) => n.data.trigger)) + ')'
+	);
+	await h.eventually(
+		() => rubyNodes(B),
+		(nodes) => nodes.length === 3 && nodes.every((n) => n.data.trigger === 'touch'),
+		'and all three of those edits replicated (api.flow.setNodeData, once per member)',
+		15000
+	);
+	const gemsTriggers = (await nodesOf(A, 'collectible'))
+		.filter((n) => n.data.variable === 'gems')
+		.map((n) => n.data.trigger);
+	h.check(
+		gemsTriggers.length >= 2 && gemsTriggers.every((t) => t === 'click'),
+		'and reached nothing outside its own group (gems: ' + JSON.stringify(gemsTriggers) + ')'
+	);
+
+	// ---- 10d. MIXED, and resolving it --------------------------------------------
+	// break the agreement from OUTSIDE the panel — a peer's edit looks exactly like this
+	await A.page.evaluate(
+		(id) => window.__stores.nodesHandler.setNodeData(id, { trigger: 'click' }, 'scene'),
+		afterBulk[0].id
+	);
+	await A.page.waitForTimeout(1300);
+	const mixed = await bulkTrigger().evaluate((el) => ({
+		value: el.value,
+		flag: el.dataset.mixed ?? null,
+		text: el.options[el.selectedIndex]?.textContent ?? null,
+		options: [...el.options].map((o) => o.textContent)
+	}));
+	h.check(
+		mixed.flag === '1' && mixed.value === '',
+		'members that DISAGREE put the header control in a MIXED state (' + JSON.stringify(mixed.value) + ')'
+	);
+	h.check(
+		mixed.text === '—',
+		'shown as an em-dash rather than lying about one of the two values (' + JSON.stringify(mixed.text) + ')'
+	);
+	h.check(
+		mixed.options.length === 3,
+		'the em-dash is an EXTRA option, so neither real value is claimed (' + JSON.stringify(mixed.options) + ')'
+	);
+	// ...and it is a READOUT, not a value. The option stays in the list while the control
+	// is open, so it must be unpickable AND unwritable: choosing it would otherwise write
+	// the empty string over every member of the group. Forced through the change path here,
+	// because a real pointer cannot select a disabled option — which is the first half of
+	// the guard, and this asserts the second.
+	const mixedIsInert = await bulkTrigger().evaluate((el) => {
+		const option = [...el.options].find((o) => o.value === '');
+		const wasDisabled = !!option?.disabled;
+		el.value = '';
+		el.dispatchEvent(new Event('change', { bubbles: true }));
+		return { wasDisabled };
+	});
+	h.check(mixedIsInert.wasDisabled, 'the em-dash option is DISABLED, so a pointer cannot choose it back');
+	await A.page.waitForTimeout(1300);
+	const afterForcedMixed = await rubyNodes(A);
+	h.check(
+		afterForcedMixed.every((n) => n.data.trigger === 'click' || n.data.trigger === 'touch'),
+		'and forcing it through the change path writes NOTHING — no member gets an empty setting (' +
+			JSON.stringify([...new Set(afterForcedMixed.map((n) => n.data.trigger))]) +
+			')'
+	);
+	await bulkTrigger().selectOption('click');
+	await A.page.waitForTimeout(1300);
+	h.check(
+		(await rubyNodes(A)).every((n) => n.data.trigger === 'click'),
+		'picking a value out of a mixed control applies it to the WHOLE group'
+	);
+	const resolvedSelect = await bulkTrigger().evaluate((el) => ({
+		value: el.value,
+		flag: el.dataset.mixed ?? null,
+		options: el.options.length
+	}));
+	h.check(
+		resolvedSelect.value === 'click' && resolvedSelect.flag === null && resolvedSelect.options === 2,
+		'and the mixed state is gone once they agree (' + JSON.stringify(resolvedSelect) + ')'
+	);
+
+	// ---- 10e. THE HEADER'S BULK SCOPE --------------------------------------------
+	await bulkScope().selectOption('player');
+	await A.page.waitForTimeout(1300);
+	h.check(
+		(await rubyNodes(A)).every((n) => n.data.scope === 'player'),
+		'the second header control does the same for scope'
+	);
+	await h.eventually(
+		() => rubyNodes(B),
+		(nodes) => nodes.length === 3 && nodes.every((n) => n.data.scope === 'player'),
+		'and replicated the same way',
+		15000
+	);
+	h.check(
+		(await nodesOf(A, 'collectible')).find((n) => n.id === nodeGem1.id)?.data.scope === 'shared',
+		'while a gem in another group kept its own scope'
+	);
+
+	// ---- 10f. RESPAWN IS STILL PER ROW ------------------------------------------
+	const ruby1Row = rubyGroup.locator('.cm-row').filter({ hasText: 'Ruby1' });
+	const ruby2Row = rubyGroup.locator('.cm-row').filter({ hasText: 'Ruby2' });
+	const ruby1Id = await ruby1Row.getAttribute('data-node');
+	const ruby2Id = await ruby2Row.getAttribute('data-node');
+	h.check(!!ruby1Id && !!ruby2Id && ruby1Id !== ruby2Id, 'premise: each row names its own node');
+	await ruby1Row.locator('input[type=number]').fill('4');
+	await ruby1Row.locator('input[type=number]').press('Enter');
+	await A.page.waitForTimeout(1300);
+	const respawns = Object.fromEntries((await rubyNodes(A)).map((n) => [n.id, Number(n.data.respawn) || 0]));
+	h.check(
+		respawns[ruby1Id] === 4 &&
+			Object.entries(respawns).every(([id, value]) => id === ruby1Id || value === 0),
+		'a row edit changes THAT collectible and no other (' + JSON.stringify(respawns) + ')'
+	);
+	await h.eventually(
+		() => rubyNodes(B),
+		(nodes) => Number(nodes.find((n) => n.id === ruby1Id)?.data.respawn) === 4,
+		'and the row edit replicates just as it always did'
+	);
+
+	// ---- 10g. THE ROW IS STILL A SELECT TARGET, THE CONTROL IS NOT ---------------
+	const selectionNow = () =>
+		A.page.evaluate(() => {
+			let set;
+			window.__stores.selectedObjects.subscribe((v) => (set = v))();
+			return [...(set ?? [])];
+		});
+	await A.page.evaluate(() => window.__stores.objectActions.deselectObject());
+	await A.page.waitForTimeout(300);
+	await ruby2Row.locator('.cm-status').click(); // the STATE, not the name: the whole row is the target
+	await A.page.waitForTimeout(600);
+	h.check((await selectionNow()).includes(rubies[1]), 'clicking anywhere on a row still SELECTS its object');
+	await A.page.evaluate(() => window.__stores.objectActions.deselectObject());
+	await A.page.waitForTimeout(300);
+	await ruby1Row.locator('input[type=number]').click();
+	await A.page.waitForTimeout(600);
+	h.check(
+		(await selectionNow()).length === 0,
+		'but clicking the respawn field does not — a control is not the row (' +
+			JSON.stringify(await selectionNow()) + ')'
+	);
+
+	// ---- 10h. THE STATE WORD IS LIVE --------------------------------------------
+	// The panel only shows outside play, but a click lands either way (only the HIDE is
+	// play-gated), so the row's state can be watched from the editor.
+	await setState(A, 'playing');
+	await A.page.waitForTimeout(900);
+	const statusOf = (id) => rubyGroup.locator('.cm-row[data-node="' + id + '"] .cm-status').innerText();
+	h.check((await statusOf(ruby2Id)).trim() === 'waiting', 'premise: Ruby2 reads waiting');
+	await clickObject(A, rubies[1]);
+	await h.eventually(
+		() => statusOf(ruby2Id),
+		(text) => text.trim() === 'collected',
+		'the state word follows the collect, live off the trigger log'
+	);
+	await clickObject(A, rubies[0]); // Ruby1 respawns after 4s
+	await h.eventually(
+		() => statusOf(ruby1Id),
+		(text) => /^back in [1-4]s$/.test(text.trim()),
+		'a respawning row counts DOWN instead of reading a flat "collected"'
+	);
+	await h.eventually(
+		() => statusOf(ruby1Id),
+		(text) => text.trim() === 'waiting',
+		'and reads waiting again the moment it is back',
+		15000
+	);
+
+	// ---- 10i. WHAT A BULK APPLY COSTS AT SCALE ----------------------------------
+	// There is no batch node-data write in the SDK, so a bulk apply is N `nodedata`
+	// messages. This measures the SYNCHRONOUS cost of one press on a twenty-member group and
+	// proves all twenty land on the peer — inventing a core seam is not a module's call, so
+	// the number is the deliverable.
+	const probeIds = await A.page.evaluate(() => {
+		const nodes = [];
+		for (let i = 0; i < 20; i++)
+			nodes.push({
+				type: 'collectible',
+				x: 1800,
+				y: 40 + i * 60,
+				data: {
+					variable: 'probe',
+					scope: 'player',
+					trigger: 'click',
+					hide: 'on',
+					respawn: 0,
+					perRound: true,
+					whilePlaying: true
+				}
+			});
+		return window.__ct.flow.addNodes({ nodes });
+	});
+	h.check(probeIds.length === 20, 'premise: a twenty-member group (' + probeIds.length + ')');
+	await A.page.waitForTimeout(2000);
+	const probeGroup = panel2.locator('.cm-group[data-var="probe"]');
+	h.check((await probeGroup.locator('.cm-row').count()) === 20, 'the panel lists all twenty on twenty lines');
+	const probeNodes = async (peer) =>
+		(await nodesOf(peer, 'collectible')).filter((n) => n.data.variable === 'probe');
+	const cost = await probeGroup.locator('.cm-bulk select').nth(0).evaluate((el) => {
+		el.value = 'touch';
+		const t0 = performance.now();
+		el.dispatchEvent(new Event('change', { bubbles: true }));
+		return performance.now() - t0;
+	});
+	h.check(
+		(await probeNodes(A)).every((n) => n.data.trigger === 'touch'),
+		'one press flipped all twenty (' + cost.toFixed(1) + 'ms synchronous, twenty nodedata messages)'
+	);
+	await h.eventually(
+		() => probeNodes(B),
+		(nodes) => nodes.length === 20 && nodes.every((n) => n.data.trigger === 'touch'),
+		'and all twenty landed on the peer',
+		25000
+	);
+	// pressing a value the group ALREADY holds must send nothing, which is what keeps the
+	// message count proportional to the DIFFERENCE rather than to the group
+	const noop = await probeGroup.locator('.cm-bulk select').nth(0).evaluate((el) => {
+		el.value = 'touch';
+		el.dispatchEvent(new Event('change', { bubbles: true }));
+		return el.value;
+	});
+	await A.page.waitForTimeout(600);
+	const noopToast = await h.toasts(A.page);
+	h.check(
+		noop === 'touch' && noopToast.includes('was already trigger touch'),
+		'and a bulk press over a group that already agrees changes nothing (' +
+			(noopToast.match(/was already[^"]*/)?.[0] ?? noopToast.slice(0, 80)) + ')'
 	);
 
 	await h.finish(browser);
