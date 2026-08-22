@@ -95,6 +95,70 @@ answer for it — use `scope: 'player'` (one writer per row, immune by construct
 where the number has to be exact, and assert the **world** rather than the score
 when you test a shared chain.
 
+## Check it by hand
+
+The automated flight below covers all of this, but these are the steps to *feel* it —
+and the order matters, because two of them look like bugs until you know why.
+
+**Setup.** Open the app, install the module (**Modules ▸ Browse**, or
+`collectible.zip` through **Modules ▸ User**), and confirm two things appeared: a
+**Collectibles** group in the node editor's palette, and the **Collectibles** toolbox
+under viewport right-click ▸ **Module tools** (or the **Open Collectibles** button on
+the module's card).
+
+**1 — the sixty-second smoke test.**
+
+1. `/create box` three times.
+2. Select all three, open the toolbox, press **Make collectible** on the defaults
+   (`gems`, shared, click, no respawn, hide on).
+3. The toolbox should list three rows under a **gems — 0 collected, 3 left of 3**
+   header, each naming its object with trigger/scope chips.
+4. Press **Play**, click a box: **it vanishes**.
+5. To watch the counts while playing, add a **Debug** HUD element (HUD editor ▸
+   Display ▸ Debug) and click the pill to expand it — the toolbox itself is hidden in
+   Play mode by design.
+6. Press **Esc**. **All three boxes come back.** That is correct — see below.
+
+**2 — the parameters.** Edit them on the node card, or inline on a toolbox row:
+
+- **Checkpoint** (`hide: off`) — collect it in Play: the object **stays visible** and
+  the count still rises. That is a lap gate.
+- **Respawn** (`respawn: 5`) — collect it, wait: the object returns by itself, and
+  collecting it again **counts a second point**.
+- **Touch** (`trigger: touch`) — press Play and *walk into* it with WASD instead of
+  clicking. Each peer detects itself, so no physics simulation is involved.
+
+**3 — two peers.** Open a second window, **install the module there too** (a peer
+without it cannot evaluate the node), and connect them.
+
+- **Shared**: A collects → the gem vanishes on **both** screens, one score.
+- **Per-player** (`scope: player`): A collects → it vanishes **only for A**, stays
+  takeable for B, and each banks their own row. Expand the Debug pill on both screens:
+  the per-player chips agree about *both* people.
+
+**4 — the round.** Wire a HUD button to **Set Game State ▸ playing**, collect a few,
+then set it back to **menu**: every gem reads un-collected and the counts reset. That
+is `perRound`, derived from the replicated round with nothing sent.
+
+**Expected, not bugs.**
+
+- **Leaving Play brings everything back.** `whilePlaying` hands each object to its
+  owner the moment you stop playing, so you can still edit it and hide/show it from
+  the object list. That *was* a reported bug (21-F2) and this is the fix.
+- **Clicking in the editor collects but nothing vanishes.** The pulse lands; the hide
+  only applies while playing. Press Play and it is already gone.
+- **The toolbox disappears in Play mode** — it is an authoring tool.
+- **A peer joining mid-round sees collected objects back.** See the section above.
+
+**If you would rather read numbers than click:**
+
+```js
+window.__stores.gameState.gameVar('gems', 0)        // the shared score
+window.__stores.peerVars.leaderboardRows('gems')    // the per-player rows
+window.__stores.flowValues                          // each node's live value
+window.__stores.isLocked.set(true)                  // enter Play without the button
+```
+
 ## Test-flight
 
 ```bash
