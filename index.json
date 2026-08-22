@@ -28,6 +28,21 @@
 		]
 	},
 	{
+		"id": "collectible",
+		"name": "Collectibles",
+		"version": "1.0.0",
+		"description": "One node makes an object collectible: click it or walk into it, it hides and counts. Shared or per-player score, with respawn and never-hiding checkpoints.",
+		"author": "theprototype-app",
+		"source": "modules/collectible",
+		"zip": "collectible.zip",
+		"category": "game",
+		"tags": [
+			"game",
+			"score",
+			"flow"
+		]
+	},
+	{
 		"id": "door-keypad",
 		"name": "Door & Keypad",
 		"version": "1.0.0",
