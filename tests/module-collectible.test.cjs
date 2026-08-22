@@ -205,6 +205,53 @@ h.run(async () => {
 		'the debug line stays SILENT with no collectibles in the scene (' + JSON.stringify(registered.debugLines) + ')'
 	);
 
+	// ---- 0b. HOW YOU GET IN -------------------------------------------------------
+	// The toolbox opts OUT of the burger menu's Modules section (`sidebar: false`): it
+	// belongs to a workflow, and the burger menu is the app's permanent chrome, which one
+	// game mechanic has no standing claim on. So the ways in are the VIEWPORT menu and a
+	// button on this module's own card — and the card button is clicked FOR REAL here,
+	// because a card only exists for a genuinely installed module.
+	await A.page.locator('#logo-menu').click();
+	await A.page.waitForTimeout(600);
+	const noSidebarRow = await A.page.evaluate(() => ({
+		row: !!document.querySelector('#open-toolbox-mod-collectible-manager'),
+		modulesSection: !!document.querySelector('#open-modules-manager')
+	}));
+	h.check(
+		!noSidebarRow.row && noSidebarRow.modulesSection,
+		'no permanent row in the burger menu (its Modules section is there, ours is not)'
+	);
+	await A.page.keyboard.press('Escape');
+	await A.page.waitForTimeout(400);
+	const viewportRow = await A.page.evaluate(() => {
+		const t = window.__stores.moduleToolboxes;
+		let list, open;
+		t.moduleToolboxes.subscribe((v) => (list = v))();
+		t.openToolboxes.subscribe((v) => (open = v))();
+		return t.buildToolboxItems(list, open, 'menu').map((b) => b.id);
+	});
+	h.check(
+		viewportRow.includes(TOOLBOX),
+		'but the viewport menu still offers it (' + JSON.stringify(viewportRow) + ')'
+	);
+	// the real card button in the real manager
+	await A.page.evaluate(() => window.__stores.modulesOpen.set(true));
+	await A.page.waitForTimeout(800);
+	await A.page.getByRole('tab', { name: /^User/ }).click();
+	await A.page.waitForTimeout(400);
+	await A.page.getByRole('button', { name: 'Open Collectibles' }).click();
+	await A.page.waitForTimeout(900);
+	const viaCard = await A.page.evaluate(() => {
+		let open;
+		window.__stores.modulesOpen.subscribe((v) => (open = v))();
+		return { managerOpen: open, visible: !!document.querySelector('.collectible-manager') };
+	});
+	h.check(viaCard.visible, 'the "Open Collectibles" card button opens the toolbox for real');
+	h.check(
+		!viaCard.managerOpen,
+		'and the manager dismisses itself, so the window is not left behind the dialog'
+	);
+
 	// =====================================================================
 	// 1. THE RECIPE — one node pair per selected object, replicated, ONE undo
 	// =====================================================================

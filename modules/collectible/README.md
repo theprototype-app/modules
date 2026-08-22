@@ -18,10 +18,13 @@ card.
    `collectible.zip` through **Modules ▸ User ▸ Install from zip**. Modules do not
    travel over the wire.
 2. Select the object(s) you want to be collectible.
-3. Open the **Collectibles** toolbox (sidebar **Modules** section, or the viewport
-   menu), set *Counts into* / *Scope* / *Trigger* / *Hide* / *Respawn*, and press
-   **Make collectible**. That builds one **Collectible** node plus one Object
-   Selector per object, in the scene graph, as **one undo entry**.
+3. Open the **Collectibles** toolbox — right-click the viewport ▸ **Module tools ▸
+   Collectibles**, or the **Open Collectibles** button on this module's card in
+   **Modules ▸ User**. (Deliberately no permanent row in the burger menu: the toolbox
+   belongs to a workflow, not to the app's chrome.) Set *Counts into* / *Scope* /
+   *Trigger* / *Hide* / *Respawn*, and press **Make collectible**. That builds one
+   **Collectible** node plus one Object Selector per object, in the scene graph, as
+   **one undo entry**.
 4. Press **Play** and start a round (a HUD *Start* button, or the Game shell). Now
    collect them.
 

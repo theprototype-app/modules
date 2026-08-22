@@ -731,13 +731,25 @@ export default {
 			return () => clearInterval(timer);
 		}
 
-		api.registerToolbox({
+		// `sidebar: false`: NO permanent row in the burger menu's Modules section. This
+		// window belongs to a workflow — you open it to build or audit pickups, then close
+		// it — and the burger menu is the app's permanent chrome, which one game mechanic
+		// has no standing claim on (the 21-C3 Road-menu ruling, one surface over: this
+		// project is not only for games). It keeps its VIEWPORT-menu row, where the work
+		// is, and gains a button on its own card in the Modules manager.
+		const toolbox = api.registerToolbox({
 			id: 'manager',
 			title: 'Collectibles',
 			width: 260,
 			minW: 230,
+			sidebar: false,
 			mount: mountManager
 		});
+
+		// ...which is this. `registerMenu` renders on our card beside Update/Remove, and
+		// `openToolbox` dismisses the manager on its way out — otherwise the window would
+		// open underneath the very dialog the button lives in.
+		api.registerMenu('Open Collectibles', () => api.openToolbox(toolbox));
 
 		// A new scene has none of the old scene's pulses; forget the stamps rather than
 		// carrying them into a graph whose node ids may repeat.
