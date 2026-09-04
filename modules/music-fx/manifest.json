@@ -1,0 +1,9 @@
+{
+	"id": "music-fx",
+	"name": "Music FX",
+	"version": "0.1.0",
+	"format": 1,
+	"description": "A four-channel mixer and five pedals (delay, reverb, filter, distortion, bitcrush) as audio devices. Cable them in any order.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}

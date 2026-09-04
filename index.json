@@ -144,6 +144,21 @@
 		]
 	},
 	{
+		"id": "music-fx",
+		"name": "Music FX",
+		"version": "0.1.0",
+		"description": "A four-channel mixer and five pedals - delay, reverb, filter, distortion, bitcrush - as audio devices. Cable them in any order; re-plug to re-order.",
+		"author": "theprototype-app",
+		"source": "modules/music-fx",
+		"zip": "music-fx.zip",
+		"category": "instrument",
+		"tags": [
+			"audio",
+			"effects",
+			"vr"
+		]
+	},
+	{
 		"id": "piano",
 		"name": "Piano",
 		"version": "1.1.0",
