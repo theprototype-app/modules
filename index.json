@@ -132,11 +132,25 @@
 	{
 		"id": "music-lab",
 		"name": "Music Lab",
-		"version": "0.1.0",
-		"description": "A Piano and a Speaker as audio devices: cable one into the other and every peer hears it from where the speaker stands.",
+		"version": "0.2.0",
+		"description": "A Piano, a Speaker, a Transport, a Drum machine and Sampler pads as audio devices: cable them, paint a beat, press Play - every peer hears the same beat.",
 		"author": "theprototype-app",
 		"source": "modules/music-lab",
 		"zip": "music-lab.zip",
+		"category": "instrument",
+		"tags": [
+			"audio",
+			"vr"
+		]
+	},
+	{
+		"id": "music-dj",
+		"name": "Music DJ",
+		"version": "0.1.0",
+		"description": "Two decks and a crossfader as audio devices: drop a track on a deck, scrub the platter, ride the pitch, fade between them - every peer hears the same position.",
+		"author": "theprototype-app",
+		"source": "modules/music-dj",
+		"zip": "music-dj.zip",
 		"category": "instrument",
 		"tags": [
 			"audio",
