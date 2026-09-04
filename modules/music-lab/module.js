@@ -858,6 +858,19 @@ function padHandle(ctx, node, params, kind) {
 	};
 }
 
+/** 23-D1: what a pad device references by content hash - every pad sample in `pads` - so
+ * the Scene manifest (and a .tpscene export) carries the bytes @param {any} params */
+function padAssets(params) {
+	const table = padTable(params?.pads);
+	/** @type {{hash: string, name: string}[]} */
+	const refs = [];
+	for (const key of Object.keys(table)) {
+		const hash = padSetting(table, Number(key), 'sample', '');
+		if (hash) refs.push({ hash: String(hash), name: String(padSetting(table, Number(key), 'name', '') || 'pad ' + (Number(key) + 1)) });
+	}
+	return refs;
+}
+
 /** @param {any} api */
 function drumsSpec(api) {
 	return {
@@ -866,6 +879,7 @@ function drumsSpec(api) {
 		icon: '🥁',
 		group: 'Music Lab',
 		ports: { in: [], out: [{ id: 'out', label: 'Out', kind: 'audio' }] },
+		assets: padAssets,
 		params: [
 			{ key: 'level', label: 'Level', kind: 'range', min: 0, max: 1, step: 0.01, default: 0.8 },
 			// `pattern` and `pads` are part of the document too (undeclared: the face edits
@@ -927,6 +941,7 @@ function samplerSpec(api) {
 		icon: '🎛️',
 		group: 'Music Lab',
 		ports: { in: [], out: [{ id: 'out', label: 'Out', kind: 'audio' }] },
+		assets: padAssets,
 		params: [{ key: 'level', label: 'Level', kind: 'range', min: 0, max: 1, step: 0.01, default: 0.8 }],
 		/** @param {any} ctx @param {any} node @param {any} params */
 		build(ctx, node, params) {

@@ -264,6 +264,9 @@ h.run(async () => {
 	const heardB = await watchB;
 	h.check(hit.took === true && heardB.onsets.length === 1 && heardB.peak > Math.max(0.002, quietB.peak * 3), '7.6 a pad press on A is HEARD once on B - the note replicated, B played its own copy of the sample (peak ' + heardB.peak.toFixed(4) + ')');
 
+	// 23-D1: the pad's sample is a SCENE ASSET by hash (spec.assets), so an export carries it
+	await h.eventually(() => inPage(A.page, "let list; s.sceneAssets.sceneAssets.subscribe((v) => (list = v))(); return list.filter((e) => e.group === 'audio').map((e) => ({ hash: e.hash, name: e.name }))"), (list) => list.some((e) => e.hash === dropped.hash && e.name === 'ping.wav'), '7.7 the sampler declares its pad sample to the Scene manifest by hash, named', 6000);
+
 	console.log('\n=== 8. the transport face: BPM buttons and tap tempo write the SHARED clock ===');
 	await clickMesh(A.page, ids.t, 'tp-bpm+');
 	await h.eventually(() => bpmOf(B.page), (v) => v === 125, '8.1 bpm+ is 125 on B');

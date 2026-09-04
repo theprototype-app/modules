@@ -221,6 +221,8 @@ function deckSpec(api) {
 		icon: '💿',
 		group: 'Music DJ',
 		ports: { in: [], out: [{ id: 'out', label: 'Out', kind: 'audio' }] },
+		/** 23-D1: the deck's track is a scene asset by content hash @param {any} p */
+		assets: (p) => (p?.track ? [{ hash: String(p.track), name: String(p.name || 'track') }] : []),
 		params: [
 			{ key: 'level', label: 'Level', kind: 'range', min: 0, max: 1, step: 0.01, default: 0.9 },
 			{ key: 'rate', label: 'Pitch', kind: 'range', min: PITCH_MIN, max: PITCH_MAX, step: 0.005, default: 1 },

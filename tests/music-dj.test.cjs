@@ -90,6 +90,8 @@ h.run(async () => {
 	await h.eventually(() => docOf(B.page, ids.r).then((d) => d?.track ?? null), (v) => v === right.hash, '1.4 B holds the right deck\'s hash');
 	await h.eventually(() => posOf(B.page, ids.l).then((p) => p?.decoded ?? false), (v) => v === true, '1.5 B pulled and decoded the left track by hash', 20000);
 	await inPage(A.page, 'ad.setDeviceFor(arg, { params: { position: -1 } }); return 1', ids.x);
+	// 23-D1: both tracks are SCENE ASSETS by hash (spec.assets), so an export carries them
+	await h.eventually(() => inPage(A.page, "let list; s.sceneAssets.sceneAssets.subscribe((v) => (list = v))(); return list.filter((e) => e.group === 'audio').map((e) => e.hash)"), (list) => list.includes(left.hash) && list.includes(right.hash), '1.6 both decks declare their track to the Scene manifest by hash', 6000);
 
 	console.log('\n=== 2. play: the position is derived by every peer, and heard ===');
 	const play = await clickMesh(A.page, ids.l, 'dk-play');
