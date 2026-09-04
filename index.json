@@ -130,6 +130,20 @@
 		]
 	},
 	{
+		"id": "music-lab",
+		"name": "Music Lab",
+		"version": "0.1.0",
+		"description": "A Piano and a Speaker as audio devices: cable one into the other and every peer hears it from where the speaker stands.",
+		"author": "theprototype-app",
+		"source": "modules/music-lab",
+		"zip": "music-lab.zip",
+		"category": "instrument",
+		"tags": [
+			"audio",
+			"vr"
+		]
+	},
+	{
 		"id": "piano",
 		"name": "Piano",
 		"version": "1.1.0",

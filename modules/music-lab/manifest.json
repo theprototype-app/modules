@@ -1,0 +1,9 @@
+{
+	"id": "music-lab",
+	"name": "Music Lab",
+	"version": "0.1.0",
+	"format": 1,
+	"description": "Two audio devices on the engine: a Piano you play and a Speaker that puts it in the room. Cable one into the other.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}
