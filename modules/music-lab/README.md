@@ -45,3 +45,32 @@ APP_URL=https://localhost:5216/ npm test -- music-lab
 The flight installs the real zip on three peers and measures actual sound through a
 destination tap: silent uncabled, heard when cabled, quieter when the speaker is moved
 away or turned around, silent again when it is unplugged, and heard by a late joiner.
+
+## The beat lab (23-C2)
+
+Three more devices, all through the same `registerAudioDevice` contract:
+
+- **Transport** - the face of the SHARED clock. Play/Stop, BPM -/+ (5 at a time), tap
+  tempo, and a display with the bar counter that every peer draws itself (a canvas
+  texture made in `build`, never replicated). Only the resulting `play`/`setBpm` writes
+  leave the device, and those are the transport's own replicated messages.
+- **Drum machine** - 16 steps x 8 pads (kick, snare, hat, open hat, clap, tom, rim,
+  crash), synthesized, no assets. **The pattern is the device document**: the `pattern`
+  param is 8 rows of 16 velocity digits (`0`..`9`) joined by `/`, so it replicates,
+  saves and undoes as one thing with no channel of its own. Click a step to toggle it;
+  hold and sweep across the grid to paint - the sweep previews locally and commits ONE
+  write when it ends (one Ctrl+Z reverts the whole drag). A pad button plays the pad now
+  (a replicated note; pad n = note 36 + n, so a flow Note Trigger reaches it too). Steps
+  are scheduled through the engine's look-ahead scheduler: every peer runs the same
+  pattern from the same transport, a late joiner starts on the NEXT beat, and nothing
+  crosses the wire during playback. Per-pad settings (`level`, `pan`, `mute`, `choke`,
+  `sample`) live in the `pads` param, one JSON string keyed by pad index.
+- **Sampler pads** - 4x4. Drop an audio item from the Explorer onto a pad (or onto the
+  body for the first empty pad) and it becomes that pad's sample by CONTENT HASH; every
+  peer pulls and decodes the bytes itself (`api.audio.sample`). Per pad: `sample`,
+  `pitch` (semitones), `start` (0..1), `loop`, `gate` (s), `level`, `pan` - in `pads`.
+  An empty pad still answers with a tick. Pad n = note 36 + n.
+
+Sidebar: **Music Lab: beat lab** adds the four (with a speaker) and a starter pattern.
+Needs core's `api.registerDropHandler` (23-C2) for the drop; everything else runs on
+the A-batch engine.

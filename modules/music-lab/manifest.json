@@ -1,9 +1,11 @@
 {
 	"id": "music-lab",
 	"name": "Music Lab",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"format": 1,
-	"description": "Two audio devices on the engine: a Piano you play and a Speaker that puts it in the room. Cable one into the other.",
+	"description": "A Piano, a Speaker, a Transport, a Drum machine and Sampler pads on the engine. Cable them, paint a beat, press Play.",
 	"entry": "module.js",
-	"files": ["module.js"]
+	"files": [
+		"module.js"
+	]
 }
