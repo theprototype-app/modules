@@ -187,20 +187,6 @@
 		]
 	},
 	{
-		"id": "music-voice",
-		"name": "Music Voice",
-		"version": "0.1.0",
-		"description": "A Mic, a Looper, a Synth and a Theremin as audio devices: sing into the graph, loop what is patched in on the bar, play chords, wave a hand - every peer hears the same thing.",
-		"author": "theprototype-app",
-		"source": "modules/music-voice",
-		"zip": "music-voice.zip",
-		"category": "instrument",
-		"tags": [
-			"audio",
-			"vr"
-		]
-	},
-	{
 		"id": "piano",
 		"name": "Piano",
 		"version": "1.1.0",
