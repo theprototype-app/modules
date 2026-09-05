@@ -1,0 +1,9 @@
+{
+	"id": "music-voice",
+	"name": "Music Voice",
+	"version": "0.1.0",
+	"format": 1,
+	"description": "A Mic, a Looper, a Synth and a Theremin on the engine: sing into the graph, loop what is patched in on the bar, play chords, wave a hand - every peer hears the same thing.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}
