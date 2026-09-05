@@ -130,6 +130,35 @@
 		]
 	},
 	{
+		"id": "music-dj",
+		"name": "Music DJ",
+		"version": "0.1.0",
+		"description": "Two decks and a crossfader as audio devices: drop a track on a deck, scrub the platter, ride the pitch, fade between them - every peer hears the same position.",
+		"author": "theprototype-app",
+		"source": "modules/music-dj",
+		"zip": "music-dj.zip",
+		"category": "instrument",
+		"tags": [
+			"audio",
+			"vr"
+		]
+	},
+	{
+		"id": "music-fx",
+		"name": "Music FX",
+		"version": "0.1.0",
+		"description": "A four-channel mixer and five pedals - delay, reverb, filter, distortion, bitcrush - as audio devices. Cable them in any order; re-plug to re-order.",
+		"author": "theprototype-app",
+		"source": "modules/music-fx",
+		"zip": "music-fx.zip",
+		"category": "instrument",
+		"tags": [
+			"audio",
+			"effects",
+			"vr"
+		]
+	},
+	{
 		"id": "music-lab",
 		"name": "Music Lab",
 		"version": "0.2.0",
@@ -144,13 +173,13 @@
 		]
 	},
 	{
-		"id": "music-dj",
-		"name": "Music DJ",
+		"id": "music-voice",
+		"name": "Music Voice",
 		"version": "0.1.0",
-		"description": "Two decks and a crossfader as audio devices: drop a track on a deck, scrub the platter, ride the pitch, fade between them - every peer hears the same position.",
+		"description": "A Mic, a Looper, a Synth and a Theremin as audio devices: sing into the graph, loop what is patched in on the bar, play chords, wave a hand - every peer hears the same thing.",
 		"author": "theprototype-app",
-		"source": "modules/music-dj",
-		"zip": "music-dj.zip",
+		"source": "modules/music-voice",
+		"zip": "music-voice.zip",
 		"category": "instrument",
 		"tags": [
 			"audio",
