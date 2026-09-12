@@ -96,7 +96,7 @@ export function registerNodes(api, game) {
 					{
 						key: 'read',
 						kind: 'select',
-						options: ['red', 'blue', 'goals', 'myteam', 'lastteam', 'started', 'left', 'players', 'serves', 'mygoals']
+						options: ['red', 'blue', 'goals', 'myteam', 'lastteam', 'started', 'left', 'players', 'serves', 'mygoals', 'matches']
 					}
 				]
 			},
@@ -250,6 +250,9 @@ export function registerNodes(api, game) {
 					return s.serves;
 				case 'mygoals':
 					return api.peerVars?.mine?.('goals', 0) ?? 0;
+				case 'matches':
+					// B5: how many matches the saved sheet holds (gameState.vars, in the .tpscene)
+					return game.matchLog().length;
 				default:
 					return s.score.red;
 			}

@@ -58,6 +58,21 @@ the pitch and names the ball through its `ball` object input.
 | late joiners | `registerStateSync` carries the whole match state |
 | the saved log | `api.game.setVar('football', {matches})` on the game singleton, written by the authority at match end |
 
+## Records (fork 3: session records + a saved match log)
+
+- **Per player, per session**: `goals`, `touches`, `owngoals` on `peerVars` — the one peer
+  a goal names writes its own row; a `leaderboard` node renders them; a row survives its
+  owner's Esc and drops with a disconnect (the peerVars lifetime). A new match does NOT
+  reset them: a session record is a session record (author a reset with `On Game State
+  (playing)` → `Set Variable scope:player` if you want one).
+- **Match history**: at match end the authority appends `{at, red, blue, winner,
+  scorers: [{name, goals}]}` to `gameState.vars.football.matches` (capped 50, names not
+  peer ids). `gameState` is in the session payload, so a saved `.tpscene` carries the
+  sheet and reopening the scene shows past matches; the Records node's `logElement` lists
+  them and `Football Value read: matches` counts them.
+- **Cloud leaderboard** (persistent totals by account): not here — a PocketBase collection
+  + a plugin in the cloud repo, its own plan.
+
 ## The template
 
 `pitchObjects(dims)`, `pitchGraph(names, {hudButtons: true})` and `PITCH_PHYSICS` in
