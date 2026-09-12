@@ -214,9 +214,14 @@ export function registerNodes(api, game) {
 		const key = JSON.stringify([rows, score, log]);
 		if (key === lastRows) return;
 		lastRows = key;
-		if (data.element) api.hud.rows(String(data.element), rows);
-		if (data.scoreElement) api.hud.rows(String(data.scoreElement), score);
-		if (data.logElement) api.hud.rows(String(data.logElement), log);
+		// an element field may name SEVERAL lists (comma-separated): the menu's sheet and
+		// the in-play sheet are two elements on two screens fed by one node
+		const each = (/** @type {any} */ field, /** @type {string[]} */ list) => {
+			for (const id of String(field ?? '').split(',')) if (id.trim()) api.hud.rows(id.trim(), list);
+		};
+		each(data.element, rows);
+		each(data.scoreElement, score);
+		each(data.logElement, log);
 	});
 
 	// ---- the readable half: a number a core HUD Text / Compare can consume --------------------

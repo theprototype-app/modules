@@ -214,7 +214,12 @@ export function pitchGraph(names, opts = {}) {
 	E('gateb', 'selgateb');
 	row();
 	// the sheet + the scoreboard rows (HUD list ids the def's HUD document carries)
-	N('records', 'fbrecords', 'Records', 280, y, { show: 'all', element: 'fb-sheet', scoreElement: 'fb-score' });
+	N('records', 'fbrecords', 'Records', 280, y, {
+		show: 'all',
+		element: opts.hudButtons ? 'fb-sheet,fb-sheet-play' : 'fb-sheet',
+		scoreElement: opts.hudButtons ? 'fb-score,fb-score-over' : 'fb-score',
+		logElement: opts.hudButtons ? 'fb-log' : ''
+	});
 	E('records', 'selpitch');
 	row();
 	// the physical buttons: each fbbutton targets its button object; a click on the
@@ -246,6 +251,32 @@ export function pitchGraph(names, opts = {}) {
 			N('sel' + id, 'objectselector', NAMES.lamp(team, i), x, y + 70, { selected: sel(NAMES.lamp(team, i)) });
 			E(id, 'sel' + id);
 		}
+		row();
+	}
+	if (opts.hudButtons) {
+		// the over screen's and the pause menu's New match buttons: their own Match Button
+		// nodes (two edges into one `press` handle would not OR — the last wins)
+		for (const [id, element] of [['bnewover', 'fb-new-match'], ['bnewpause', 'fb-new-match-pause']]) {
+			N(id, 'fbbutton', 'Button: new-match (' + element + ')', 280, y, { action: 'new-match' });
+			E(id, 'selbnew');
+			N('h' + id, 'hudbutton', 'HUD ' + element, 40, y, { element, perPlayer: true });
+			E('h' + id, id, 'press');
+			row();
+		}
+		// pause / resume / quit while playing: Towers' rows verbatim (P toggles the menu)
+		N('pkey', 'keypress', 'Press P', 40, y, { code: 'KeyP', edge: 'down', pulse: 0.3 });
+		N('pausetoggle', 'hudscreen', 'Toggle pause menu', 280, y, { screen: 'pause', action: 'toggle' });
+		E('pkey', 'pausetoggle', 'trigger');
+		row();
+		N('bresume', 'hudbutton', 'Resume button', 40, y, { element: 'resume-btn' });
+		N('resumehide', 'hudscreen', 'Close pause menu', 280, y, { screen: 'pause', action: 'hide' });
+		E('bresume', 'resumehide', 'trigger');
+		row();
+		N('bquit', 'hudbutton', 'Quit to menu button', 40, y, { element: 'quit-btn' });
+		N('doquit', 'setgamestate', 'Quit to menu', 280, y, { state: 'menu', outcome: '', reset: true });
+		N('quithide', 'hudscreen', 'Close pause on quit', 520, y, { screen: 'pause', action: 'hide' });
+		E('bquit', 'doquit', 'trigger');
+		E('bquit', 'quithide', 'trigger');
 		row();
 	}
 	// the game shell follows the match: start -> playing, over -> over (the DOM HUD's

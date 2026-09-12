@@ -13,6 +13,7 @@
 import { createGame } from './game.js';
 import { registerNodes } from './nodes.js';
 import { registerToolbox } from './toolbox.js';
+import { pitchHud } from './hud.js';
 
 export default {
 	id: 'football',
@@ -59,6 +60,7 @@ export default {
 				game,
 				nodes,
 				toolbox,
+				hud: pitchHud,
 				hitSource: () => hitSource,
 				snapshot: () => ({
 					...game.getState(),

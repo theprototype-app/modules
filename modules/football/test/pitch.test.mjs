@@ -1,5 +1,6 @@
 // The pitch as data — the object list and the graph the recipe and the def share.
 import { pitchObjects, pitchGraph, normalizeDims, DEFAULT_DIMS, NAMES, LAMPS_PER_GATE, createCommand } from '../src/pitch.js';
+import { pitchHud } from '../src/hud.js';
 
 /** @param {(ok: boolean, label: string) => void} check */
 export function run(check) {
@@ -41,8 +42,20 @@ export function run(check) {
 	check(g.nodes.filter((n) => n.type === 'fblamp').length === 2 * LAMPS_PER_GATE, 'one Score Lamp node per lamp');
 	check(g.nodes.filter((n) => n.type === 'fbbutton').length === 4 && !g.nodes.some((n) => n.type === 'hudbutton'), 'four Match Buttons; no HUD buttons unless asked');
 	const withHud = pitchGraph(undefined, { hudButtons: true });
-	check(withHud.nodes.filter((n) => n.type === 'hudbutton').length === 4 && withHud.nodes.filter((n) => n.type === 'hudbutton').every((n) => n.data.perPlayer === true), '  counterfactual: hudButtons adds four perPlayer HUD Buttons wired into `press`');
+	const fbButtons = withHud.nodes.filter((n) => n.type === 'hudbutton' && String(n.data.element).startsWith('fb-'));
+	check(fbButtons.length === 6 && fbButtons.every((n) => n.data.perPlayer === true), '  counterfactual: hudButtons adds six perPlayer HUD Buttons (menu x3, over, pause) wired into `press` (' + fbButtons.length + ')');
+	check(fbButtons.every((n) => withHud.edges.some((e) => e.source === n.id && e.targetHandle === 'press')), '  every HUD button reaches a Match Button `press` input');
+	check(withHud.nodes.some((n) => n.type === 'keypress' && n.data.code === 'KeyP') && withHud.nodes.filter((n) => n.type === 'hudscreen').length === 3, '  the pause menu rows (P toggles, resume hides, quit hides + menu)');
+	const records = withHud.nodes.find((n) => n.type === 'fbrecords');
+	check(records.data.element === 'fb-sheet,fb-sheet-play' && records.data.logElement === 'fb-log', '  Records feeds both sheet lists and the log list');
 	const remapped = pitchGraph({ [NAMES.ball]: 'uuid-ball' });
 	check(remapped.nodes.find((n) => n.id === 'selball').data.selected === 'uuid-ball', 'names remap to uuids for the recipe');
 	check(g.nodes.some((n) => n.type === 'setgamestate' && n.data.state === 'over'), 'the game shell follows the match (start/over/menu)');
+
+	// the HUD document and the def
+	const hud = pitchHud().scene;
+	const hudIds = new Set(hud.screens.flatMap((sc) => sc.elements.map((e) => e.id)));
+	check(hud.screens.map((sc) => sc.id).join() === 'menu,hud,pause,over', 'pitchHud: Towers\' four screens (D1 can compare)');
+	for (const id of ['fb-join-red', 'fb-join-blue', 'fb-start', 'fb-new-match', 'fb-new-match-pause', 'fb-sheet', 'fb-sheet-play', 'fb-score', 'fb-score-over', 'fb-log'])
+		check(hudIds.has(id), '  HUD element ' + id + ' exists for the graph that names it');
 }

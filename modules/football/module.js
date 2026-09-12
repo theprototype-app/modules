@@ -861,7 +861,12 @@ function pitchGraph(names, opts = {}) {
   N("selgateb", "objectselector", "Blue gate sensor", 520, y, { selected: sel(NAMES.blueGate) });
   E("gateb", "selgateb");
   row();
-  N("records", "fbrecords", "Records", 280, y, { show: "all", element: "fb-sheet", scoreElement: "fb-score" });
+  N("records", "fbrecords", "Records", 280, y, {
+    show: "all",
+    element: opts.hudButtons ? "fb-sheet,fb-sheet-play" : "fb-sheet",
+    scoreElement: opts.hudButtons ? "fb-score,fb-score-over" : "fb-score",
+    logElement: opts.hudButtons ? "fb-log" : ""
+  });
   E("records", "selpitch");
   row();
   const buttons = [
@@ -889,6 +894,29 @@ function pitchGraph(names, opts = {}) {
       N("sel" + id, "objectselector", NAMES.lamp(team, i), x, y + 70, { selected: sel(NAMES.lamp(team, i)) });
       E(id, "sel" + id);
     }
+    row();
+  }
+  if (opts.hudButtons) {
+    for (const [id, element] of [["bnewover", "fb-new-match"], ["bnewpause", "fb-new-match-pause"]]) {
+      N(id, "fbbutton", "Button: new-match (" + element + ")", 280, y, { action: "new-match" });
+      E(id, "selbnew");
+      N("h" + id, "hudbutton", "HUD " + element, 40, y, { element, perPlayer: true });
+      E("h" + id, id, "press");
+      row();
+    }
+    N("pkey", "keypress", "Press P", 40, y, { code: "KeyP", edge: "down", pulse: 0.3 });
+    N("pausetoggle", "hudscreen", "Toggle pause menu", 280, y, { screen: "pause", action: "toggle" });
+    E("pkey", "pausetoggle", "trigger");
+    row();
+    N("bresume", "hudbutton", "Resume button", 40, y, { element: "resume-btn" });
+    N("resumehide", "hudscreen", "Close pause menu", 280, y, { screen: "pause", action: "hide" });
+    E("bresume", "resumehide", "trigger");
+    row();
+    N("bquit", "hudbutton", "Quit to menu button", 40, y, { element: "quit-btn" });
+    N("doquit", "setgamestate", "Quit to menu", 280, y, { state: "menu", outcome: "", reset: true });
+    N("quithide", "hudscreen", "Close pause on quit", 520, y, { screen: "pause", action: "hide" });
+    E("bquit", "doquit", "trigger");
+    E("bquit", "quithide", "trigger");
     row();
   }
   N("evstart", "fbevent", "On match start", 40, y, { event: "start" });
@@ -1084,9 +1112,12 @@ function registerNodes(api, game) {
     const key = JSON.stringify([rows, score, log]);
     if (key === lastRows) return;
     lastRows = key;
-    if (data.element) api.hud.rows(String(data.element), rows);
-    if (data.scoreElement) api.hud.rows(String(data.scoreElement), score);
-    if (data.logElement) api.hud.rows(String(data.logElement), log);
+    const each = (field, list) => {
+      for (const id of String(field ?? "").split(",")) if (id.trim()) api.hud.rows(id.trim(), list);
+    };
+    each(data.element, rows);
+    each(data.scoreElement, score);
+    each(data.logElement, log);
   });
   api.registerValueNode(
     "fbvalue",
@@ -1352,6 +1383,72 @@ function registerToolbox(api, game, info) {
   return { buildPitch, fitPitch, roomBounds, roomAnchor, builtNames: () => built, NAMES };
 }
 
+// modules/football/src/hud.js
+var PANEL = { bg: "rgba(20, 26, 36, 0.92)", radius: 16, border: "1px solid rgba(136, 192, 208, 0.25)" };
+var BUTTON = (bg) => ({ size: 16, weight: "600", bg, color: "#ffffff", radius: 10 });
+function pitchHud() {
+  return {
+    scene: {
+      active: "",
+      changedAt: 0,
+      screens: [
+        {
+          id: "menu",
+          name: "Menu",
+          showWhile: "menu",
+          input: "menu",
+          elements: [
+            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 480, h: 400, z: 0, label: "", style: PANEL },
+            { id: "title", kind: "text", anchor: "center", x: 0, y: -150, w: 400, h: 54, z: 1, label: "FOOTBALL", style: { size: 40, weight: "700", color: "#ffd45e", align: "center" } },
+            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -100, w: 440, h: 44, z: 1, label: "Pick a side, then Start. Hit the floating ball with your hands; a ball through the other gate is a goal.", style: { size: 14, color: "#d8dee9", align: "center" }, wrap: true },
+            { id: "fb-join-red", kind: "button", anchor: "center", x: -110, y: -30, w: 190, h: 44, z: 1, label: "Join RED", enabled: true, style: BUTTON("#c94a4a") },
+            { id: "fb-join-blue", kind: "button", anchor: "center", x: 110, y: -30, w: 190, h: 44, z: 1, label: "Join BLUE", enabled: true, style: BUTTON("#3b7dd8") },
+            { id: "fb-start", kind: "button", anchor: "center", x: 0, y: 30, w: 220, h: 48, z: 1, label: "Start match", enabled: true, style: BUTTON("#4c9e6a") },
+            { id: "fb-sheet", kind: "list", anchor: "center", x: 0, y: 105, w: 440, h: 70, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "center" } },
+            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 165, w: 440, h: 30, z: 1, label: "Walk into the ball to knock it  \xB7  Grab: hold click  \xB7  Pause: P", style: { size: 12, color: "#8b97a8", align: "center" }, wrap: true }
+          ]
+        },
+        {
+          id: "hud",
+          name: "HUD",
+          showWhile: "playing",
+          input: "game",
+          elements: [
+            { id: "fb-score", kind: "list", anchor: "top-center", x: 0, y: 14, w: 420, h: 70, z: 1, label: "", rows: [], style: { size: 18, weight: "600", color: "#e5e9f0", align: "center" } },
+            { id: "fb-sheet-play", kind: "list", anchor: "top-right", x: 16, y: 14, w: 260, h: 120, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "right" } },
+            { id: "play-hint", kind: "text", anchor: "bottom-center", x: 0, y: 12, w: 520, h: 20, z: 1, label: "Hit the ball toward the other gate.  Press P to pause.", style: { size: 11, color: "#8b97a8", align: "center" } }
+          ]
+        },
+        {
+          id: "pause",
+          name: "Pause",
+          input: "menu",
+          elements: [
+            { id: "pause-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 380, h: 300, z: 0, label: "", style: PANEL },
+            { id: "pause-title", kind: "text", anchor: "center", x: 0, y: -95, w: 340, h: 36, z: 1, label: "PAUSED", style: { size: 26, weight: "700", color: "#e5e9f0", align: "center" } },
+            { id: "resume-btn", kind: "button", anchor: "center", x: 0, y: -30, w: 240, h: 42, z: 1, label: "Resume", enabled: true, style: BUTTON("#3b7dd8") },
+            { id: "fb-new-match-pause", kind: "button", anchor: "center", x: 0, y: 22, w: 240, h: 42, z: 1, label: "New match", enabled: true, style: BUTTON("#4c9e6a") },
+            { id: "quit-btn", kind: "button", anchor: "center", x: 0, y: 74, w: 240, h: 42, z: 1, label: "Quit to menu", enabled: true, style: { size: 15, weight: "500", bg: "#3a4150", color: "#e5e9f0", radius: 10 } }
+          ]
+        },
+        {
+          id: "over",
+          name: "Match over",
+          showWhile: "over",
+          input: "menu",
+          elements: [
+            { id: "over-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 460, h: 360, z: 0, label: "", style: PANEL },
+            { id: "over-title", kind: "text", anchor: "center", x: 0, y: -130, w: 420, h: 40, z: 1, label: "MATCH OVER", style: { size: 30, weight: "700", color: "#ffd45e", align: "center" } },
+            { id: "fb-score-over", kind: "list", anchor: "center", x: 0, y: -70, w: 420, h: 60, z: 1, label: "", rows: [], style: { size: 16, color: "#e5e9f0", align: "center" } },
+            { id: "fb-log", kind: "list", anchor: "center", x: 0, y: 20, w: 420, h: 100, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "center" } },
+            { id: "fb-new-match", kind: "button", anchor: "center", x: 0, y: 120, w: 220, h: 44, z: 1, label: "New match", enabled: true, style: BUTTON("#3b7dd8") }
+          ]
+        }
+      ]
+    }
+  };
+}
+
 // modules/football/src/index.js
 var index_default = {
   id: "football",
@@ -1385,6 +1482,7 @@ var index_default = {
         game,
         nodes,
         toolbox,
+        hud: pitchHud,
         hitSource: () => hitSource,
         snapshot: () => ({
           ...game.getState(),

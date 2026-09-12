@@ -5,8 +5,9 @@
 // sets lastTouch on BOTH, a ball teleported into gate A scores for B in B's OWN goals
 // row only, a defender's last touch is an own goal on the sheet, `ownGoals: ignore`
 // scores nothing, duel refuses a second red, free for all scores by player, time mode
-// ends the match for everyone and writes the saved log, and a late joiner reads the
-// same score/slots/outcome.
+// ends the match for everyone and writes the saved log, a late joiner reads the same
+// score/slots/outcome, the lamps and the DOM HUD lists read the same nodes (B2), a
+// perPlayer HUD Button presses a Match Button, and Fit pitch replicates as moves (B3).
 //
 //   npm run pack -- football
 //   flock -w 5400 /tmp/tp-e2e.lock env APP_URL=https://theprototype.app:5208/ npm test -- football
@@ -265,6 +266,37 @@ run(async () => {
 	await A.page.evaluate(() => window.__football.game.act('new-match'));
 	await eventually(() => snap(B.page), (s) => s?.score.blue === 0 && s.started === false && s.outcome === null, '15.1 B: new match — score 0, menu');
 	check((await myVar(B.page, 'goals')) === 2, '15.2 B\'s session goals row survives a new match (records are per session)');
+
+	// ---- 16. B2: the physical UI and the DOM HUD read the same nodes -------------------------
+	// the def's HUD document, applied on A through the replicated hud path (the template
+	// carries it; the module only fills its lists)
+	await A.page.evaluate(() => window.__stores.hudDocs.setHudDocFor('scene', window.__football.hud().scene));
+	// play one more goal for the lamps: A starts, B touches, ball into the red gate
+	await A.page.evaluate(() => window.__football.game.act('start'));
+	await eventually(() => snap(A.page), (s) => s?.started && s.serves > 0 && s.serveAt === 0, '16.1 a fresh match is served', 8000);
+	await hitBall(B.page, ball, 4);
+	await eventually(() => snap(A.page), (s) => s?.lastTouch?.by === B.id, '16.2 B touched it');
+	await teleport(A.page, ball, redPos);
+	await eventually(() => snap(B.page), (s) => s?.score.blue === 1, '16.3 blue 1');
+	const lamp = (page, name) =>
+		page.evaluate((uuid) => {
+			let g; window.__stores.objectsGroup.subscribe((v) => (g = v))();
+			const o = g?.getObjectByProperty('uuid', uuid);
+			return o ? { lit: o.material.userData.fbLit === true, intensity: o.material.emissiveIntensity, hex: o.material.emissive.getHex() } : null;
+		}, names[name]);
+	await eventually(() => lamp(A.page, 'Blue lamp 1'), (l) => l?.lit && l.intensity > 1, '16.4 A: Blue lamp 1 is lit');
+	await eventually(() => lamp(B.page, 'Blue lamp 1'), (l) => l?.lit && l.intensity > 1, '16.5 B: Blue lamp 1 is lit too (same replicated score)');
+	check(!(await lamp(A.page, 'Blue lamp 2'))?.lit && !(await lamp(A.page, 'Red lamp 1'))?.lit, '16.6 counterfactual: Blue lamp 2 and Red lamp 1 stay dim');
+	const rows = (page, id) => page.evaluate((id) => window.__stores.flowRuntime.hudRowsOf(id), id);
+	await eventually(() => rows(A.page, 'fb-score'), (r) => r.some((line) => /RED 0 — 1 BLUE/.test(line)), '16.7 the Records node wrote the score line into the HUD list (' + JSON.stringify(await rows(A.page, 'fb-score')) + ')');
+	await eventually(() => rows(B.page, 'fb-sheet'), (r) => r.some((line) => /BLUE/.test(line) && /goals/.test(line)), '16.8 B: the sheet rows carry the sheet');
+	await eventually(() => A.page.locator('#hud-layer').textContent(), (t) => /RED 0 — 1 BLUE/.test(t ?? ''), '16.9 the DOM HUD shows the score while playing');
+	// a HUD Button press (perPlayer) reaches the Match Button through its `press` input
+	await A.page.evaluate(() => window.__stores.flowRuntime.fireHudButton('fb-join-blue'));
+	await eventually(() => snap(B.page), (s) => s?.slots.blue.includes(A.id) && !s.slots.red.includes(A.id), '16.10 A joined blue through the HUD button (hudbutton -> fbbutton.press)');
+	check(!(await snap(B.page)).slots.blue.includes(C.id), '16.11 counterfactual: the perPlayer press moved nobody else');
+	await A.page.evaluate(() => window.__stores.flowRuntime.fireHudButton('fb-join-red'));
+	await eventually(() => snap(B.page), (s) => s?.slots.red[0] === A.id, '16.12 ...and back to red');
 
 	await finish(browser);
 });
