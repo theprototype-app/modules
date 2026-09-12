@@ -1240,6 +1240,7 @@ function registerToolbox(api, game, info) {
     if (!group || !api.moveObject) return 0;
     let moved = 0;
     for (const o of pitchObjects(dims)) {
+      if (o.physics?.mode === "dynamic") continue;
       const uuid = built[o.name] ?? group.getObjectByName(o.name)?.uuid;
       const object = uuid ? group.getObjectByProperty("uuid", uuid) : null;
       if (!object) continue;

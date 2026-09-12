@@ -298,5 +298,13 @@ run(async () => {
 	await A.page.evaluate(() => window.__stores.flowRuntime.fireHudButton('fb-join-red'));
 	await eventually(() => snap(B.page), (s) => s?.slots.red[0] === A.id, '16.12 ...and back to red');
 
+	// ---- 17. B3: fit the pitch to a room — replicated moves ------------------------------------------
+	const before = await posOf(B.page, blueGate);
+	const moved = await A.page.evaluate(() => window.__football.toolbox.fitPitch({ length: 8, width: 4 }));
+	check(moved === 40, '17.1 A re-laid the 40 static objects for an 8 x 4 m room, never the live ball (' + moved + ')');
+	await eventually(() => posOf(B.page, blueGate), (p) => !!p && p[2] > before[2] + 1, '17.2 B sees the blue gate further out (' + before[2].toFixed(2) + ' -> ' + ((await posOf(B.page, blueGate)) ?? [0, 0, 0])[2].toFixed(2) + ')');
+	await eventually(() => posOf(B.page, names['Wall right']), (p) => !!p && Math.abs(p[0] - 2.025) < 0.05, '17.3 the right wall stands at half the new width');
+	check((await A.page.evaluate(() => window.__football.toolbox.roomBounds())) === null && (await A.page.evaluate(() => window.__football.toolbox.roomAnchor())) === null, '17.4 headless: no XR bounds and no room anchor — the sliders are the fallback');
+
 	await finish(browser);
 });
