@@ -30,6 +30,9 @@ promise from core.
 | 16 | `api.flow.nodes()` carries no node POSITION | `collectible` | yes — the recipe derives its row from how many of its own nodes exist |
 | 17 | no change signal for the graph / game state | `collectible` | yes — a 500ms toolbox poll and a ~10Hz frame-task sweep |
 | 18 | ~~the flow TRIGGER LOG has no handshake reply, so a late joiner never learns past pulses~~ | `collectible` | **SHIPPED** — `gettriggers`/`triggers` carries the log; the module gained a first-sight rule so arriving history is not banked |
+| 19 | `api.game.setState(state, outcome)` — a module cannot move the game shell | `football` | yes — a Football Event node fires `start`/`over`/`reset` and the template wires it to Set Game State |
+| 20 | a scene-physics block write (`api.physics.setScene({gravity, knock, …})`) | `football` | yes — the template carries the block; the "Build pitch" recipe toasts the Inspector rows to set |
+| 21 | the XR room bounds and the colocation `roomAnchor` on the api | `football` | yes — "Fit to room" / "Centre on room" feature-detect `api.xrReferenceSpace` / `api.colocation.roomAnchor` and fall back to sliders |
 
 ---
 
@@ -362,6 +365,51 @@ the same world as everyone else with no per-feature work at all.
 
 Meanwhile `tests/module-collectible.test.cjs` ASSERTS the limitation (a joiner
 reads 0 collected) rather than skipping it, so a core fix flips that check loudly.
+
+## 19. A module cannot move the game shell
+
+**Found in:** `modules/football` (24-B). The match starts and ends INSIDE the module —
+the physics initiator sees the ball enter a gate, counts, and decides the match is over —
+but `api.game` is read-mostly (`roundCutoff`, `roundUnderway`, `playActive`, `getVar`,
+`setVar`): there is no `setState`, so the module cannot put the shell into `playing` or
+`over` and the DOM HUD's `showWhile` screens cannot follow the match on their own.
+
+**Ask:** `api.game.setState(state, outcome?)` over `gameState.setGameState` (replicated
+latest-wins, idempotent when already in that state — so several peers applying the same
+op is harmless).
+
+**Meanwhile:** the module registers an EVENT node (`fbevent`: start / over / reset /
+goal / serve / touch) pulsed through `api.fireNodeTrigger` on the peer where the event
+originated, and the template wires `start` → Set Game State (playing), `over` → (over),
+`reset` → (menu). The module also calls `api.game.setState?.()` when it appears.
+
+## 20. No scene-physics block write
+
+**Found in:** `modules/football`. The pitch is data: a zero-g block (`gravity: 0`,
+`ground.enabled: false`, damping, `ccd`, `knock.enabled`). `api.physics.set(uuid, patch)`
+writes ONE OBJECT's body params; the scene block (`scenePhysics.setScenePhysics`, the
+replicated `scenephysics` singleton) is not reachable, so the toolbox's "Build pitch"
+recipe can build the objects and the graph but cannot switch gravity off.
+
+**Ask:** `api.physics.setScene(partial)` = `setScenePhysics` (nested blocks merge, one
+normalize, replicated), plus `api.physics.scene()` to read it.
+
+**Meanwhile:** the template's `.tpscene` carries the block; the recipe toasts which
+Inspector rows to set; the flight sets it through the debug hook.
+
+## 21. XR room bounds and the colocation room anchor
+
+**Found in:** `modules/football` (B3, "Fit pitch to room" / "Centre pitch on room"). The
+bounded reference space (`XRBoundedReferenceSpace.boundsGeometry`) lives on the renderer's
+XR session and `roomAnchor` in `colocation.js`; neither is on the api, so a module cannot
+size a pitch to the play area or put the kick-off spot on the point two colocated players
+agreed on.
+
+**Ask:** `api.xrReferenceSpace()` (null outside a session) and
+`api.colocation.roomAnchor()` → `{position, quaternion, at} | null`.
+
+**Meanwhile:** both toolbox buttons feature-detect exactly those names and fall back to
+the Length / Width sliders (+ a toast), which replicate as ordinary `move`s.
 
 ---
 
