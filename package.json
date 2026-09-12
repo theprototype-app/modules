@@ -14,7 +14,7 @@
 		"test": "node tests/run.cjs",
 		"build:dungeon-realms": "esbuild modules/dungeon-realms/src/index.js --bundle --format=esm --outfile=modules/dungeon-realms/module.js",
 		"test:dungeon-realms": "node modules/dungeon-realms/test/run.mjs",
-		"build:football": "esbuild modules/football/src/index.js --bundle --format=esm --outfile=modules/football/module.js",
+		"build:football": "esbuild modules/football/src/index.js --bundle --format=esm --outfile=modules/football/module.js && node modules/football/emit-def.mjs",
 		"test:football": "node modules/football/test/run.mjs"
 	},
 	"devDependencies": {

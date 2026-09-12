@@ -1,6 +1,7 @@
 // The pitch as data — the object list and the graph the recipe and the def share.
 import { pitchObjects, pitchGraph, normalizeDims, DEFAULT_DIMS, NAMES, LAMPS_PER_GATE, createCommand } from '../src/pitch.js';
 import { pitchHud } from '../src/hud.js';
+import { footballDef } from '../src/def.js';
 
 /** @param {(ok: boolean, label: string) => void} check */
 export function run(check) {
@@ -58,4 +59,7 @@ export function run(check) {
 	check(hud.screens.map((sc) => sc.id).join() === 'menu,hud,pause,over', 'pitchHud: Towers\' four screens (D1 can compare)');
 	for (const id of ['fb-join-red', 'fb-join-blue', 'fb-start', 'fb-new-match', 'fb-new-match-pause', 'fb-sheet', 'fb-sheet-play', 'fb-score', 'fb-score-over', 'fb-log'])
 		check(hudIds.has(id), '  HUD element ' + id + ' exists for the graph that names it');
+	const def = footballDef();
+	check(def.kind === 'game' && def.slug === 'football' && def.installModules[0] === 'football' && def.objects.length === 41 && def.graphs.scene.nodes.length > 60 && def.hud.scene.screens.length === 4 && def.physics.gravity === 0, 'footballDef: kind game, the module required, 41 objects, the def graph, four screens, zero-g');
+	check(JSON.stringify(def) === JSON.stringify(footballDef()), '  the def is deterministic (byte-identical twice)');
 }
