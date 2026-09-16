@@ -160,7 +160,10 @@ export function registerNodes(api, game) {
 			if (was === undefined || was === level) return;
 			if (level === 1) game.act(action);
 		},
-		{ inputs: { press: 'event' } }
+		// 'number', not 'event': a pulse reaches a module node as a VALUE (1 while the
+		// window is open), and an event output coerces to a number — so an On Click, a
+		// Delay bridging a HUD Button, a Compare or a Toggle all drive this input
+		{ inputs: { press: 'number' } }
 	);
 
 	// ---- Serve: a rising trigger serves now (an On Rest, a Delay, a button) ----------------
@@ -174,7 +177,7 @@ export function registerNodes(api, game) {
 			if (was === undefined || was === level) return;
 			if (level === 1) game.serve('button');
 		},
-		{ inputs: { trigger: 'event' } }
+		{ inputs: { trigger: 'number' } } // the `press` rule, one node over
 	);
 
 	// ---- Score Lamp: lit while its team's score reaches its index ----------------------------

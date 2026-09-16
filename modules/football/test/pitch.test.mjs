@@ -45,7 +45,16 @@ export function run(check) {
 	const withHud = pitchGraph(undefined, { hudButtons: true });
 	const fbButtons = withHud.nodes.filter((n) => n.type === 'hudbutton' && String(n.data.element).startsWith('fb-'));
 	check(fbButtons.length === 6 && fbButtons.every((n) => n.data.perPlayer === true), '  counterfactual: hudButtons adds six perPlayer HUD Buttons (menu x3, over, pause) wired into `press` (' + fbButtons.length + ')');
-	check(fbButtons.every((n) => withHud.edges.some((e) => e.source === n.id && e.targetHandle === 'press')), '  every HUD button reaches a Match Button `press` input');
+	// THE BRIDGE: a hudbutton has no runtime value in core, so it must reach a Match
+	// Button THROUGH a Delay (which re-emits the stamp as a pulse). A direct edge would
+	// read `undefined` in the module and silently do nothing — the bug this guards.
+	const viaDelay = (/** @type {any} */ n) => {
+		const mid = withHud.edges.find((e) => e.source === n.id && e.targetHandle === 'trigger');
+		const delay = mid && withHud.nodes.find((x) => x.id === mid.target && x.type === 'delay');
+		return !!delay && withHud.edges.some((e) => e.source === delay.id && e.targetHandle === 'press');
+	};
+	check(fbButtons.every(viaDelay), '  every HUD button reaches a Match Button `press` through a Delay');
+	check(!withHud.edges.some((e) => fbButtons.some((n) => n.id === e.source) && e.targetHandle === 'press'), '  counterfactual: no HUD button wires STRAIGHT into a module input (it would read undefined)');
 	check(withHud.nodes.some((n) => n.type === 'keypress' && n.data.code === 'KeyP') && withHud.nodes.filter((n) => n.type === 'hudscreen').length === 3, '  the pause menu rows (P toggles, resume hides, quit hides + menu)');
 	const records = withHud.nodes.find((n) => n.type === 'fbrecords');
 	check(records.data.element === 'fb-sheet,fb-sheet-play' && records.data.logElement === 'fb-log', '  Records feeds both sheet lists and the log list');

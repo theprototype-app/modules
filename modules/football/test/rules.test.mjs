@@ -101,4 +101,8 @@ export function run(check) {
 	check(log.length === 50 && log[0].at === 10 && log[49].at === 59, 'appendMatchLog caps at 50, newest kept');
 	check(appendMatchLog(null, { at: 1 }).length === 1, '  a missing log starts one');
 	check(scoreLine({ red: 3, blue: 2 }) === 'RED 3 — 2 BLUE', 'scoreLine');
+	const draw = matchLogEntry({ at: 5, score: { red: 1, blue: 1 }, winner: 'draw', rows: [] });
+	check(draw.winner === 'draw' && draw.scorers.length === 0, '  a scoreless draw logs with no scorers');
+	const capped = appendMatchLog([{ at: 1 }], { at: 2 }, 1);
+	check(capped.length === 1 && capped[0].at === 2, '  counterfactual: cap 1 keeps only the newest');
 }

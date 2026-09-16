@@ -225,6 +225,20 @@
 					"class": "w-[150px]"
 				},
 				{
+					"id": "dbjoinr",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 640
+					},
+					"data": {
+						"label": "HUD join-red press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
 					"id": "bjoinb",
 					"type": "fbbutton",
 					"position": {
@@ -261,6 +275,20 @@
 						"label": "HUD join-blue",
 						"element": "fb-join-blue",
 						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "dbjoinb",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 790
+					},
+					"data": {
+						"label": "HUD join-blue press",
+						"seconds": 0.05,
+						"pulse": 0.3
 					},
 					"class": "w-[150px]"
 				},
@@ -305,6 +333,20 @@
 					"class": "w-[150px]"
 				},
 				{
+					"id": "dbstart",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 940
+					},
+					"data": {
+						"label": "HUD start press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
 					"id": "bnew",
 					"type": "fbbutton",
 					"position": {
@@ -341,6 +383,20 @@
 						"label": "HUD new-match",
 						"element": "fb-new-match",
 						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "dbnew",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 1090
+					},
+					"data": {
+						"label": "HUD new-match press",
+						"seconds": 0.05,
+						"pulse": 0.3
 					},
 					"class": "w-[150px]"
 				},
@@ -912,6 +968,20 @@
 					"class": "w-[150px]"
 				},
 				{
+					"id": "dbnewover",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 1840
+					},
+					"data": {
+						"label": "HUD fb-new-match press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
 					"id": "bnewpause",
 					"type": "fbbutton",
 					"position": {
@@ -935,6 +1005,20 @@
 						"label": "HUD fb-new-match-pause",
 						"element": "fb-new-match-pause",
 						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "dbnewpause",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 1990
+					},
+					"data": {
+						"label": "HUD fb-new-match-pause press",
+						"seconds": 0.05,
+						"pulse": 0.3
 					},
 					"class": "w-[150px]"
 				},
@@ -1154,8 +1238,14 @@
 					"target": "selbjoinr"
 				},
 				{
-					"id": "e-hbjoinr-bjoinr.press",
+					"id": "e-hbjoinr-dbjoinr.trigger",
 					"source": "hbjoinr",
+					"target": "dbjoinr",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbjoinr-bjoinr.press",
+					"source": "dbjoinr",
 					"target": "bjoinr",
 					"targetHandle": "press"
 				},
@@ -1165,8 +1255,14 @@
 					"target": "selbjoinb"
 				},
 				{
-					"id": "e-hbjoinb-bjoinb.press",
+					"id": "e-hbjoinb-dbjoinb.trigger",
 					"source": "hbjoinb",
+					"target": "dbjoinb",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbjoinb-bjoinb.press",
+					"source": "dbjoinb",
 					"target": "bjoinb",
 					"targetHandle": "press"
 				},
@@ -1176,8 +1272,14 @@
 					"target": "selbstart"
 				},
 				{
-					"id": "e-hbstart-bstart.press",
+					"id": "e-hbstart-dbstart.trigger",
 					"source": "hbstart",
+					"target": "dbstart",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbstart-bstart.press",
+					"source": "dbstart",
 					"target": "bstart",
 					"targetHandle": "press"
 				},
@@ -1187,8 +1289,14 @@
 					"target": "selbnew"
 				},
 				{
-					"id": "e-hbnew-bnew.press",
+					"id": "e-hbnew-dbnew.trigger",
 					"source": "hbnew",
+					"target": "dbnew",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbnew-bnew.press",
+					"source": "dbnew",
 					"target": "bnew",
 					"targetHandle": "press"
 				},
@@ -1298,8 +1406,14 @@
 					"target": "selbnew"
 				},
 				{
-					"id": "e-hbnewover-bnewover.press",
+					"id": "e-hbnewover-dbnewover.trigger",
 					"source": "hbnewover",
+					"target": "dbnewover",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbnewover-bnewover.press",
+					"source": "dbnewover",
 					"target": "bnewover",
 					"targetHandle": "press"
 				},
@@ -1309,8 +1423,14 @@
 					"target": "selbnew"
 				},
 				{
-					"id": "e-hbnewpause-bnewpause.press",
+					"id": "e-hbnewpause-dbnewpause.trigger",
 					"source": "hbnewpause",
+					"target": "dbnewpause",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbnewpause-bnewpause.press",
+					"source": "dbnewpause",
 					"target": "bnewpause",
 					"targetHandle": "press"
 				},

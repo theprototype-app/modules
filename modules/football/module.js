@@ -881,7 +881,9 @@ function pitchGraph(names, opts = {}) {
     E(id, "sel" + id);
     if (opts.hudButtons) {
       N("h" + id, "hudbutton", "HUD " + action, 40, y, { element: "fb-" + action, perPlayer: true });
-      E("h" + id, id, "press");
+      N("d" + id, "delay", "HUD " + action + " press", 160, y, { seconds: 0.05, pulse: 0.3 });
+      E("h" + id, "d" + id, "trigger");
+      E("d" + id, id, "press");
     }
     row();
   }
@@ -901,7 +903,9 @@ function pitchGraph(names, opts = {}) {
       N(id, "fbbutton", "Button: new-match (" + element + ")", 280, y, { action: "new-match" });
       E(id, "selbnew");
       N("h" + id, "hudbutton", "HUD " + element, 40, y, { element, perPlayer: true });
-      E("h" + id, id, "press");
+      N("d" + id, "delay", "HUD " + element + " press", 160, y, { seconds: 0.05, pulse: 0.3 });
+      E("h" + id, "d" + id, "trigger");
+      E("d" + id, id, "press");
       row();
     }
     N("pkey", "keypress", "Press P", 40, y, { code: "KeyP", edge: "down", pulse: 0.3 });
@@ -1064,7 +1068,10 @@ function registerNodes(api, game) {
       if (was === void 0 || was === level) return;
       if (level === 1) game.act(action);
     },
-    { inputs: { press: "event" } }
+    // 'number', not 'event': a pulse reaches a module node as a VALUE (1 while the
+    // window is open), and an event output coerces to a number — so an On Click, a
+    // Delay bridging a HUD Button, a Compare or a Toggle all drive this input
+    { inputs: { press: "number" } }
   );
   api.registerEffect(
     "fbserve",
@@ -1076,7 +1083,8 @@ function registerNodes(api, game) {
       if (was === void 0 || was === level) return;
       if (level === 1) game.serve("button");
     },
-    { inputs: { trigger: "event" } }
+    { inputs: { trigger: "number" } }
+    // the `press` rule, one node over
   );
   api.registerEffect("fblamp", (object, base, data) => {
     const team = data.team === "blue" ? "blue" : "red";
@@ -1226,7 +1234,7 @@ function registerToolbox(api, game, info) {
       }
       if (o.physics) api.physics.set(uuid, o.physics);
     }
-    const graph = pitchGraph(names, { hudButtons: false });
+    const graph = pitchGraph(names, { hudButtons: true });
     const index = new Map(graph.nodes.map((n, i) => [n.id, i]));
     api.flow.addNodes({
       nodes: graph.nodes.map((n) => ({ type: n.type, x: n.position.x, y: n.position.y, data: n.data })),

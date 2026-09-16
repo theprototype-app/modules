@@ -181,7 +181,16 @@ export function createCommand(o) {
  * Layout: one row per binding, the Towers `N`/`E` conventions.
  * @param {Record<string, string>} [names] name -> uuid; absent = keep the name
  * @param {{hudButtons?: boolean}} [opts] also wire the DOM HUD's buttons (the def does)
+ * (each through a Delay — see THE HUD-BUTTON BRIDGE above)
  */
+// THE HUD-BUTTON BRIDGE, and it is not decoration. A `hudbutton` node has NO value in
+// core's evaluator (flowRuntime: "hudbutton contributes no runtime value") — core's own
+// consumers read it as a trigger STAMP through triggerStampFor, which a MODULE effect
+// cannot reach (its inputs are resolved as VALUES). So a HUD Button wired straight into
+// a module node's input reads `undefined` and nothing ever happens. A `delay` node is the
+// bridge core already ships: it consumes the wired stamp and EMITS a numeric pulse
+// (`pulseAt(stamp + seconds, …)`), so the module sees an ordinary rising edge. Filed as
+// DEVX #22; the physical buttons need none of this — a click reaches the module directly.
 export function pitchGraph(names, opts = {}) {
 	const sel = (/** @type {string} */ name) => names?.[name] ?? name;
 	/** @type {any[]} */ const nodes = [];
@@ -235,9 +244,12 @@ export function pitchGraph(names, opts = {}) {
 		N('sel' + id, 'objectselector', name, 520, y, { selected: sel(name) });
 		E(id, 'sel' + id);
 		if (opts.hudButtons) {
-			// the DOM HUD's button of the same action pulses the same node, LOCALLY
+			// the DOM HUD's button of the same action, pulsed LOCALLY (perPlayer) and
+			// bridged by a Delay so the module sees a value — see THE HUD-BUTTON BRIDGE
 			N('h' + id, 'hudbutton', 'HUD ' + action, 40, y, { element: 'fb-' + action, perPlayer: true });
-			E('h' + id, id, 'press');
+			N('d' + id, 'delay', 'HUD ' + action + ' press', 160, y, { seconds: 0.05, pulse: 0.3 });
+			E('h' + id, 'd' + id, 'trigger');
+			E('d' + id, id, 'press');
 		}
 		row();
 	}
@@ -260,7 +272,9 @@ export function pitchGraph(names, opts = {}) {
 			N(id, 'fbbutton', 'Button: new-match (' + element + ')', 280, y, { action: 'new-match' });
 			E(id, 'selbnew');
 			N('h' + id, 'hudbutton', 'HUD ' + element, 40, y, { element, perPlayer: true });
-			E('h' + id, id, 'press');
+			N('d' + id, 'delay', 'HUD ' + element + ' press', 160, y, { seconds: 0.05, pulse: 0.3 });
+			E('h' + id, 'd' + id, 'trigger');
+			E('d' + id, id, 'press');
 			row();
 		}
 		// pause / resume / quit while playing: Towers' rows verbatim (P toggles the menu)

@@ -75,11 +75,25 @@ const hitBall = (page, uuid, speed = 4) =>
 		{ uuid, speed }
 	);
 
-/** park the ball INSIDE a gate sensor on the initiator (applyThrow reseats and zeroes).
- * Waits for the pending serve first: a ball entering a gate while a serve is pending is
- * ignored by design (it is still sitting in the gate it just scored in). */
+/**
+ * Park the ball INSIDE a gate sensor on the initiator (applyThrow reseats AND zeroes).
+ *
+ * Two waits, both load-bearing, and both learned from a red run:
+ *   1. the pending SERVE. A ball entering a gate while a serve is pending is ignored by
+ *      design — it is still sitting in the gate it just scored in.
+ *   2. a lap through the CENTRE. The goal detector is an ENTER EDGE per gate, so a ball
+ *      left inside the sensor by a gentle post-goal serve is already `inside` that gate:
+ *      throwing it there again produces no edge at all and the next goal never fires.
+ *      Parking at the centre for a frame clears that latch on the authority, which is
+ *      what makes a second goal into the SAME gate assertable.
+ */
 const teleport = async (page, uuid, pos) => {
 	await eventually(() => snap(page), (s) => s?.started && s.serveAt === 0, '  (premise) no serve pending');
+	await page.evaluate(
+		({ uuid, y }) => window.__stores.physics.applyThrow({ uuid, pos: [0, y, 0], rot: [0, 0, 0], linvel: [0, 0, 0], angvel: [0, 0, 0] }),
+		{ uuid, y: pos[1] }
+	);
+	await page.waitForTimeout(400);
 	return page.evaluate(
 		({ uuid, pos }) => window.__stores.physics.applyThrow({ uuid, pos, rot: [0, 0, 0], linvel: [0, 0, 0], angvel: [0, 0, 0] }),
 		{ uuid, pos }
@@ -296,7 +310,7 @@ run(async () => {
 	await eventually(() => snap(B.page), (s) => s?.slots.blue.includes(A.id) && !s.slots.red.includes(A.id), '16.10 A joined blue through the HUD button (hudbutton -> fbbutton.press)');
 	check(!(await snap(B.page)).slots.blue.includes(C.id), '16.11 counterfactual: the perPlayer press moved nobody else');
 	await A.page.evaluate(() => window.__stores.flowRuntime.fireHudButton('fb-join-red'));
-	await eventually(() => snap(B.page), (s) => s?.slots.red[0] === A.id, '16.12 ...and back to red');
+	await eventually(() => snap(B.page), (s) => s?.slots.red[0] === A.id && !s.slots.blue.includes(A.id), '16.12 ...and back to red (A LEAVES blue — the check is empty without 16.10)');
 
 	// ---- 17. B3: fit the pitch to a room — replicated moves ------------------------------------------
 	const before = await posOf(B.page, blueGate);

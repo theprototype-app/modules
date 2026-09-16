@@ -73,7 +73,10 @@ export function registerToolbox(api, game, info) {
 			}
 			if (o.physics) api.physics.set(uuid, o.physics);
 		}
-		const graph = pitchGraph(names, { hudButtons: false });
+		// the same graph the def carries: the HUD rows are harmless without a HUD document
+		// (a HUD Button node whose element does not exist simply never pulses) and a scene
+		// that later gains one is wired already
+		const graph = pitchGraph(names, { hudButtons: true });
 		const index = new Map(graph.nodes.map((n, i) => [n.id, i]));
 		api.flow.addNodes({
 			nodes: graph.nodes.map((n) => ({ type: n.type, x: n.position.x, y: n.position.y, data: n.data })),
