@@ -1,0 +1,2714 @@
+{
+	"kind": "game",
+	"slug": "football",
+	"title": "Football",
+	"description": "VR football: hit the floating ball with your hands, a ball through the other gate is a goal. Pick a side, Start, five goals wins. Colocation-ready.",
+	"license": "CC0-1.0",
+	"author": "theprototype",
+	"tags": [
+		"vr",
+		"competitive",
+		"colocation",
+		"physics"
+	],
+	"modules": [
+		{
+			"id": "football",
+			"version": "1.0.0"
+		}
+	],
+	"installModules": [
+		"football"
+	],
+	"env": {
+		"preset": "daylight",
+		"exposure": 0.9
+	},
+	"physics": {
+		"gravity": 0,
+		"ground": {
+			"enabled": false
+		},
+		"damping": {
+			"linear": 0.35,
+			"angular": 0.5
+		},
+		"ccd": true,
+		"knock": {
+			"enabled": true,
+			"gain": 1,
+			"maxSpeed": 10,
+			"spin": 0.8
+		},
+		"play": {
+			"interaction": "grab",
+			"grounded": false,
+			"simOnPlay": true
+		}
+	},
+	"post": {
+		"enabled": true,
+		"effects": [
+			{
+				"id": "tone",
+				"kind": "tonemapping",
+				"enabled": true,
+				"params": {
+					"mode": "AGX"
+				}
+			},
+			{
+				"id": "bloom",
+				"kind": "bloom",
+				"enabled": true,
+				"params": {
+					"intensity": 0.6,
+					"luminanceThreshold": 0.8
+				}
+			},
+			{
+				"id": "aa",
+				"kind": "smaa",
+				"enabled": true,
+				"params": {}
+			}
+		],
+		"changedAt": 0
+	},
+	"graphs": {
+		"scene": {
+			"nodes": [
+				{
+					"id": "rules",
+					"type": "fbrules",
+					"position": {
+						"x": 280,
+						"y": 40
+					},
+					"data": {
+						"label": "Match Rules"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "selpitch",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 40
+					},
+					"data": {
+						"label": "Pitch",
+						"selected": "Pitch"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "selball",
+					"type": "objectselector",
+					"position": {
+						"x": 40,
+						"y": 40
+					},
+					"data": {
+						"label": "Football",
+						"selected": "Football"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "gater",
+					"type": "fbgate",
+					"position": {
+						"x": 280,
+						"y": 190
+					},
+					"data": {
+						"label": "Red gate",
+						"team": "red"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "selgater",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 190
+					},
+					"data": {
+						"label": "Red gate sensor",
+						"selected": "Red gate"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "gateb",
+					"type": "fbgate",
+					"position": {
+						"x": 280,
+						"y": 340
+					},
+					"data": {
+						"label": "Blue gate",
+						"team": "blue"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "selgateb",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 340
+					},
+					"data": {
+						"label": "Blue gate sensor",
+						"selected": "Blue gate"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "records",
+					"type": "fbrecords",
+					"position": {
+						"x": 280,
+						"y": 490
+					},
+					"data": {
+						"label": "Records",
+						"show": "all",
+						"element": "fb-sheet,fb-sheet-play",
+						"scoreElement": "fb-score,fb-score-over",
+						"logElement": "fb-log"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bjoinr",
+					"type": "fbbutton",
+					"position": {
+						"x": 280,
+						"y": 640
+					},
+					"data": {
+						"label": "Button: join-red",
+						"action": "join-red"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "selbjoinr",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 640
+					},
+					"data": {
+						"label": "Join red",
+						"selected": "Join red"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hbjoinr",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 640
+					},
+					"data": {
+						"label": "HUD join-red",
+						"element": "fb-join-red",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "dbjoinr",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 640
+					},
+					"data": {
+						"label": "HUD join-red press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bjoinb",
+					"type": "fbbutton",
+					"position": {
+						"x": 280,
+						"y": 790
+					},
+					"data": {
+						"label": "Button: join-blue",
+						"action": "join-blue"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "selbjoinb",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 790
+					},
+					"data": {
+						"label": "Join blue",
+						"selected": "Join blue"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hbjoinb",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 790
+					},
+					"data": {
+						"label": "HUD join-blue",
+						"element": "fb-join-blue",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "dbjoinb",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 790
+					},
+					"data": {
+						"label": "HUD join-blue press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bstart",
+					"type": "fbbutton",
+					"position": {
+						"x": 280,
+						"y": 940
+					},
+					"data": {
+						"label": "Button: start",
+						"action": "start"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "selbstart",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 940
+					},
+					"data": {
+						"label": "Start match",
+						"selected": "Start match"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hbstart",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 940
+					},
+					"data": {
+						"label": "HUD start",
+						"element": "fb-start",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "dbstart",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 940
+					},
+					"data": {
+						"label": "HUD start press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bnew",
+					"type": "fbbutton",
+					"position": {
+						"x": 280,
+						"y": 1090
+					},
+					"data": {
+						"label": "Button: new-match",
+						"action": "new-match"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "selbnew",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 1090
+					},
+					"data": {
+						"label": "New match",
+						"selected": "New match"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hbnew",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 1090
+					},
+					"data": {
+						"label": "HUD new-match",
+						"element": "fb-new-match",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "dbnew",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 1090
+					},
+					"data": {
+						"label": "HUD new-match press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampred1",
+					"type": "fblamp",
+					"position": {
+						"x": 40,
+						"y": 1240
+					},
+					"data": {
+						"label": "Red lamp 1",
+						"team": "red",
+						"index": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampred1",
+					"type": "objectselector",
+					"position": {
+						"x": 40,
+						"y": 1310
+					},
+					"data": {
+						"label": "Red lamp 1",
+						"selected": "Red lamp 1"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampred2",
+					"type": "fblamp",
+					"position": {
+						"x": 280,
+						"y": 1240
+					},
+					"data": {
+						"label": "Red lamp 2",
+						"team": "red",
+						"index": 2
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampred2",
+					"type": "objectselector",
+					"position": {
+						"x": 280,
+						"y": 1310
+					},
+					"data": {
+						"label": "Red lamp 2",
+						"selected": "Red lamp 2"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampred3",
+					"type": "fblamp",
+					"position": {
+						"x": 520,
+						"y": 1240
+					},
+					"data": {
+						"label": "Red lamp 3",
+						"team": "red",
+						"index": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampred3",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 1310
+					},
+					"data": {
+						"label": "Red lamp 3",
+						"selected": "Red lamp 3"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampred4",
+					"type": "fblamp",
+					"position": {
+						"x": 760,
+						"y": 1240
+					},
+					"data": {
+						"label": "Red lamp 4",
+						"team": "red",
+						"index": 4
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampred4",
+					"type": "objectselector",
+					"position": {
+						"x": 760,
+						"y": 1310
+					},
+					"data": {
+						"label": "Red lamp 4",
+						"selected": "Red lamp 4"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampred5",
+					"type": "fblamp",
+					"position": {
+						"x": 1000,
+						"y": 1240
+					},
+					"data": {
+						"label": "Red lamp 5",
+						"team": "red",
+						"index": 5
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampred5",
+					"type": "objectselector",
+					"position": {
+						"x": 1000,
+						"y": 1310
+					},
+					"data": {
+						"label": "Red lamp 5",
+						"selected": "Red lamp 5"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampred6",
+					"type": "fblamp",
+					"position": {
+						"x": 40,
+						"y": 1390
+					},
+					"data": {
+						"label": "Red lamp 6",
+						"team": "red",
+						"index": 6
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampred6",
+					"type": "objectselector",
+					"position": {
+						"x": 40,
+						"y": 1460
+					},
+					"data": {
+						"label": "Red lamp 6",
+						"selected": "Red lamp 6"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampred7",
+					"type": "fblamp",
+					"position": {
+						"x": 280,
+						"y": 1390
+					},
+					"data": {
+						"label": "Red lamp 7",
+						"team": "red",
+						"index": 7
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampred7",
+					"type": "objectselector",
+					"position": {
+						"x": 280,
+						"y": 1460
+					},
+					"data": {
+						"label": "Red lamp 7",
+						"selected": "Red lamp 7"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampred8",
+					"type": "fblamp",
+					"position": {
+						"x": 520,
+						"y": 1390
+					},
+					"data": {
+						"label": "Red lamp 8",
+						"team": "red",
+						"index": 8
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampred8",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 1460
+					},
+					"data": {
+						"label": "Red lamp 8",
+						"selected": "Red lamp 8"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampred9",
+					"type": "fblamp",
+					"position": {
+						"x": 760,
+						"y": 1390
+					},
+					"data": {
+						"label": "Red lamp 9",
+						"team": "red",
+						"index": 9
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampred9",
+					"type": "objectselector",
+					"position": {
+						"x": 760,
+						"y": 1460
+					},
+					"data": {
+						"label": "Red lamp 9",
+						"selected": "Red lamp 9"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampred10",
+					"type": "fblamp",
+					"position": {
+						"x": 1000,
+						"y": 1390
+					},
+					"data": {
+						"label": "Red lamp 10",
+						"team": "red",
+						"index": 10
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampred10",
+					"type": "objectselector",
+					"position": {
+						"x": 1000,
+						"y": 1460
+					},
+					"data": {
+						"label": "Red lamp 10",
+						"selected": "Red lamp 10"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampblue1",
+					"type": "fblamp",
+					"position": {
+						"x": 40,
+						"y": 1540
+					},
+					"data": {
+						"label": "Blue lamp 1",
+						"team": "blue",
+						"index": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampblue1",
+					"type": "objectselector",
+					"position": {
+						"x": 40,
+						"y": 1610
+					},
+					"data": {
+						"label": "Blue lamp 1",
+						"selected": "Blue lamp 1"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampblue2",
+					"type": "fblamp",
+					"position": {
+						"x": 280,
+						"y": 1540
+					},
+					"data": {
+						"label": "Blue lamp 2",
+						"team": "blue",
+						"index": 2
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampblue2",
+					"type": "objectselector",
+					"position": {
+						"x": 280,
+						"y": 1610
+					},
+					"data": {
+						"label": "Blue lamp 2",
+						"selected": "Blue lamp 2"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampblue3",
+					"type": "fblamp",
+					"position": {
+						"x": 520,
+						"y": 1540
+					},
+					"data": {
+						"label": "Blue lamp 3",
+						"team": "blue",
+						"index": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampblue3",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 1610
+					},
+					"data": {
+						"label": "Blue lamp 3",
+						"selected": "Blue lamp 3"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampblue4",
+					"type": "fblamp",
+					"position": {
+						"x": 760,
+						"y": 1540
+					},
+					"data": {
+						"label": "Blue lamp 4",
+						"team": "blue",
+						"index": 4
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampblue4",
+					"type": "objectselector",
+					"position": {
+						"x": 760,
+						"y": 1610
+					},
+					"data": {
+						"label": "Blue lamp 4",
+						"selected": "Blue lamp 4"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampblue5",
+					"type": "fblamp",
+					"position": {
+						"x": 1000,
+						"y": 1540
+					},
+					"data": {
+						"label": "Blue lamp 5",
+						"team": "blue",
+						"index": 5
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampblue5",
+					"type": "objectselector",
+					"position": {
+						"x": 1000,
+						"y": 1610
+					},
+					"data": {
+						"label": "Blue lamp 5",
+						"selected": "Blue lamp 5"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampblue6",
+					"type": "fblamp",
+					"position": {
+						"x": 40,
+						"y": 1690
+					},
+					"data": {
+						"label": "Blue lamp 6",
+						"team": "blue",
+						"index": 6
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampblue6",
+					"type": "objectselector",
+					"position": {
+						"x": 40,
+						"y": 1760
+					},
+					"data": {
+						"label": "Blue lamp 6",
+						"selected": "Blue lamp 6"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampblue7",
+					"type": "fblamp",
+					"position": {
+						"x": 280,
+						"y": 1690
+					},
+					"data": {
+						"label": "Blue lamp 7",
+						"team": "blue",
+						"index": 7
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampblue7",
+					"type": "objectselector",
+					"position": {
+						"x": 280,
+						"y": 1760
+					},
+					"data": {
+						"label": "Blue lamp 7",
+						"selected": "Blue lamp 7"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampblue8",
+					"type": "fblamp",
+					"position": {
+						"x": 520,
+						"y": 1690
+					},
+					"data": {
+						"label": "Blue lamp 8",
+						"team": "blue",
+						"index": 8
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampblue8",
+					"type": "objectselector",
+					"position": {
+						"x": 520,
+						"y": 1760
+					},
+					"data": {
+						"label": "Blue lamp 8",
+						"selected": "Blue lamp 8"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampblue9",
+					"type": "fblamp",
+					"position": {
+						"x": 760,
+						"y": 1690
+					},
+					"data": {
+						"label": "Blue lamp 9",
+						"team": "blue",
+						"index": 9
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampblue9",
+					"type": "objectselector",
+					"position": {
+						"x": 760,
+						"y": 1760
+					},
+					"data": {
+						"label": "Blue lamp 9",
+						"selected": "Blue lamp 9"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "lampblue10",
+					"type": "fblamp",
+					"position": {
+						"x": 1000,
+						"y": 1690
+					},
+					"data": {
+						"label": "Blue lamp 10",
+						"team": "blue",
+						"index": 10
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "sellampblue10",
+					"type": "objectselector",
+					"position": {
+						"x": 1000,
+						"y": 1760
+					},
+					"data": {
+						"label": "Blue lamp 10",
+						"selected": "Blue lamp 10"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bnewover",
+					"type": "fbbutton",
+					"position": {
+						"x": 280,
+						"y": 1840
+					},
+					"data": {
+						"label": "Button: new-match (fb-new-match)",
+						"action": "new-match"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hbnewover",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 1840
+					},
+					"data": {
+						"label": "HUD fb-new-match",
+						"element": "fb-new-match",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "dbnewover",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 1840
+					},
+					"data": {
+						"label": "HUD fb-new-match press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bnewpause",
+					"type": "fbbutton",
+					"position": {
+						"x": 280,
+						"y": 1990
+					},
+					"data": {
+						"label": "Button: new-match (fb-new-match-pause)",
+						"action": "new-match"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hbnewpause",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 1990
+					},
+					"data": {
+						"label": "HUD fb-new-match-pause",
+						"element": "fb-new-match-pause",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "dbnewpause",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 1990
+					},
+					"data": {
+						"label": "HUD fb-new-match-pause press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "pkey",
+					"type": "keypress",
+					"position": {
+						"x": 40,
+						"y": 2140
+					},
+					"data": {
+						"label": "Press P",
+						"code": "KeyP",
+						"edge": "down",
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "pausetoggle",
+					"type": "hudscreen",
+					"position": {
+						"x": 280,
+						"y": 2140
+					},
+					"data": {
+						"label": "Toggle pause menu",
+						"screen": "pause",
+						"action": "toggle"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bresume",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 2290
+					},
+					"data": {
+						"label": "Resume button",
+						"element": "resume-btn"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "resumehide",
+					"type": "hudscreen",
+					"position": {
+						"x": 280,
+						"y": 2290
+					},
+					"data": {
+						"label": "Close pause menu",
+						"screen": "pause",
+						"action": "hide"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bquit",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 2440
+					},
+					"data": {
+						"label": "Quit to menu button",
+						"element": "quit-btn"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "doquit",
+					"type": "setgamestate",
+					"position": {
+						"x": 280,
+						"y": 2440
+					},
+					"data": {
+						"label": "Quit to menu",
+						"state": "menu",
+						"outcome": "",
+						"reset": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "quithide",
+					"type": "hudscreen",
+					"position": {
+						"x": 520,
+						"y": 2440
+					},
+					"data": {
+						"label": "Close pause on quit",
+						"screen": "pause",
+						"action": "hide"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "evstart",
+					"type": "fbevent",
+					"position": {
+						"x": 40,
+						"y": 2590
+					},
+					"data": {
+						"label": "On match start",
+						"event": "start"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "gostart",
+					"type": "setgamestate",
+					"position": {
+						"x": 280,
+						"y": 2590
+					},
+					"data": {
+						"label": "Match: playing",
+						"state": "playing",
+						"outcome": "",
+						"reset": false
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "evover",
+					"type": "fbevent",
+					"position": {
+						"x": 40,
+						"y": 2740
+					},
+					"data": {
+						"label": "On match over",
+						"event": "over"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "goover",
+					"type": "setgamestate",
+					"position": {
+						"x": 280,
+						"y": 2740
+					},
+					"data": {
+						"label": "Match: over",
+						"state": "over",
+						"outcome": "Match over",
+						"reset": false
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "evnew",
+					"type": "fbevent",
+					"position": {
+						"x": 40,
+						"y": 2890
+					},
+					"data": {
+						"label": "On new match",
+						"event": "reset"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "gomenu",
+					"type": "setgamestate",
+					"position": {
+						"x": 280,
+						"y": 2890
+					},
+					"data": {
+						"label": "Match: menu",
+						"state": "menu",
+						"outcome": "",
+						"reset": true
+					},
+					"class": "w-[150px]"
+				}
+			],
+			"edges": [
+				{
+					"id": "e-rules-selpitch",
+					"source": "rules",
+					"target": "selpitch"
+				},
+				{
+					"id": "e-selball-rules.ball",
+					"source": "selball",
+					"target": "rules",
+					"targetHandle": "ball"
+				},
+				{
+					"id": "e-gater-selgater",
+					"source": "gater",
+					"target": "selgater"
+				},
+				{
+					"id": "e-gateb-selgateb",
+					"source": "gateb",
+					"target": "selgateb"
+				},
+				{
+					"id": "e-records-selpitch",
+					"source": "records",
+					"target": "selpitch"
+				},
+				{
+					"id": "e-bjoinr-selbjoinr",
+					"source": "bjoinr",
+					"target": "selbjoinr"
+				},
+				{
+					"id": "e-hbjoinr-dbjoinr.trigger",
+					"source": "hbjoinr",
+					"target": "dbjoinr",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbjoinr-bjoinr.press",
+					"source": "dbjoinr",
+					"target": "bjoinr",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bjoinb-selbjoinb",
+					"source": "bjoinb",
+					"target": "selbjoinb"
+				},
+				{
+					"id": "e-hbjoinb-dbjoinb.trigger",
+					"source": "hbjoinb",
+					"target": "dbjoinb",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbjoinb-bjoinb.press",
+					"source": "dbjoinb",
+					"target": "bjoinb",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bstart-selbstart",
+					"source": "bstart",
+					"target": "selbstart"
+				},
+				{
+					"id": "e-hbstart-dbstart.trigger",
+					"source": "hbstart",
+					"target": "dbstart",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbstart-bstart.press",
+					"source": "dbstart",
+					"target": "bstart",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bnew-selbnew",
+					"source": "bnew",
+					"target": "selbnew"
+				},
+				{
+					"id": "e-hbnew-dbnew.trigger",
+					"source": "hbnew",
+					"target": "dbnew",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbnew-bnew.press",
+					"source": "dbnew",
+					"target": "bnew",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-lampred1-sellampred1",
+					"source": "lampred1",
+					"target": "sellampred1"
+				},
+				{
+					"id": "e-lampred2-sellampred2",
+					"source": "lampred2",
+					"target": "sellampred2"
+				},
+				{
+					"id": "e-lampred3-sellampred3",
+					"source": "lampred3",
+					"target": "sellampred3"
+				},
+				{
+					"id": "e-lampred4-sellampred4",
+					"source": "lampred4",
+					"target": "sellampred4"
+				},
+				{
+					"id": "e-lampred5-sellampred5",
+					"source": "lampred5",
+					"target": "sellampred5"
+				},
+				{
+					"id": "e-lampred6-sellampred6",
+					"source": "lampred6",
+					"target": "sellampred6"
+				},
+				{
+					"id": "e-lampred7-sellampred7",
+					"source": "lampred7",
+					"target": "sellampred7"
+				},
+				{
+					"id": "e-lampred8-sellampred8",
+					"source": "lampred8",
+					"target": "sellampred8"
+				},
+				{
+					"id": "e-lampred9-sellampred9",
+					"source": "lampred9",
+					"target": "sellampred9"
+				},
+				{
+					"id": "e-lampred10-sellampred10",
+					"source": "lampred10",
+					"target": "sellampred10"
+				},
+				{
+					"id": "e-lampblue1-sellampblue1",
+					"source": "lampblue1",
+					"target": "sellampblue1"
+				},
+				{
+					"id": "e-lampblue2-sellampblue2",
+					"source": "lampblue2",
+					"target": "sellampblue2"
+				},
+				{
+					"id": "e-lampblue3-sellampblue3",
+					"source": "lampblue3",
+					"target": "sellampblue3"
+				},
+				{
+					"id": "e-lampblue4-sellampblue4",
+					"source": "lampblue4",
+					"target": "sellampblue4"
+				},
+				{
+					"id": "e-lampblue5-sellampblue5",
+					"source": "lampblue5",
+					"target": "sellampblue5"
+				},
+				{
+					"id": "e-lampblue6-sellampblue6",
+					"source": "lampblue6",
+					"target": "sellampblue6"
+				},
+				{
+					"id": "e-lampblue7-sellampblue7",
+					"source": "lampblue7",
+					"target": "sellampblue7"
+				},
+				{
+					"id": "e-lampblue8-sellampblue8",
+					"source": "lampblue8",
+					"target": "sellampblue8"
+				},
+				{
+					"id": "e-lampblue9-sellampblue9",
+					"source": "lampblue9",
+					"target": "sellampblue9"
+				},
+				{
+					"id": "e-lampblue10-sellampblue10",
+					"source": "lampblue10",
+					"target": "sellampblue10"
+				},
+				{
+					"id": "e-bnewover-selbnew",
+					"source": "bnewover",
+					"target": "selbnew"
+				},
+				{
+					"id": "e-hbnewover-dbnewover.trigger",
+					"source": "hbnewover",
+					"target": "dbnewover",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbnewover-bnewover.press",
+					"source": "dbnewover",
+					"target": "bnewover",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bnewpause-selbnew",
+					"source": "bnewpause",
+					"target": "selbnew"
+				},
+				{
+					"id": "e-hbnewpause-dbnewpause.trigger",
+					"source": "hbnewpause",
+					"target": "dbnewpause",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dbnewpause-bnewpause.press",
+					"source": "dbnewpause",
+					"target": "bnewpause",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-pkey-pausetoggle.trigger",
+					"source": "pkey",
+					"target": "pausetoggle",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-bresume-resumehide.trigger",
+					"source": "bresume",
+					"target": "resumehide",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-bquit-doquit.trigger",
+					"source": "bquit",
+					"target": "doquit",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-bquit-quithide.trigger",
+					"source": "bquit",
+					"target": "quithide",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-evstart-gostart.trigger",
+					"source": "evstart",
+					"target": "gostart",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-evover-goover.trigger",
+					"source": "evover",
+					"target": "goover",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-evnew-gomenu.trigger",
+					"source": "evnew",
+					"target": "gomenu",
+					"targetHandle": "trigger"
+				}
+			]
+		}
+	},
+	"hud": {
+		"scene": {
+			"active": "",
+			"changedAt": 0,
+			"screens": [
+				{
+					"id": "menu",
+					"name": "Menu",
+					"showWhile": "menu",
+					"input": "menu",
+					"elements": [
+						{
+							"id": "menu-panel",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 480,
+							"h": 400,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(20, 26, 36, 0.92)",
+								"radius": 16,
+								"border": "1px solid rgba(136, 192, 208, 0.25)"
+							}
+						},
+						{
+							"id": "title",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -150,
+							"w": 400,
+							"h": 54,
+							"z": 1,
+							"label": "FOOTBALL",
+							"style": {
+								"size": 40,
+								"weight": "700",
+								"color": "#ffd45e",
+								"align": "center"
+							}
+						},
+						{
+							"id": "subtitle",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -100,
+							"w": 440,
+							"h": 44,
+							"z": 1,
+							"label": "Pick a side, then Start. Hit the floating ball with your hands; a ball through the other gate is a goal.",
+							"style": {
+								"size": 14,
+								"color": "#d8dee9",
+								"align": "center"
+							},
+							"wrap": true
+						},
+						{
+							"id": "fb-join-red",
+							"kind": "button",
+							"anchor": "center",
+							"x": -110,
+							"y": -30,
+							"w": 190,
+							"h": 44,
+							"z": 1,
+							"label": "Join RED",
+							"enabled": true,
+							"style": {
+								"size": 16,
+								"weight": "600",
+								"bg": "#c94a4a",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "fb-join-blue",
+							"kind": "button",
+							"anchor": "center",
+							"x": 110,
+							"y": -30,
+							"w": 190,
+							"h": 44,
+							"z": 1,
+							"label": "Join BLUE",
+							"enabled": true,
+							"style": {
+								"size": 16,
+								"weight": "600",
+								"bg": "#3b7dd8",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "fb-start",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 30,
+							"w": 220,
+							"h": 48,
+							"z": 1,
+							"label": "Start match",
+							"enabled": true,
+							"style": {
+								"size": 16,
+								"weight": "600",
+								"bg": "#4c9e6a",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "fb-sheet",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": 105,
+							"w": 440,
+							"h": 70,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 12,
+								"color": "#c8d0dc",
+								"align": "center"
+							}
+						},
+						{
+							"id": "menu-hint",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": 165,
+							"w": 440,
+							"h": 30,
+							"z": 1,
+							"label": "Walk into the ball to knock it  ·  Grab: hold click  ·  Pause: P",
+							"style": {
+								"size": 12,
+								"color": "#8b97a8",
+								"align": "center"
+							},
+							"wrap": true
+						}
+					]
+				},
+				{
+					"id": "hud",
+					"name": "HUD",
+					"showWhile": "playing",
+					"input": "game",
+					"elements": [
+						{
+							"id": "fb-score",
+							"kind": "list",
+							"anchor": "top-center",
+							"x": 0,
+							"y": 14,
+							"w": 420,
+							"h": 70,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 18,
+								"weight": "600",
+								"color": "#e5e9f0",
+								"align": "center"
+							}
+						},
+						{
+							"id": "fb-sheet-play",
+							"kind": "list",
+							"anchor": "top-right",
+							"x": 16,
+							"y": 14,
+							"w": 260,
+							"h": 120,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 12,
+								"color": "#c8d0dc",
+								"align": "right"
+							}
+						},
+						{
+							"id": "play-hint",
+							"kind": "text",
+							"anchor": "bottom-center",
+							"x": 0,
+							"y": 12,
+							"w": 520,
+							"h": 20,
+							"z": 1,
+							"label": "Hit the ball toward the other gate.  Press P to pause.",
+							"style": {
+								"size": 11,
+								"color": "#8b97a8",
+								"align": "center"
+							}
+						}
+					]
+				},
+				{
+					"id": "pause",
+					"name": "Pause",
+					"input": "menu",
+					"elements": [
+						{
+							"id": "pause-panel",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 380,
+							"h": 300,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(20, 26, 36, 0.92)",
+								"radius": 16,
+								"border": "1px solid rgba(136, 192, 208, 0.25)"
+							}
+						},
+						{
+							"id": "pause-title",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -95,
+							"w": 340,
+							"h": 36,
+							"z": 1,
+							"label": "PAUSED",
+							"style": {
+								"size": 26,
+								"weight": "700",
+								"color": "#e5e9f0",
+								"align": "center"
+							}
+						},
+						{
+							"id": "resume-btn",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": -30,
+							"w": 240,
+							"h": 42,
+							"z": 1,
+							"label": "Resume",
+							"enabled": true,
+							"style": {
+								"size": 16,
+								"weight": "600",
+								"bg": "#3b7dd8",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "fb-new-match-pause",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 22,
+							"w": 240,
+							"h": 42,
+							"z": 1,
+							"label": "New match",
+							"enabled": true,
+							"style": {
+								"size": 16,
+								"weight": "600",
+								"bg": "#4c9e6a",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "quit-btn",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 74,
+							"w": 240,
+							"h": 42,
+							"z": 1,
+							"label": "Quit to menu",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "500",
+								"bg": "#3a4150",
+								"color": "#e5e9f0",
+								"radius": 10
+							}
+						}
+					]
+				},
+				{
+					"id": "over",
+					"name": "Match over",
+					"showWhile": "over",
+					"input": "menu",
+					"elements": [
+						{
+							"id": "over-panel",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 460,
+							"h": 360,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(20, 26, 36, 0.92)",
+								"radius": 16,
+								"border": "1px solid rgba(136, 192, 208, 0.25)"
+							}
+						},
+						{
+							"id": "over-title",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -130,
+							"w": 420,
+							"h": 40,
+							"z": 1,
+							"label": "MATCH OVER",
+							"style": {
+								"size": 30,
+								"weight": "700",
+								"color": "#ffd45e",
+								"align": "center"
+							}
+						},
+						{
+							"id": "fb-score-over",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": -70,
+							"w": 420,
+							"h": 60,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 16,
+								"color": "#e5e9f0",
+								"align": "center"
+							}
+						},
+						{
+							"id": "fb-log",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": 20,
+							"w": 420,
+							"h": 100,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 12,
+								"color": "#c8d0dc",
+								"align": "center"
+							}
+						},
+						{
+							"id": "fb-new-match",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 120,
+							"w": 220,
+							"h": 44,
+							"z": 1,
+							"label": "New match",
+							"enabled": true,
+							"style": {
+								"size": 16,
+								"weight": "600",
+								"bg": "#3b7dd8",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						}
+					]
+				}
+			]
+		}
+	},
+	"objects": [
+		{
+			"type": "box",
+			"name": "Pitch",
+			"color": 3820093,
+			"size": [
+				3,
+				0.05,
+				5.5
+			],
+			"pos": [
+				0,
+				-0.025,
+				0
+			],
+			"roughness": 0.95,
+			"physics": {
+				"mode": "static",
+				"friction": 0.6
+			}
+		},
+		{
+			"type": "box",
+			"name": "Wall left",
+			"color": 10413823,
+			"opacity": 0.06,
+			"size": [
+				0.05,
+				2.4,
+				5.5
+			],
+			"pos": [
+				-1.525,
+				1.2,
+				0
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Wall right",
+			"color": 10413823,
+			"opacity": 0.06,
+			"size": [
+				0.05,
+				2.4,
+				5.5
+			],
+			"pos": [
+				1.525,
+				1.2,
+				0
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Wall red end",
+			"color": 10413823,
+			"opacity": 0.06,
+			"size": [
+				3,
+				2.4,
+				0.05
+			],
+			"pos": [
+				0,
+				1.2,
+				-2.775
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Wall blue end",
+			"color": 10413823,
+			"opacity": 0.06,
+			"size": [
+				3,
+				2.4,
+				0.05
+			],
+			"pos": [
+				0,
+				1.2,
+				2.775
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Ceiling",
+			"color": 10413823,
+			"opacity": 0.06,
+			"size": [
+				3,
+				0.05,
+				5.5
+			],
+			"pos": [
+				0,
+				2.425,
+				0
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red post left",
+			"color": 14240330,
+			"emissive": 14240330,
+			"emissiveIntensity": 0.9,
+			"roughness": 0.4,
+			"size": [
+				0.06,
+				0.8600000000000001,
+				0.06
+			],
+			"pos": [
+				-0.6,
+				1.35,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red post right",
+			"color": 14240330,
+			"emissive": 14240330,
+			"emissiveIntensity": 0.9,
+			"roughness": 0.4,
+			"size": [
+				0.06,
+				0.8600000000000001,
+				0.06
+			],
+			"pos": [
+				0.6,
+				1.35,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red bar top",
+			"color": 14240330,
+			"emissive": 14240330,
+			"emissiveIntensity": 0.9,
+			"roughness": 0.4,
+			"size": [
+				1.26,
+				0.06,
+				0.06
+			],
+			"pos": [
+				0,
+				1.75,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red bar bottom",
+			"color": 14240330,
+			"emissive": 14240330,
+			"emissiveIntensity": 0.9,
+			"roughness": 0.4,
+			"size": [
+				1.26,
+				0.06,
+				0.06
+			],
+			"pos": [
+				0,
+				0.9500000000000001,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red gate",
+			"color": 14240330,
+			"opacity": 0.12,
+			"size": [
+				1.2,
+				0.8,
+				0.5
+			],
+			"pos": [
+				0,
+				1.35,
+				-2.45
+			],
+			"physics": {
+				"mode": "static",
+				"sensor": true,
+				"collider": "box"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red lamp 1",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				-0.5,
+				2,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red lamp 2",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				-0.25,
+				2,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red lamp 3",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0,
+				2,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red lamp 4",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0.25,
+				2,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red lamp 5",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0.5,
+				2,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red lamp 6",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				-0.5,
+				2.22,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red lamp 7",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				-0.25,
+				2.22,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red lamp 8",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0,
+				2.22,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red lamp 9",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0.25,
+				2.22,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Red lamp 10",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0.5,
+				2.22,
+				-2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Join red",
+			"color": 14240330,
+			"emissive": 14240330,
+			"emissiveIntensity": 0.5,
+			"size": [
+				0.3,
+				0.12,
+				0.3
+			],
+			"pos": [
+				1.2,
+				1.05,
+				-1.6
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue post left",
+			"color": 4881881,
+			"emissive": 4881881,
+			"emissiveIntensity": 0.9,
+			"roughness": 0.4,
+			"size": [
+				0.06,
+				0.8600000000000001,
+				0.06
+			],
+			"pos": [
+				-0.6,
+				1.35,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue post right",
+			"color": 4881881,
+			"emissive": 4881881,
+			"emissiveIntensity": 0.9,
+			"roughness": 0.4,
+			"size": [
+				0.06,
+				0.8600000000000001,
+				0.06
+			],
+			"pos": [
+				0.6,
+				1.35,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue bar top",
+			"color": 4881881,
+			"emissive": 4881881,
+			"emissiveIntensity": 0.9,
+			"roughness": 0.4,
+			"size": [
+				1.26,
+				0.06,
+				0.06
+			],
+			"pos": [
+				0,
+				1.75,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue bar bottom",
+			"color": 4881881,
+			"emissive": 4881881,
+			"emissiveIntensity": 0.9,
+			"roughness": 0.4,
+			"size": [
+				1.26,
+				0.06,
+				0.06
+			],
+			"pos": [
+				0,
+				0.9500000000000001,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue gate",
+			"color": 4881881,
+			"opacity": 0.12,
+			"size": [
+				1.2,
+				0.8,
+				0.5
+			],
+			"pos": [
+				0,
+				1.35,
+				2.45
+			],
+			"physics": {
+				"mode": "static",
+				"sensor": true,
+				"collider": "box"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue lamp 1",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				-0.5,
+				2,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue lamp 2",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				-0.25,
+				2,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue lamp 3",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0,
+				2,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue lamp 4",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0.25,
+				2,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue lamp 5",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0.5,
+				2,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue lamp 6",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				-0.5,
+				2.22,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue lamp 7",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				-0.25,
+				2.22,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue lamp 8",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0,
+				2.22,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue lamp 9",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0.25,
+				2.22,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Blue lamp 10",
+			"color": 2237998,
+			"emissive": 2237998,
+			"emissiveIntensity": 0.2,
+			"size": [
+				0.16,
+				0.16,
+				0.06
+			],
+			"pos": [
+				0.5,
+				2.22,
+				2.2
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Join blue",
+			"color": 4881881,
+			"emissive": 4881881,
+			"emissiveIntensity": 0.5,
+			"size": [
+				0.3,
+				0.12,
+				0.3
+			],
+			"pos": [
+				-1.2,
+				1.05,
+				1.6
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Start match",
+			"color": 5021290,
+			"emissive": 5021290,
+			"emissiveIntensity": 0.5,
+			"size": [
+				0.3,
+				0.12,
+				0.3
+			],
+			"pos": [
+				1.2,
+				1.05,
+				-0.35
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "New match",
+			"color": 9080730,
+			"emissive": 9080730,
+			"emissiveIntensity": 0.4,
+			"size": [
+				0.3,
+				0.12,
+				0.3
+			],
+			"pos": [
+				1.2,
+				1.05,
+				0.35
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "sphere",
+			"name": "Football",
+			"color": 15921906,
+			"r": 0.22,
+			"pos": [
+				0,
+				1.3,
+				0
+			],
+			"roughness": 0.6,
+			"physics": {
+				"mode": "dynamic",
+				"mass": 0.45,
+				"restitution": 0.7,
+				"friction": 0.2
+			}
+		}
+	]
+}

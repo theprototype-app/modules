@@ -116,6 +116,23 @@
 		]
 	},
 	{
+		"id": "football",
+		"name": "Football",
+		"version": "1.0.0",
+		"description": "VR football on the knock: floating ball, two team gates, last-touch attribution, modes, per-player records and a saved match log - every rule a flow node.",
+		"author": "theprototype-app",
+		"source": "modules/football",
+		"zip": "football.zip",
+		"category": "game",
+		"tags": [
+			"vr",
+			"competitive",
+			"colocation",
+			"physics"
+		],
+		"template": "games/football"
+	},
+	{
 		"id": "fps-player",
 		"name": "FPS Player",
 		"version": "1.0.0",
