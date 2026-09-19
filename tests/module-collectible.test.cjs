@@ -126,7 +126,8 @@ async function runRecipe(peer, options) {
 	await panel.locator('.cm-form select').nth(0).selectOption(options.scope ?? 'shared');
 	await panel.locator('.cm-form select').nth(1).selectOption(options.trigger ?? 'click');
 	await panel.locator('.cm-form select').nth(2).selectOption(options.hide ?? 'on');
-	await panel.locator('.cm-form input[type=number]').fill(String(options.respawn ?? 0));
+	if (options.radius != null) await panel.locator('.cm-form input.cm-in-radius').fill(String(options.radius));
+	await panel.locator('.cm-form input.cm-in-respawn').fill(String(options.respawn ?? 0));
 	await panel.getByRole('button', { name: 'Make collectible' }).click();
 	await peer.page.waitForTimeout(1400);
 }
@@ -682,6 +683,13 @@ h.run(async () => {
 	h.check(
 		troveCounts === '2 collected, 0 left of 2',
 		'and the header agrees with the count node (' + troveCounts + ')'
+	);
+	// S4: the counts include the hand-built LEGACY chain while only module nodes get rows —
+	// the header now says so instead of leaving a count that disagrees with the rows
+	const legacyLines = await panel.locator('.cm-legacy').evaluateAll((els) => els.map((el) => el.textContent));
+	h.check(
+		legacyLines.length === 1 && /^\+1 older recipe chain counted here/.test(legacyLines[0] ?? ''),
+		'a group whose count includes an older recipe chain says so (' + JSON.stringify(legacyLines) + ')'
 	);
 	const gateRow = panel.locator('.cm-row').filter({ hasText: 'Gate' });
 	h.check(await gateRow.count() === 1, 'a row is named after its target object');
