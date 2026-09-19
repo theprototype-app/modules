@@ -16,7 +16,11 @@ be read start-to-finish by a person **or** pasted whole into an AI assistant.
   VR and desktop from one code path) · [`fps-player`](modules/fps-player/)
   (input claims, `possess`, capability probing) ·
   [`flow-toolkit`](modules/flow-toolkit/) (flow nodes) ·
-  [`untangle`](modules/untangle/) (a full replicated game).
+  [`untangle`](modules/untangle/) (a full replicated game) ·
+  [`health`](modules/health/) (a number several peers can lower, converging with no
+  authority: pulses counted by core's Counter, a player's own peer row, the first-sight
+  rule) · [`waves`](modules/waves/) (a mechanic COMPOSED on another module's node types,
+  the wave derived from counters, a run log every peer appends identically).
 - Missing something? [DEVX-REQUESTS.md](DEVX-REQUESTS.md) tracks known SDK gaps —
   check it before you work around one.
 
@@ -391,6 +395,24 @@ list when something bites you.
 - **`api.input()` fires while the user is typing in a panel.** Claim the scope
   (`claimInput('keys')`) only while your mode is active, and ignore input when
   it is not.
+- **An EFFECT node pins its target's pose.** The runtime re-seats an effect target's base
+  pose every frame while the effect is active (in play), so a `registerEffect` node on an
+  object that must move — a knocked crate, a walking enemy — fights every move, replicated
+  or not (football's "no node may target the ball"). If your node only needs to *know* its
+  object, make it a `registerValueNode` with an `{inputs: {target: 'object'}}` socket and
+  wire the Object Selector IN; hide/show the object yourself and restore only what you hid
+  (`health` does this).
+- **Two clocks.** `api.now()` and every trigger-log stamp are seconds of day on the synced
+  clock; `api.game.roundCutoff()` (the round's `startedAt`) is session **milliseconds**.
+  Convert (`(ms / 1000) % 86400`) before comparing, and never compare either to
+  `performance.now()`. A joiner's `api.now()` also re-bases on connect — decide "did I
+  witness this" by identity (the collectible's first-sight rule), never by clock.
+- **`api.flow.nodeValue` is ~6 Hz.** The live values republish every 150 ms, so a Counter
+  you just pulsed still reads the old count for a moment. Firing again "because the count
+  has not moved" doubles the pulse; remember what you fired (`waves` keeps a per-node
+  expectation) or derive from the last sweep's numbers (`health`'s kill credit).
+- **A second `installModule` on one peer needs the `/^User/` tab locator** — after an
+  install the tab reads "User (1)" and an exact match hangs (fixed in `helpers.cjs`).
 - **Capping `dt` turns a slow frame rate into slow motion.** `Math.min(dt, 0.1)`
   is the right way to stop a physics step tunnelling, but at 7fps (headless
   Chromium, a background tab) it means sim time advances at 0.7x — a jump that
