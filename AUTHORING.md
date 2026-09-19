@@ -11,12 +11,22 @@ be read start-to-finish by a person **or** pasted whole into an AI assistant.
   [`_template`](modules/_template/) (start here) ·
   [`door-keypad`](modules/door-keypad/) (replicated objects, a discrete event, a
   deterministic animation from one timestamp, late-joiner state) ·
+  [`dungeon`](modules/dungeon/) (**the worked toolbox example**: `api.registerToolbox`
+  with a `#dungeon-panel` DOM fallback behind a feature-detect, a node that IS the
+  recipe, and a published `userData.play` contract other modules read) ·
+  [`dungeon-realms`](modules/dungeon-realms/) (a game as an OVERLAY on another module:
+  two modules cannot share code, so they share the scene — the Kit's
+  `userData.play` / `userData.kit` seam, read through `api.scene()`) ·
   [`tutorial-room`](modules/tutorial-room/) (derived content: local geometry,
   replicated *intent*) · [`sabers`](modules/sabers/) (per-frame pose streaming,
   VR and desktop from one code path) · [`fps-player`](modules/fps-player/)
   (input claims, `possess`, capability probing) ·
   [`flow-toolkit`](modules/flow-toolkit/) (flow nodes) ·
-  [`untangle`](modules/untangle/) (a full replicated game).
+  [`untangle`](modules/untangle/) (a full replicated game) ·
+  [`health`](modules/health/) (a number several peers can lower, converging with no
+  authority: pulses counted by core's Counter, a player's own peer row, the first-sight
+  rule) · [`waves`](modules/waves/) (a mechanic COMPOSED on another module's node types,
+  the wave derived from counters, a run log every peer appends identically).
 - Missing something? [DEVX-REQUESTS.md](DEVX-REQUESTS.md) tracks known SDK gaps —
   check it before you work around one.
 
@@ -246,11 +256,14 @@ Full signatures live in the docs site; this is the map.
 | Netcode | `send(payload)`, `onMessage(fn)`, `registerStateSync({getState, applyState})`, `peerId()` |
 | Input | `registerBindings(list)`, `input()`, `onInput(fn)`, `claimInput(scope)`, `releaseInput(scope)` |
 | Physics | `physics.isInitiator()`, `applyImpulse`, `applyTorqueImpulse`, `setJointMotor`, `joints()` |
+| Knock | `onHit(cb)` — every knock this peer sees (its own hand's and every peer's `hit`) as `{uuid, by, at, speed, point, linvel, angvel, probe, local}`; returns the unsubscribe, torn down with the module · `hitLog()` — a COPY `{last, recent}` (last hit per live body, the last 32 in order; runtime state, a late joiner's starts empty) |
 | Player | `possess(uuid, {camera})`, `releasePossess()`, `selectedUuid()` |
 | UI | `registerMenu(label, action)`, `registerVRMenuEntry(entry)`, `toast(text)` |
 | Misc | `THREE`, `assetUrl(path)`, `now()`, `sceneAssets()` |
 
-Two that are easy to miss:
+The worked example for the game SDK (`api.game`, `api.peerVars`, `onHit`, `registerStateSync`, `registerToolbox`) is [football](modules/football/): rules as flow nodes, last-touch attribution evaluated BY EACH PEER from `onHit` (no module message for a touch), the physics initiator as the one goal authority, and each player's goals written to their OWN `peerVars` row.
+
+Three that are easy to miss:
 
 - **`registerClickHandler` covers VR too.** You do not write a second input
   path for the headset; the trigger dispatches through the same handler with the
@@ -258,6 +271,9 @@ Two that are easy to miss:
 - **`claimInput('keys' | 'locomotion')` pauses the editor's own consumers** so
   your WASD does not also fly the camera. Always release it when your mode ends,
   including on error paths.
+- **`onHit` fires on EVERY peer for every hit.** Attribution derived from it is
+  deterministic without a message of your own; a per-player counter must still bump
+  only when `hit.by === api.peerId()` (or `hit.local`), or every peer banks it.
 
 ---
 
@@ -391,6 +407,24 @@ list when something bites you.
 - **`api.input()` fires while the user is typing in a panel.** Claim the scope
   (`claimInput('keys')`) only while your mode is active, and ignore input when
   it is not.
+- **An EFFECT node pins its target's pose.** The runtime re-seats an effect target's base
+  pose every frame while the effect is active (in play), so a `registerEffect` node on an
+  object that must move — a knocked crate, a walking enemy — fights every move, replicated
+  or not (football's "no node may target the ball"). If your node only needs to *know* its
+  object, make it a `registerValueNode` with an `{inputs: {target: 'object'}}` socket and
+  wire the Object Selector IN; hide/show the object yourself and restore only what you hid
+  (`health` does this).
+- **Two clocks.** `api.now()` and every trigger-log stamp are seconds of day on the synced
+  clock; `api.game.roundCutoff()` (the round's `startedAt`) is session **milliseconds**.
+  Convert (`(ms / 1000) % 86400`) before comparing, and never compare either to
+  `performance.now()`. A joiner's `api.now()` also re-bases on connect — decide "did I
+  witness this" by identity (the collectible's first-sight rule), never by clock.
+- **`api.flow.nodeValue` is ~6 Hz.** The live values republish every 150 ms, so a Counter
+  you just pulsed still reads the old count for a moment. Firing again "because the count
+  has not moved" doubles the pulse; remember what you fired (`waves` keeps a per-node
+  expectation) or derive from the last sweep's numbers (`health`'s kill credit).
+- **A second `installModule` on one peer needs the `/^User/` tab locator** — after an
+  install the tab reads "User (1)" and an exact match hangs (fixed in `helpers.cjs`).
 - **Capping `dt` turns a slow frame rate into slow motion.** `Math.min(dt, 0.1)`
   is the right way to stop a physics step tunnelling, but at 7fps (headless
   Chromium, a background tab) it means sim time advances at 0.7x — a jump that

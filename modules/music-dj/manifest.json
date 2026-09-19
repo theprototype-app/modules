@@ -1,0 +1,9 @@
+{
+	"id": "music-dj",
+	"name": "Music DJ",
+	"version": "0.1.0",
+	"format": 1,
+	"description": "Two decks and a crossfader on the engine: drop a track on a deck, scrub the platter, ride the pitch, fade between them - every peer hears the same position.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}

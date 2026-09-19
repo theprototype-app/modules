@@ -51,9 +51,11 @@ sixty gems — so the settings sit with whoever owns them:
 Nothing in there is a second source of truth. The rows read the graph and the trigger
 log, and every edit is written back through the same replicated `nodedata` path the node
 editor's own cards use — so a change made here behaves exactly as if you had typed it
-into the card, peers included. A group-wide change is one such write **per member**,
-because there is no batched node-data write to reach for; members that already hold the
-value are skipped, so the cost follows the *difference* rather than the group size.
+into the card, peers included. A group-wide change is one such write **per member**;
+members that already hold the value are skipped, so the cost follows the *difference*
+rather than the group size. On core 1.15+ the whole press goes through
+`api.flow.setNodesData`, so **one Ctrl+Z undoes the whole group change**; an older core
+writes the members one by one.
 
 Show the score with **Set Variable ▸ HUD Text** as usual, or the count itself with
 the **Collectibles** value node (`left` / `collected` / `total`) — the HUD editor's
@@ -98,7 +100,7 @@ reason this module is thin.
 | The counts | Derived from the **graph**, never from the score. A score only goes up, so `left` would go negative the first time something respawned. `collected + left === total` by construction. |
 | Legacy scenes | The count node also finds core's old seven-node chains (`SetVariable ← Once ← event → Latch`) and reads each Latch through `api.flow.nodeValue` — core's own round-aware answer, not a second implementation. |
 | Late joiners | No `registerStateSync` at all. Every bit of state is already replicated: the graph, the trigger log, the game singleton and the peer rows. AUTHORING.md §4.3 calls that the better design when you can get it. |
-| The toolbox | LOCAL, like every toolbox. What it *changes* goes through the replicated paths — `api.flow.setNodeData` for an edit, `api.flow.addNodes` for the recipe. |
+| The toolbox | LOCAL, like every toolbox. What it *changes* goes through the replicated paths — `api.flow.setNodeData` for an edit (`setNodesData` for a group edit, one undo step), `api.flow.addNodes` for the recipe. |
 | Where a setting is edited | By **who owns it**, which is what a sixty-gem scene forces: `trigger` and `scope` are what a whole score's worth of pickups share, so they live on the **group** header; `respawn` is genuinely per-object, so it stays on the **row**. That is also why a group is a fold-away unit — sixty rows can be one line. |
 | A group control over members that disagree | An **em-dash**, never one of the values (core's Inspector rule for a multi-selection). Showing "click" over a mixed set is a lie the next pointer trip silently makes true. Picking a value out of the mixed control applies it to everyone, which is the reason the control exists. |
 

@@ -1,8 +1,7 @@
-// Pure-data generator tests — run WITHOUT the app:
-//   node modules/dungeon-realms/test/run.mjs
-// (also wired as `npm run test:dungeon-realms` at the repo root)
-import { run as genTests } from './gen.test.mjs';
-import { run as campaignTests } from './campaign.test.mjs';
+// Pure rule tests — run WITHOUT the app:
+//   node modules/dungeon-realms/test/run.mjs   (npm run test:dungeon-realms)
+// The generator suites live with the generator in modules/dungeon/test (21-C C6).
+import { run as rulesTests } from './rules.test.mjs';
 
 let failures = 0;
 function check(ok, label) {
@@ -10,10 +9,8 @@ function check(ok, label) {
 	if (!ok) failures++;
 }
 
-console.log('=== gen.test.mjs ===');
-genTests(check);
-console.log('\n=== campaign.test.mjs ===');
-campaignTests(check);
+console.log('=== rules.test.mjs ===');
+rulesTests(check);
 
 console.log('\n' + (failures === 0 ? 'ALL PASS' : failures + ' FAILURES'));
 process.exit(failures === 0 ? 0 : 1);

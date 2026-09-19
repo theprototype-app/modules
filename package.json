@@ -3,7 +3,7 @@
 	"version": "1.0.0",
 	"private": true,
 	"license": "MIT",
-	"description": "Optional/community modules for theprototype.app — one folder per module under modules/.",
+	"description": "Optional/community modules for theprototype.app \u2014 one folder per module under modules/.",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/theprototype-app/modules.git"
@@ -11,9 +11,19 @@
 	"scripts": {
 		"pack": "node scripts/pack.cjs",
 		"new": "node scripts/new.cjs",
+		"build:dungeon": "esbuild modules/dungeon/src/index.js --bundle --format=esm --outfile=modules/dungeon/module.js",
+		"test:dungeon": "node modules/dungeon/test/run.mjs",
 		"test": "node tests/run.cjs",
-		"build:dungeon-realms": "esbuild modules/dungeon-realms/src/index.js --bundle --format=esm --outfile=modules/dungeon-realms/module.js",
-		"test:dungeon-realms": "node modules/dungeon-realms/test/run.mjs"
+		"build:dungeon-realms": "esbuild modules/dungeon-realms/src/index.js --bundle --format=esm --outfile=modules/dungeon-realms/module.js && node modules/dungeon-realms/emit-def.mjs",
+		"test:dungeon-realms": "node modules/dungeon-realms/test/run.mjs",
+		"build:football": "esbuild modules/football/src/index.js --bundle --format=esm --outfile=modules/football/module.js && node modules/football/emit-def.mjs",
+		"test:football": "node modules/football/test/run.mjs",
+		"build:untangle": "esbuild modules/untangle/src/index.js --bundle --format=esm --outfile=modules/untangle/module.js && node modules/untangle/emit-def.mjs",
+		"test:untangle": "node modules/untangle/test/run.mjs",
+		"build:health": "esbuild modules/health/src/index.js --bundle --format=esm --outfile=modules/health/module.js",
+		"test:health": "node modules/health/test/run.mjs",
+		"build:waves": "esbuild modules/waves/src/index.js --bundle --format=esm --outfile=modules/waves/module.js && node modules/waves/emit-def.mjs",
+		"test:waves": "node modules/waves/test/run.mjs"
 	},
 	"devDependencies": {
 		"esbuild": "0.28.2",

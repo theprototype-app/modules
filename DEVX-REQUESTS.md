@@ -26,10 +26,14 @@ promise from core.
 | 12 | `text` param kind for module nodes | `dungeon-realms` | yes — button labels derive from their action select |
 | 13 | play contract is name-keyed to `'dungeon-module'` | `dungeon-realms` | yes — squats the core module's group name |
 | 14 | grounded (no-fly) play-mode option | `dungeon-realms` | yes — window-capture swallows Q/E while the game runs |
-| 15 | peer roster + disconnect hook | `dungeon-realms` | partly — any player can free a stuck P1/P2 slot from the menu |
-| 16 | `api.flow.nodes()` carries no node POSITION | `collectible` | yes — the recipe derives its row from how many of its own nodes exist |
-| 17 | no change signal for the graph / game state | `collectible` | yes — a 500ms toolbox poll and a ~10Hz frame-task sweep |
+| 15 | peer roster + disconnect hook | `dungeon-realms`, `football` | yes — `api.peerIds()` (the replicated roster) diffed each second frees a vanished peer's slot; `football` does exactly this. The name half is `api.peerNames()` |
+| 16 | ~~`api.flow.nodes()` carries no node POSITION~~ | `collectible` | **SHIPPED** (core PR #224) — snapshots carry `x`/`y` and `api.flow.freeRegion({w, h, graphId})` answers where a block lands; the recipe uses it and falls back to its fixed rows on an older app |
+| 17 | ~~no change signal for the graph / game state~~ | `collectible` | **SHIPPED** (core PR #224) — `api.flow.onChange` (graph + trigger log), `api.game.onChange`, `api.peerVars.onChange`, coalesced to one call per frame; the manager listens and polls only on an older app (the ~10Hz touch/count sweep stays: it watches positions and the clock) |
 | 18 | ~~the flow TRIGGER LOG has no handshake reply, so a late joiner never learns past pulses~~ | `collectible` | **SHIPPED** — `gettriggers`/`triggers` carries the log; the module gained a first-sight rule so arriving history is not banked |
+| 19 | `api.game.setState(state, outcome)` — a module cannot move the game shell | `football` | yes — a Football Event node fires `start`/`over`/`reset` and the template wires it to Set Game State |
+| 20 | a scene-physics block write (`api.physics.setScene({gravity, knock, …})`) | `football` | yes — the template carries the block; the "Build pitch" recipe toasts the Inspector rows to set |
+| 21 | the XR room bounds and the colocation `roomAnchor` on the api | `football` | yes — "Fit to room" / "Centre on room" feature-detect `api.xrReferenceSpace` / `api.colocation.roomAnchor` and fall back to sliders |
+| 22 | a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value | `football` | yes — a `delay` node bridges the stamp into a numeric pulse |
 
 ---
 
@@ -291,7 +295,12 @@ vanished peer wedges the gate until someone frees their slot manually.
 **Ask:** `api.peers()` → `[{id, name}]` + `api.onPeerConnected/Disconnected`.
 The name half would also fix the HUD showing id prefixes instead of nicknames.
 
-## 16. `api.flow.nodes()` snapshots carry no POSITION
+## 16. `api.flow.nodes()` snapshots carry no POSITION — **SHIPPED**
+
+> Delivered both shapes (core PR #224): `x`/`y` on every snapshot, and
+> `api.flow.freeRegion({w, h, graphId})` — left-aligned under the lowest card — so the
+> placement rule is core's one copy (the HUD editor's bindings call the same function).
+> The collectible recipe asks it once per pair. The original request is kept below.
 
 **Found in:** `modules/collectible` — the manager's "Make collectible" recipe
 creates a node pair per selected object and has to lay the rows out, but a
@@ -307,7 +316,15 @@ deterministic and idempotent, and wrong the moment a user drags one of them.
 takes them on the way in), or an `api.flow.freeRegion({w, h})` that answers
 "somewhere empty" so layout stays core's problem.
 
-## 17. No change signal for the graph, the trigger log or the game state
+## 17. No change signal for the graph, the trigger log or the game state — **SHIPPED**
+
+> Delivered (core PR #224): `api.flow.onChange`, `api.game.onChange`,
+> `api.peerVars.onChange`, journalled like every `register*` and also returning an `off()`
+> for a toolbox that mounts and unmounts. Coalesced INSIDE the seam to one call per frame
+> (a microtask was measured NOT to fold thirty arriving peer edits). `flow.onChange` covers
+> the trigger log too, because a collected-state list changes when a node fires. The
+> manager now redraws on these and keeps a clock only for a live respawn countdown; an
+> idle panel writes nothing to the DOM (asserted). The original request is kept below.
 
 **Found in:** `modules/collectible` — the manager toolbox and the debug line are
 both views over the graph, so both POLL: the toolbox on a 500ms interval,
@@ -363,6 +380,116 @@ the same world as everyone else with no per-feature work at all.
 Meanwhile `tests/module-collectible.test.cjs` ASSERTS the limitation (a joiner
 reads 0 collected) rather than skipping it, so a core fix flips that check loudly.
 
+## 22. A HUD Button cannot drive a module node's input
+
+**Found in:** `modules/football` (24-B2), and it cost a red test-flight before it was
+understood — the wire LOOKS right in the editor and does nothing at runtime.
+
+`evalNode` has no `hudbutton` case: `flowRuntime.js` says so out loud, "hudbutton
+contributes no runtime value — its label is authored on the element". Core's own
+consumers of a press (`setgamestate`, `hudscreen`, `playanim`) do not read a value at
+all — they read the wired source's trigger STAMP through `triggerStampFor`. A MODULE
+node cannot: `registerEffect`'s declared inputs are resolved by `resolveInputs`, which
+injects only a VALUE, and `undefined` is skipped. So `hudbutton -> mymodulenode.press`
+is a silent no-op, while the visually identical `onclick -> mymodulenode.press` works
+(On Click DOES evaluate to 1 for its pulse window).
+
+This is the other half of #9. Module nodes can now OUTPUT an event
+(`registerValueNode(..., {vtype: 'event'})` + `fireNodeTrigger`); they still cannot
+RECEIVE one from the node that every game HUD is built out of.
+
+**Ask:** either give `hudbutton` the `onclick` pulse-window value (one `case` beside it —
+`{ pulse: 0.3 }` in its defaults and the same three lines), or hand module effects the
+resolved trigger of their wired inputs, e.g. `ctx.inputTrigger('press')` → `{stamp, age}`.
+The first is smaller and makes every existing `event -> number` coercion consistent.
+
+**Meanwhile:** the football template wires each HUD Button through a **Delay**
+(`seconds: 0.05`), which consumes the stamp and re-emits it as a numeric pulse the module
+reads as an ordinary rising edge. `pitch.js` carries the reasoning under "THE HUD-BUTTON
+BRIDGE" and a node test asserts both halves (every HUD button reaches a Match Button
+through a Delay; none wires straight in).
+
+## 19. A module cannot move the game shell
+
+**Found in:** `modules/football` (24-B). The match starts and ends INSIDE the module —
+the physics initiator sees the ball enter a gate, counts, and decides the match is over —
+but `api.game` is read-mostly (`roundCutoff`, `roundUnderway`, `playActive`, `getVar`,
+`setVar`): there is no `setState`, so the module cannot put the shell into `playing` or
+`over` and the DOM HUD's `showWhile` screens cannot follow the match on their own.
+
+**Ask:** `api.game.setState(state, outcome?)` over `gameState.setGameState` (replicated
+latest-wins, idempotent when already in that state — so several peers applying the same
+op is harmless).
+
+**Meanwhile:** the module registers an EVENT node (`fbevent`: start / over / reset /
+goal / serve / touch) pulsed through `api.fireNodeTrigger` on the peer where the event
+originated, and the template wires `start` → Set Game State (playing), `over` → (over),
+`reset` → (menu). The module also calls `api.game.setState?.()` when it appears.
+
+## 20. No scene-physics block write
+
+**Found in:** `modules/football`. The pitch is data: a zero-g block (`gravity: 0`,
+`ground.enabled: false`, damping, `ccd`, `knock.enabled`). `api.physics.set(uuid, patch)`
+writes ONE OBJECT's body params; the scene block (`scenePhysics.setScenePhysics`, the
+replicated `scenephysics` singleton) is not reachable, so the toolbox's "Build pitch"
+recipe can build the objects and the graph but cannot switch gravity off.
+
+**Ask:** `api.physics.setScene(partial)` = `setScenePhysics` (nested blocks merge, one
+normalize, replicated), plus `api.physics.scene()` to read it.
+
+**Meanwhile:** the template's `.tpscene` carries the block; the recipe toasts which
+Inspector rows to set; the flight sets it through the debug hook.
+
+## 21. XR room bounds and the colocation room anchor
+
+**Found in:** `modules/football` (B3, "Fit pitch to room" / "Centre pitch on room"). The
+bounded reference space (`XRBoundedReferenceSpace.boundsGeometry`) lives on the renderer's
+XR session and `roomAnchor` in `colocation.js`; neither is on the api, so a module cannot
+size a pitch to the play area or put the kick-off spot on the point two colocated players
+agreed on.
+
+**Ask:** `api.xrReferenceSpace()` (null outside a session) and
+`api.colocation.roomAnchor()` → `{position, quaternion, at} | null`.
+
+**Meanwhile:** both toolbox buttons feature-detect exactly those names and fall back to
+the Length / Width sliders (+ a toast), which replicate as ordinary `move`s.
+
+## 23. No way to move the PLAY-MODE player
+
+**Found in:** `modules/health` (death → respawn at a spawn point). `api.playerPosition()` is
+read-only; `api.flyTo` tweens the **editor** camera (and returns early in VR / spectator).
+In play the rig (`cameraParent`) owns the camera and re-seats it every frame, so a module
+cannot put a respawning player on their spawn pad — the one thing a respawn is for. The
+health module flies the editor camera (proven in its flight) and leaves play mode owed.
+
+**Ask:** `api.teleportPlayer(position, lookAt?)` — sets the play rig (and the editor camera
+outside play), local only, the same house rule as `flyTo`.
+
+**Meanwhile:** `respawnAt` works in the editor; in play the player comes back at full where
+they died.
+
+## 24. Live values are ~6 Hz, and a pulse's count cannot be read back synchronously
+
+**Found in:** `modules/health` (kill credit), `modules/waves` (heals into the next wave).
+`api.flow.nodeValue` reads `flowValues`, republished every 150 ms. A module that fires a
+pulse into a Counter and reads the Counter on its next sweep sees the OLD count and, if it
+decides from that, fires again — the waves module double-healed until it kept its own
+expectation per node, and the health module credits a kill from the last sweep's number
+minus what it just fired rather than from the counter.
+
+**Ask:** `api.flow.triggerCount(id)` beside `triggerStamp` (the `count` half of the same
+log entry — it is already in the map), or make `nodeValue` read a Counter live.
+
+## 25. Two clocks on the api
+
+**Found in:** `modules/waves` (the wave's start = the round's start). `api.now()` and every
+trigger-log stamp are seconds of day on the synced clock; `api.game.roundCutoff()` returns
+the round's `startedAt`, which is session **milliseconds**. The first flight compared them
+directly and the wave never started. It is documented nowhere on the api.
+
+**Ask:** either `api.game.roundStartedAt()` in the same seconds as `api.now()`, or a note in
+MODULES.md on `roundCutoff` saying "ms — compare to `api.now() * 1000`". Cheap either way.
+
 ---
 
 ## Core status (17-A1, 2026-08-09 — filed by the core window, branch `feat/module-platform`)
@@ -381,6 +508,7 @@ reads 0 collected) rather than skipping it, so a core fix flips that check loudl
 | 12 | no `text` param kind | **SHIPPED** (21-A1) — `{key, kind: 'text', placeholder?, maxLength?}`. It writes on COMMIT (change/blur), never on `input`: a node edit replicates the whole node, so a per-keystroke write is one broadcast per character. |
 | — | a module node cannot learn its own id | **SHIPPED** (21-A1) — an effect's 5th arg and a value node's 3rd are `{id, graphId}`. Additive, so a four-parameter effect is byte-unchanged. This is what lets one module host several instances of the same node type. |
 | — | no module UI surface (the `#dr-gui` / `#dungeon-panel` workaround) | **SHIPPED** (21-A5) — `api.registerToolbox({id, title, mount, …})` over core's shared ToolboxWindow: write plain DOM and inherit header drag + position persistence, the width grip, z-band focus, the <=640px bottom sheet and the whole `.tbx-*` CSS contract. Opened from the sidebar's Modules section, the viewport menu and an optional `shortcut`. Retire the hand-rolled fixed overlays — they sit in z bands they do not own. |
+| 15 | peer roster + disconnect hook | **YES, per 24-B D2** — `api.peerIds()` (the replicated roster) polled each second is the disconnect signal (`football` frees a vanished player's slot this way) and `api.peerNames()` the name half. A push-style `onPeerConnected/Disconnected` stays unbuilt: no module has needed more than the diff. |
 
 ### 21-A (2026-08-18, core branch `feat/21-module-node-io`)
 
@@ -389,6 +517,25 @@ game needed and no module could express: **module state reaching a core HUD**. A
 kept in your own replicated state becomes `registerValueNode` -> a HUD Text node; a
 level cleared becomes `fireNodeTrigger` -> a Counter; your host settings become a
 toolbox instead of an overlay at `z-index: 900`.
+
+### 21-C C6 (2026-09-19, modules `feat/29-c6-dungeon`) — what dungeon-realms 2.0 retired
+
+- **#11** — `api.isPlaying()` is the play gate (the `#dungeon-minimap` DOM watch is gone, kept only as the fallback on an older app).
+- **#13** — the Kit (`dungeon` 2.0) is the ONE publisher of `userData.play` on `'dungeon-module'`; Realms publishes nothing of its own and puts its gems/portals on the minimap through the Kit's `setMarkers` seam → `userData.play.markers`.
+- **#14** — Game Rules ▸ disableFlight writes `userData.play.grounded` (through the Kit); the capture-phase Q/E swallow is deleted.
+- **#9/#12** — Realms Value / Realms Event / Realms HUD Rows replace the `drhud` node: the HUD is core HUD elements the template authors.
+- The `#dungeon-panel` overlay is a registered toolbox (the SDK's worked example, AUTHORING.md).
+
+## 23. No play-mode MENU surface
+
+**Found in:** `modules/dungeon-realms` (21-C C6.2). The start / victory menu is a modal,
+keyboard-driven (↑↓ + Enter, because play mode holds pointer lock), focus-owning dialog.
+It is neither a HUD element (a HUD publishes values and reacts to presses; it does not own
+focus or arrow-key navigation) nor a toolbox (hidden in play mode by design). It stays
+module DOM (`#dr-menu`, restyled onto the app's card conventions).
+
+**Ask:** a `hudscreen` variant with `input: 'menu'` that OWNS keyboard focus and arrow
+navigation between its buttons while pointer-locked, or `api.registerPlayMenu({buttons})`.
 
 Still open from this list: **#5** (replicated create/move — partly answered by the 17-A
 world api: `api.create`/`api.moveObject` exist), **#7**, **#10** (answered differently:
