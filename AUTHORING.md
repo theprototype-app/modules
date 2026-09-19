@@ -246,11 +246,14 @@ Full signatures live in the docs site; this is the map.
 | Netcode | `send(payload)`, `onMessage(fn)`, `registerStateSync({getState, applyState})`, `peerId()` |
 | Input | `registerBindings(list)`, `input()`, `onInput(fn)`, `claimInput(scope)`, `releaseInput(scope)` |
 | Physics | `physics.isInitiator()`, `applyImpulse`, `applyTorqueImpulse`, `setJointMotor`, `joints()` |
+| Knock | `onHit(cb)` — every knock this peer sees (its own hand's and every peer's `hit`) as `{uuid, by, at, speed, point, linvel, angvel, probe, local}`; returns the unsubscribe, torn down with the module · `hitLog()` — a COPY `{last, recent}` (last hit per live body, the last 32 in order; runtime state, a late joiner's starts empty) |
 | Player | `possess(uuid, {camera})`, `releasePossess()`, `selectedUuid()` |
 | UI | `registerMenu(label, action)`, `registerVRMenuEntry(entry)`, `toast(text)` |
 | Misc | `THREE`, `assetUrl(path)`, `now()`, `sceneAssets()` |
 
-Two that are easy to miss:
+The worked example for the game SDK (`api.game`, `api.peerVars`, `onHit`, `registerStateSync`, `registerToolbox`) is [football](modules/football/): rules as flow nodes, last-touch attribution evaluated BY EACH PEER from `onHit` (no module message for a touch), the physics initiator as the one goal authority, and each player's goals written to their OWN `peerVars` row.
+
+Three that are easy to miss:
 
 - **`registerClickHandler` covers VR too.** You do not write a second input
   path for the headset; the trigger dispatches through the same handler with the
@@ -258,6 +261,9 @@ Two that are easy to miss:
 - **`claimInput('keys' | 'locomotion')` pauses the editor's own consumers** so
   your WASD does not also fly the camera. Always release it when your mode ends,
   including on error paths.
+- **`onHit` fires on EVERY peer for every hit.** Attribution derived from it is
+  deterministic without a message of your own; a per-player counter must still bump
+  only when `hit.by === api.peerId()` (or `hit.local`), or every peer banks it.
 
 ---
 
