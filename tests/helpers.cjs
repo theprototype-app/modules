@@ -95,7 +95,9 @@ async function installModule(peer, zipName, moduleId = zipName) {
 async function openModules(page) {
 	await page.evaluate(() => window.__stores.modulesOpen.set(true));
 	await page.waitForTimeout(400);
-	await page.getByRole('tab', { name: 'User', exact: true }).click();
+	// the tab label grows a count once a module is installed ("User (1)"), so a
+	// SECOND install on the same peer must match the prefix (the author script's rule)
+	await page.getByRole('tab', { name: /^User/ }).click();
 	await page.waitForTimeout(200);
 }
 

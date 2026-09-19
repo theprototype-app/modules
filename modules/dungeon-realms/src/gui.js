@@ -1,19 +1,18 @@
-// The game GUI — a DOM overlay owned by the module (the SDK has no UI-panel
-// surface for user modules yet; filed in DEVX-REQUESTS.md). Everything is
-// inline-styled and self-contained. The start/win menus are keyboard-driven
-// (Arrow keys + Enter) because play mode holds pointer lock on desktop —
-// they are also mouse-clickable whenever the pointer is free (mobile, tests).
+// The MENU — start / victory, a modal, keyboard-driven, focus-owning dialog
+// inside a pointer-locked viewport (Arrow keys + Enter, because play mode holds
+// pointer lock on desktop; also mouse-clickable whenever the pointer is free).
+//
+// 21-C C6.2: this is deliberately NOT a HUD and NOT a toolbox. The in-game HUD
+// (gems, level, players, objective) moved to core HUD elements the template
+// authors, driven by this module's value/rows nodes bound by element id; the old
+// `#dr-hud` DOM and the `drhud` node are gone. The menu stays module DOM until
+// core grows a play-mode menu surface ("play-mode menus", filed in
+// DEVX-REQUESTS.md), restyled onto the app's card conventions.
 
 const Z = 900; // above viewport/HUD chrome, below the app's modal/toast tiers
 
-const GEM_SVG =
-	'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" style="vertical-align:-2px">' +
-	'<path d="M6 3h12l4 6-10 12L2 9l4-6z" fill="#39e0c0" stroke="#bafff0" stroke-width="1.2"/>' +
-	'<path d="M2 9h20M9 3l3 6 3-6M12 21 9 9M12 21l3-12" stroke="#0b6f5c" stroke-width="0.8"/></svg>';
-
 /** @type {HTMLElement | null} */ let root = null;
 /** @type {HTMLElement | null} */ let menuCard = null;
-/** @type {HTMLElement | null} */ let hudBox = null;
 let selectedIndex = 0;
 /** @type {{id: string, label: string, disabled?: boolean}[]} */ let menuButtons = [];
 /** @type {((id: string) => void) | null} */ let menuAction = null;
@@ -33,7 +32,6 @@ function ensureRoot() {
 
 export function destroyGui() {
 	hideMenu();
-	hideHud();
 	root?.remove();
 	root = null;
 }
@@ -140,67 +138,4 @@ export function hideMenu() {
 
 export function menuVisible() {
 	return !!menuCard;
-}
-
-// ---- HUD ---------------------------------------------------------------------
-
-const CORNERS = {
-	'top-left': 'left:16px;top:64px;',
-	'top-right': 'right:16px;top:64px;text-align:right;',
-	'bottom-left': 'left:16px;bottom:70px;',
-	'bottom-right': 'right:16px;bottom:70px;text-align:right;'
-};
-
-/**
- * Show/refresh the in-game HUD.
- * @param {{gems?: {have: number, need: number, total: number}, level?: {k: number, n: number, name: string},
- *   players?: {slot: string, name: string, me: boolean}[], objective?: string,
- *   extraProps?: {name: string, value: number}[], corner?: string,
- *   show?: {gems: boolean, level: boolean, players: boolean, objective: boolean}}} model
- */
-export function showHud(model) {
-	ensureRoot();
-	if (!hudBox) {
-		hudBox = document.createElement('div');
-		hudBox.id = 'dr-hud';
-		root.appendChild(hudBox);
-	}
-	const corner = CORNERS[model.corner ?? 'top-left'] ?? CORNERS['top-left'];
-	hudBox.style.cssText =
-		'position:absolute;' + corner + 'pointer-events:none;color:#e5e7eb;' +
-		'text-shadow:0 1px 3px rgba(0,0,0,.9);font-size:14px;line-height:1.7;';
-	const show = model.show ?? { gems: true, level: true, players: true, objective: true };
-	let html = '';
-	if (show.gems && model.gems)
-		html +=
-			'<div id="dr-hud-gems" style="font-size:19px;font-weight:700">' + GEM_SVG + ' ' +
-			'<span id="dr-gem-count">' + model.gems.have + '</span>' +
-			'<span style="color:#94a3b8;font-size:14px"> / ' + model.gems.need + ' needed &middot; ' + model.gems.total + ' hidden</span></div>';
-	if (show.level && model.level)
-		html +=
-			'<div id="dr-hud-level" style="font-size:12px;letter-spacing:.12em;color:#a5b4fc;text-transform:uppercase">LEVEL ' +
-			model.level.k + ' / ' + model.level.n + ' &nbsp;&middot;&nbsp; ' + model.level.name + '</div>';
-	if (show.players && model.players?.length)
-		html +=
-			'<div id="dr-hud-players">' +
-			model.players
-				.map(
-					(p) =>
-						'<span style="display:inline-block;margin-right:6px;padding:1px 8px;border-radius:99px;font-size:11px;' +
-						'background:' + (p.slot === 'p1' ? 'rgba(14,165,233,.25);border:1px solid #38bdf8' : 'rgba(249,115,22,.25);border:1px solid #fb923c') + '">' +
-						p.slot.toUpperCase() + ' ' + p.name + (p.me ? ' (you)' : '') + '</span>'
-				)
-				.join('') +
-			'</div>';
-	(model.extraProps ?? []).forEach((prop) => {
-		html += '<div style="font-size:13px;color:#cbd5e1">' + prop.name + ': <b>' + prop.value + '</b></div>';
-	});
-	if (show.objective && model.objective)
-		html += '<div id="dr-hud-objective" style="font-size:12px;color:#86efac;max-width:280px">' + model.objective + '</div>';
-	hudBox.innerHTML = html;
-}
-
-export function hideHud() {
-	hudBox?.remove();
-	hudBox = null;
 }
