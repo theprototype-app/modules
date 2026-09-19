@@ -249,15 +249,16 @@
 	{
 		"id": "untangle",
 		"name": "Untangle",
-		"version": "1.0.0",
-		"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - built purely on the module SDK.",
+		"version": "2.0.0",
+		"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - board pose, level and readouts as flow nodes.",
 		"author": "theprototype-app",
 		"source": "modules/untangle",
 		"zip": "untangle.zip",
 		"category": "game",
 		"tags": [
 			"puzzle",
-			"co-op"
+			"co-op",
+			"procedural"
 		]
 	}
 ]
