@@ -148,6 +148,21 @@
 		]
 	},
 	{
+		"id": "health",
+		"name": "Health",
+		"version": "1.0.0",
+		"description": "Hit points for objects and players: damage and heal nodes, death and respawn, converging on every peer with no authority - an object's hp from core Counters, a player's on their own peer row.",
+		"author": "theprototype-app",
+		"source": "modules/health",
+		"zip": "health.zip",
+		"category": "game",
+		"tags": [
+			"game",
+			"health",
+			"flow"
+		]
+	},
+	{
 		"id": "music-dj",
 		"name": "Music DJ",
 		"version": "0.1.0",
@@ -259,6 +274,21 @@
 			"puzzle",
 			"co-op",
 			"procedural"
+		]
+	},
+	{
+		"id": "waves",
+		"name": "Waves",
+		"version": "1.0.0",
+		"description": "Wave survival on the health module: enemies walk from spawn points to a goal, a wave ends when its last enemy dies, the run when the last wave does - derived on every peer, kills on each player's own row, the run log in the saved scene.",
+		"author": "theprototype-app",
+		"source": "modules/waves",
+		"zip": "waves.zip",
+		"category": "game",
+		"tags": [
+			"game",
+			"survival",
+			"co-op"
 		]
 	}
 ]

@@ -454,6 +454,42 @@ agreed on.
 **Meanwhile:** both toolbox buttons feature-detect exactly those names and fall back to
 the Length / Width sliders (+ a toast), which replicate as ordinary `move`s.
 
+## 23. No way to move the PLAY-MODE player
+
+**Found in:** `modules/health` (death → respawn at a spawn point). `api.playerPosition()` is
+read-only; `api.flyTo` tweens the **editor** camera (and returns early in VR / spectator).
+In play the rig (`cameraParent`) owns the camera and re-seats it every frame, so a module
+cannot put a respawning player on their spawn pad — the one thing a respawn is for. The
+health module flies the editor camera (proven in its flight) and leaves play mode owed.
+
+**Ask:** `api.teleportPlayer(position, lookAt?)` — sets the play rig (and the editor camera
+outside play), local only, the same house rule as `flyTo`.
+
+**Meanwhile:** `respawnAt` works in the editor; in play the player comes back at full where
+they died.
+
+## 24. Live values are ~6 Hz, and a pulse's count cannot be read back synchronously
+
+**Found in:** `modules/health` (kill credit), `modules/waves` (heals into the next wave).
+`api.flow.nodeValue` reads `flowValues`, republished every 150 ms. A module that fires a
+pulse into a Counter and reads the Counter on its next sweep sees the OLD count and, if it
+decides from that, fires again — the waves module double-healed until it kept its own
+expectation per node, and the health module credits a kill from the last sweep's number
+minus what it just fired rather than from the counter.
+
+**Ask:** `api.flow.triggerCount(id)` beside `triggerStamp` (the `count` half of the same
+log entry — it is already in the map), or make `nodeValue` read a Counter live.
+
+## 25. Two clocks on the api
+
+**Found in:** `modules/waves` (the wave's start = the round's start). `api.now()` and every
+trigger-log stamp are seconds of day on the synced clock; `api.game.roundCutoff()` returns
+the round's `startedAt`, which is session **milliseconds**. The first flight compared them
+directly and the wave never started. It is documented nowhere on the api.
+
+**Ask:** either `api.game.roundStartedAt()` in the same seconds as `api.now()`, or a note in
+MODULES.md on `roundCutoff` saying "ms — compare to `api.now() * 1000`". Cheap either way.
+
 ---
 
 ## Core status (17-A1, 2026-08-09 — filed by the core window, branch `feat/module-platform`)

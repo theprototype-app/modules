@@ -1,0 +1,1588 @@
+{
+	"kind": "game",
+	"slug": "waves",
+	"title": "Waves",
+	"description": "Wave survival: hold the goal against waves of enemies walking in from the spawn points. Knock them down; the round ends when the last wave falls.",
+	"license": "CC0-1.0",
+	"author": "theprototype",
+	"tags": [
+		"vr",
+		"co-op",
+		"survival"
+	],
+	"modules": [
+		{
+			"id": "health",
+			"version": "1.0.0"
+		},
+		{
+			"id": "waves",
+			"version": "1.0.0"
+		}
+	],
+	"installModules": [
+		"health",
+		"waves"
+	],
+	"env": {
+		"preset": "dusk",
+		"exposure": 0.9
+	},
+	"physics": {
+		"knock": {
+			"enabled": true,
+			"gain": 1,
+			"maxSpeed": 10,
+			"spin": 0.8
+		},
+		"play": {
+			"interaction": "grab",
+			"grounded": true,
+			"simOnPlay": true
+		}
+	},
+	"graphs": {
+		"scene": {
+			"nodes": [
+				{
+					"id": "wa0",
+					"type": "waves",
+					"position": {
+						"x": 60,
+						"y": 40
+					},
+					"data": {
+						"label": "waves",
+						"name": "enemy",
+						"waves": 3,
+						"sizeStart": 2,
+						"sizeStep": 1,
+						"interval": 3,
+						"speed": 1.5,
+						"stagger": 0.6,
+						"reach": 1.5,
+						"spawnPrefix": "Spawn"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa1",
+					"type": "objectselector",
+					"position": {
+						"x": 60,
+						"y": 140
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Goal"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa2",
+					"type": "wavesevent",
+					"position": {
+						"x": 280,
+						"y": 40
+					},
+					"data": {
+						"label": "wavesevent",
+						"name": "enemy",
+						"event": "over"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa3",
+					"type": "setgamestate",
+					"position": {
+						"x": 500,
+						"y": 40
+					},
+					"data": {
+						"label": "setgamestate",
+						"state": "over",
+						"outcome": "won"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa4",
+					"type": "damage",
+					"position": {
+						"x": 720,
+						"y": 40
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "wired"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa5",
+					"type": "counter",
+					"position": {
+						"x": 940,
+						"y": 40
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa6",
+					"type": "health",
+					"position": {
+						"x": 1160,
+						"y": 40
+					},
+					"data": {
+						"label": "health",
+						"name": "me",
+						"scope": "player",
+						"max": 10,
+						"regen": 0.5,
+						"deathAction": "respawn",
+						"respawnDelay": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa7",
+					"type": "healthreset",
+					"position": {
+						"x": 720,
+						"y": 140
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "me"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa8",
+					"type": "damage",
+					"position": {
+						"x": 60,
+						"y": 240
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "hit",
+						"scale": "speed",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa9",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 240
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa10",
+					"type": "health",
+					"position": {
+						"x": 500,
+						"y": 240
+					},
+					"data": {
+						"label": "health",
+						"name": "enemy",
+						"scope": "object",
+						"max": 3,
+						"deathAction": "hide",
+						"respawnDelay": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa11",
+					"type": "objectselector",
+					"position": {
+						"x": 720,
+						"y": 240
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 1"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa12",
+					"type": "healthreset",
+					"position": {
+						"x": 60,
+						"y": 340
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "enemy"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa13",
+					"type": "heal",
+					"position": {
+						"x": 280,
+						"y": 340
+					},
+					"data": {
+						"label": "heal",
+						"amount": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa14",
+					"type": "counter",
+					"position": {
+						"x": 500,
+						"y": 340
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa15",
+					"type": "damage",
+					"position": {
+						"x": 940,
+						"y": 240
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "zone",
+						"perSecond": 1,
+						"radius": 1.5
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa16",
+					"type": "objectselector",
+					"position": {
+						"x": 940,
+						"y": 340
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 1"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa17",
+					"type": "damage",
+					"position": {
+						"x": 60,
+						"y": 440
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "hit",
+						"scale": "speed",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa18",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 440
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa19",
+					"type": "health",
+					"position": {
+						"x": 500,
+						"y": 440
+					},
+					"data": {
+						"label": "health",
+						"name": "enemy",
+						"scope": "object",
+						"max": 3,
+						"deathAction": "hide",
+						"respawnDelay": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa20",
+					"type": "objectselector",
+					"position": {
+						"x": 720,
+						"y": 440
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 2"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa21",
+					"type": "healthreset",
+					"position": {
+						"x": 60,
+						"y": 540
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "enemy"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa22",
+					"type": "heal",
+					"position": {
+						"x": 280,
+						"y": 540
+					},
+					"data": {
+						"label": "heal",
+						"amount": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa23",
+					"type": "counter",
+					"position": {
+						"x": 500,
+						"y": 540
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa24",
+					"type": "damage",
+					"position": {
+						"x": 940,
+						"y": 440
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "zone",
+						"perSecond": 1,
+						"radius": 1.5
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa25",
+					"type": "objectselector",
+					"position": {
+						"x": 940,
+						"y": 540
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 2"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa26",
+					"type": "damage",
+					"position": {
+						"x": 60,
+						"y": 640
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "hit",
+						"scale": "speed",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa27",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 640
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa28",
+					"type": "health",
+					"position": {
+						"x": 500,
+						"y": 640
+					},
+					"data": {
+						"label": "health",
+						"name": "enemy",
+						"scope": "object",
+						"max": 3,
+						"deathAction": "hide",
+						"respawnDelay": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa29",
+					"type": "objectselector",
+					"position": {
+						"x": 720,
+						"y": 640
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 3"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa30",
+					"type": "healthreset",
+					"position": {
+						"x": 60,
+						"y": 740
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "enemy"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa31",
+					"type": "heal",
+					"position": {
+						"x": 280,
+						"y": 740
+					},
+					"data": {
+						"label": "heal",
+						"amount": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa32",
+					"type": "counter",
+					"position": {
+						"x": 500,
+						"y": 740
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa33",
+					"type": "damage",
+					"position": {
+						"x": 940,
+						"y": 640
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "zone",
+						"perSecond": 1,
+						"radius": 1.5
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa34",
+					"type": "objectselector",
+					"position": {
+						"x": 940,
+						"y": 740
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 3"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa35",
+					"type": "damage",
+					"position": {
+						"x": 60,
+						"y": 840
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "hit",
+						"scale": "speed",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa36",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 840
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa37",
+					"type": "health",
+					"position": {
+						"x": 500,
+						"y": 840
+					},
+					"data": {
+						"label": "health",
+						"name": "enemy",
+						"scope": "object",
+						"max": 3,
+						"deathAction": "hide",
+						"respawnDelay": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa38",
+					"type": "objectselector",
+					"position": {
+						"x": 720,
+						"y": 840
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 4"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa39",
+					"type": "healthreset",
+					"position": {
+						"x": 60,
+						"y": 940
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "enemy"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa40",
+					"type": "heal",
+					"position": {
+						"x": 280,
+						"y": 940
+					},
+					"data": {
+						"label": "heal",
+						"amount": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa41",
+					"type": "counter",
+					"position": {
+						"x": 500,
+						"y": 940
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa42",
+					"type": "damage",
+					"position": {
+						"x": 940,
+						"y": 840
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "zone",
+						"perSecond": 1,
+						"radius": 1.5
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa43",
+					"type": "objectselector",
+					"position": {
+						"x": 940,
+						"y": 940
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 4"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh0",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 1240
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-start"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh1",
+					"type": "setgamestate",
+					"position": {
+						"x": 280,
+						"y": 1240
+					},
+					"data": {
+						"label": "setgamestate",
+						"state": "playing",
+						"outcome": ""
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh2",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 1340
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-again"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh3",
+					"type": "setgamestate",
+					"position": {
+						"x": 280,
+						"y": 1340
+					},
+					"data": {
+						"label": "setgamestate",
+						"state": "playing",
+						"outcome": ""
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh4",
+					"type": "wavesvalue",
+					"position": {
+						"x": 60,
+						"y": 1440
+					},
+					"data": {
+						"label": "wavesvalue",
+						"name": "enemy",
+						"read": "wave"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh5",
+					"type": "hudtext",
+					"position": {
+						"x": 280,
+						"y": 1440
+					},
+					"data": {
+						"label": "hudtext",
+						"element": "wv-wave",
+						"format": "Wave {v}",
+						"decimals": 0
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh6",
+					"type": "wavesvalue",
+					"position": {
+						"x": 60,
+						"y": 1540
+					},
+					"data": {
+						"label": "wavesvalue",
+						"name": "enemy",
+						"read": "left"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh7",
+					"type": "hudtext",
+					"position": {
+						"x": 280,
+						"y": 1540
+					},
+					"data": {
+						"label": "hudtext",
+						"element": "wv-left",
+						"format": "{v} left",
+						"decimals": 0
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh8",
+					"type": "healthvalue",
+					"position": {
+						"x": 60,
+						"y": 1640
+					},
+					"data": {
+						"label": "healthvalue",
+						"name": "me",
+						"read": "fraction"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh9",
+					"type": "hudbar",
+					"position": {
+						"x": 280,
+						"y": 1640
+					},
+					"data": {
+						"label": "hudbar",
+						"element": "wv-hp",
+						"min": 0,
+						"max": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh10",
+					"type": "leaderboard",
+					"position": {
+						"x": 60,
+						"y": 1740
+					},
+					"data": {
+						"label": "leaderboard",
+						"variable": "kills",
+						"element": "wv-kills,wv-kills-over",
+						"limit": 8
+					},
+					"class": "w-[150px]"
+				}
+			],
+			"edges": [
+				{
+					"id": "e-wa1-wa0.goal",
+					"source": "wa1",
+					"target": "wa0",
+					"targetHandle": "goal"
+				},
+				{
+					"id": "e-wa2-wa3.trigger",
+					"source": "wa2",
+					"target": "wa3",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wa4-wa5.pulse",
+					"source": "wa4",
+					"target": "wa5",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa5-wa6.damage",
+					"source": "wa5",
+					"target": "wa6",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa7-wa5.reset",
+					"source": "wa7",
+					"target": "wa5",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa8-wa9.pulse",
+					"source": "wa8",
+					"target": "wa9",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa9-wa10.damage",
+					"source": "wa9",
+					"target": "wa10",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa11-wa10.target",
+					"source": "wa11",
+					"target": "wa10",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa12-wa9.reset",
+					"source": "wa12",
+					"target": "wa9",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa12-wa14.reset",
+					"source": "wa12",
+					"target": "wa14",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa13-wa14.pulse",
+					"source": "wa13",
+					"target": "wa14",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa14-wa10.heal",
+					"source": "wa14",
+					"target": "wa10",
+					"targetHandle": "heal"
+				},
+				{
+					"id": "e-wa16-wa15.zone",
+					"source": "wa16",
+					"target": "wa15",
+					"targetHandle": "zone"
+				},
+				{
+					"id": "e-wa15-wa6.damage",
+					"source": "wa15",
+					"target": "wa6",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa17-wa18.pulse",
+					"source": "wa17",
+					"target": "wa18",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa18-wa19.damage",
+					"source": "wa18",
+					"target": "wa19",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa20-wa19.target",
+					"source": "wa20",
+					"target": "wa19",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa21-wa18.reset",
+					"source": "wa21",
+					"target": "wa18",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa21-wa23.reset",
+					"source": "wa21",
+					"target": "wa23",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa22-wa23.pulse",
+					"source": "wa22",
+					"target": "wa23",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa23-wa19.heal",
+					"source": "wa23",
+					"target": "wa19",
+					"targetHandle": "heal"
+				},
+				{
+					"id": "e-wa25-wa24.zone",
+					"source": "wa25",
+					"target": "wa24",
+					"targetHandle": "zone"
+				},
+				{
+					"id": "e-wa24-wa6.damage",
+					"source": "wa24",
+					"target": "wa6",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa26-wa27.pulse",
+					"source": "wa26",
+					"target": "wa27",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa27-wa28.damage",
+					"source": "wa27",
+					"target": "wa28",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa29-wa28.target",
+					"source": "wa29",
+					"target": "wa28",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa30-wa27.reset",
+					"source": "wa30",
+					"target": "wa27",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa30-wa32.reset",
+					"source": "wa30",
+					"target": "wa32",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa31-wa32.pulse",
+					"source": "wa31",
+					"target": "wa32",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa32-wa28.heal",
+					"source": "wa32",
+					"target": "wa28",
+					"targetHandle": "heal"
+				},
+				{
+					"id": "e-wa34-wa33.zone",
+					"source": "wa34",
+					"target": "wa33",
+					"targetHandle": "zone"
+				},
+				{
+					"id": "e-wa33-wa6.damage",
+					"source": "wa33",
+					"target": "wa6",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa35-wa36.pulse",
+					"source": "wa35",
+					"target": "wa36",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa36-wa37.damage",
+					"source": "wa36",
+					"target": "wa37",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa38-wa37.target",
+					"source": "wa38",
+					"target": "wa37",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa39-wa36.reset",
+					"source": "wa39",
+					"target": "wa36",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa39-wa41.reset",
+					"source": "wa39",
+					"target": "wa41",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa40-wa41.pulse",
+					"source": "wa40",
+					"target": "wa41",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa41-wa37.heal",
+					"source": "wa41",
+					"target": "wa37",
+					"targetHandle": "heal"
+				},
+				{
+					"id": "e-wa43-wa42.zone",
+					"source": "wa43",
+					"target": "wa42",
+					"targetHandle": "zone"
+				},
+				{
+					"id": "e-wa42-wa6.damage",
+					"source": "wa42",
+					"target": "wa6",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wh0-wh1.trigger",
+					"source": "wh0",
+					"target": "wh1",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh2-wh3.trigger",
+					"source": "wh2",
+					"target": "wh3",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh4-wh5.value",
+					"source": "wh4",
+					"target": "wh5",
+					"targetHandle": "value"
+				},
+				{
+					"id": "e-wh6-wh7.value",
+					"source": "wh6",
+					"target": "wh7",
+					"targetHandle": "value"
+				},
+				{
+					"id": "e-wh8-wh9.value",
+					"source": "wh8",
+					"target": "wh9",
+					"targetHandle": "value"
+				}
+			]
+		}
+	},
+	"hud": {
+		"scene": {
+			"active": "",
+			"changedAt": 0,
+			"screens": [
+				{
+					"id": "menu",
+					"name": "Menu",
+					"showWhile": "menu",
+					"input": "menu",
+					"elements": [
+						{
+							"id": "menu-panel",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 460,
+							"h": 340,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(24, 20, 30, 0.92)",
+								"radius": 16,
+								"border": "1px solid rgba(220, 120, 120, 0.25)"
+							}
+						},
+						{
+							"id": "title",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -120,
+							"w": 400,
+							"h": 54,
+							"z": 1,
+							"label": "WAVES",
+							"style": {
+								"size": 40,
+								"weight": "700",
+								"color": "#ff9c6b",
+								"align": "center"
+							}
+						},
+						{
+							"id": "subtitle",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -66,
+							"w": 420,
+							"h": 44,
+							"z": 1,
+							"label": "Hold the goal. Every wave brings more enemies; the round ends when the last one falls.",
+							"style": {
+								"size": 14,
+								"color": "#e6dede",
+								"align": "center"
+							},
+							"wrap": true
+						},
+						{
+							"id": "wv-start",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 10,
+							"w": 220,
+							"h": 48,
+							"z": 1,
+							"label": "Start",
+							"enabled": true,
+							"style": {
+								"size": 16,
+								"weight": "600",
+								"bg": "#c94a4a",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "wv-log",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": 90,
+							"w": 420,
+							"h": 80,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 12,
+								"color": "#d6c8c8",
+								"align": "center"
+							}
+						}
+					]
+				},
+				{
+					"id": "hud",
+					"name": "HUD",
+					"showWhile": "playing",
+					"input": "game",
+					"elements": [
+						{
+							"id": "wv-wave",
+							"kind": "text",
+							"anchor": "top-center",
+							"x": 0,
+							"y": 14,
+							"w": 320,
+							"h": 34,
+							"z": 1,
+							"label": "Wave 1",
+							"style": {
+								"size": 22,
+								"weight": "700",
+								"color": "#ff9c6b",
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-left",
+							"kind": "text",
+							"anchor": "top-center",
+							"x": 0,
+							"y": 48,
+							"w": 320,
+							"h": 24,
+							"z": 1,
+							"label": "",
+							"style": {
+								"size": 14,
+								"color": "#e6dede",
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-hp",
+							"kind": "bar",
+							"anchor": "bottom-center",
+							"x": 0,
+							"y": 24,
+							"w": 320,
+							"h": 18,
+							"z": 1,
+							"label": "",
+							"min": 0,
+							"max": 1,
+							"value": 1,
+							"orientation": "horizontal",
+							"showPercent": false,
+							"style": {
+								"color": "#6fcf7a",
+								"bg": "rgba(0,0,0,0.35)",
+								"radius": 9
+							}
+						},
+						{
+							"id": "wv-kills",
+							"kind": "list",
+							"anchor": "top-right",
+							"x": 16,
+							"y": 14,
+							"w": 220,
+							"h": 100,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 12,
+								"color": "#d6c8c8",
+								"align": "right"
+							}
+						}
+					]
+				},
+				{
+					"id": "over",
+					"name": "Round over",
+					"showWhile": "over",
+					"input": "menu",
+					"elements": [
+						{
+							"id": "over-panel",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 460,
+							"h": 340,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(24, 20, 30, 0.92)",
+								"radius": 16,
+								"border": "1px solid rgba(220, 120, 120, 0.25)"
+							}
+						},
+						{
+							"id": "over-title",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -120,
+							"w": 420,
+							"h": 40,
+							"z": 1,
+							"label": "ARENA CLEARED",
+							"style": {
+								"size": 30,
+								"weight": "700",
+								"color": "#ff9c6b",
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-kills-over",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": -50,
+							"w": 420,
+							"h": 90,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 14,
+								"color": "#e6dede",
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-log-over",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": 40,
+							"w": 420,
+							"h": 70,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 12,
+								"color": "#d6c8c8",
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-again",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 115,
+							"w": 220,
+							"h": 44,
+							"z": 1,
+							"label": "Again",
+							"enabled": true,
+							"style": {
+								"size": 16,
+								"weight": "600",
+								"bg": "#3b7dd8",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						}
+					]
+				}
+			]
+		}
+	},
+	"objects": [
+		{
+			"type": "box",
+			"name": "Ground",
+			"color": 2830134,
+			"size": [
+				30,
+				0.1,
+				40
+			],
+			"pos": [
+				0,
+				-0.05,
+				-2
+			],
+			"roughness": 0.95,
+			"physics": {
+				"mode": "static",
+				"friction": 0.7
+			}
+		},
+		{
+			"type": "box",
+			"name": "Goal",
+			"color": 3898840,
+			"size": [
+				1.6,
+				1,
+				1.6
+			],
+			"pos": [
+				0,
+				0.5,
+				6
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Spawn 1",
+			"color": 13191754,
+			"size": [
+				0.6,
+				0.1,
+				0.6
+			],
+			"pos": [
+				-6,
+				0.4,
+				-10
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Spawn 2",
+			"color": 13191754,
+			"size": [
+				0.6,
+				0.1,
+				0.6
+			],
+			"pos": [
+				0,
+				0.4,
+				-12
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Spawn 3",
+			"color": 13191754,
+			"size": [
+				0.6,
+				0.1,
+				0.6
+			],
+			"pos": [
+				6,
+				0.4,
+				-10
+			],
+			"physics": {
+				"mode": "static"
+			}
+		},
+		{
+			"type": "box",
+			"name": "Enemy 1",
+			"color": 16751723,
+			"size": [
+				0.8,
+				0.8,
+				0.8
+			],
+			"pos": [
+				-6,
+				0.4,
+				-8
+			],
+			"physics": {
+				"mode": "dynamic",
+				"mass": 1,
+				"friction": 0.6
+			}
+		},
+		{
+			"type": "box",
+			"name": "Enemy 2",
+			"color": 16751723,
+			"size": [
+				0.8,
+				0.8,
+				0.8
+			],
+			"pos": [
+				-4.5,
+				0.4,
+				-8
+			],
+			"physics": {
+				"mode": "dynamic",
+				"mass": 1,
+				"friction": 0.6
+			}
+		},
+		{
+			"type": "box",
+			"name": "Enemy 3",
+			"color": 16751723,
+			"size": [
+				0.8,
+				0.8,
+				0.8
+			],
+			"pos": [
+				-3,
+				0.4,
+				-8
+			],
+			"physics": {
+				"mode": "dynamic",
+				"mass": 1,
+				"friction": 0.6
+			}
+		},
+		{
+			"type": "box",
+			"name": "Enemy 4",
+			"color": 16751723,
+			"size": [
+				0.8,
+				0.8,
+				0.8
+			],
+			"pos": [
+				-1.5,
+				0.4,
+				-8
+			],
+			"physics": {
+				"mode": "dynamic",
+				"mass": 1,
+				"friction": 0.6
+			}
+		},
+		{
+			"type": "box",
+			"name": "Home",
+			"color": 7327610,
+			"size": [
+				1,
+				0.1,
+				1
+			],
+			"pos": [
+				0,
+				0.05,
+				9
+			],
+			"physics": {
+				"mode": "static"
+			}
+		}
+	]
+}
