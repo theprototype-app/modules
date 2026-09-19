@@ -95,7 +95,8 @@ async function installModule(peer, zipName, moduleId = zipName) {
 async function openModules(page) {
 	await page.evaluate(() => window.__stores.modulesOpen.set(true));
 	await page.waitForTimeout(400);
-	await page.getByRole('tab', { name: 'User', exact: true }).click();
+	// /^User/, never exact: after an install the tab reads "User (1)" and an exact match hangs
+	await page.getByRole('tab', { name: /^User/ }).click();
 	await page.waitForTimeout(200);
 }
 

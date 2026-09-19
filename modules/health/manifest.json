@@ -1,0 +1,9 @@
+{
+	"id": "health",
+	"name": "Health",
+	"version": "1.0.0",
+	"format": 1,
+	"description": "Hit points for objects and players: damage and heal nodes, death and respawn, converging on every peer with no authority.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}
