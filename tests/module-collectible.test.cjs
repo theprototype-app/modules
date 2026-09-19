@@ -1097,10 +1097,10 @@ h.run(async () => {
 	);
 
 	// ---- 10i. WHAT A BULK APPLY COSTS AT SCALE ----------------------------------
-	// There is no batch node-data write in the SDK, so a bulk apply is N `nodedata`
-	// messages. This measures the SYNCHRONOUS cost of one press on a twenty-member group and
-	// proves all twenty land on the peer — inventing a core seam is not a module's call, so
-	// the number is the deliverable.
+	// A bulk apply is N `nodedata` messages on the wire (core 1.15's setNodesData batches
+	// the UNDO, not the wire — the signals flight asserts the one entry). This measures the
+	// SYNCHRONOUS cost of one press on a twenty-member group and proves all twenty land on
+	// the peer.
 	const probeIds = await A.page.evaluate(() => {
 		const nodes = [];
 		for (let i = 0; i < 20; i++)

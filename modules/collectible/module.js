@@ -40,7 +40,7 @@
 export default {
 	id: 'collectible',
 	name: 'Collectibles',
-	version: '1.1.0',
+	version: '1.1.1',
 	description:
 		'One node makes an object collectible: click it or walk into it, it hides and counts.',
 
@@ -602,10 +602,11 @@ export default {
 
 		/**
 		 * Apply one setting to every member of a group, through the SAME replicated path a
-		 * row edit uses — there is no batch write in the SDK and a module does not get to
-		 * invent one. So N members is N `nodedata` messages, and members that ALREADY agree
-		 * are skipped: making a mixed group uniform sends only the difference, and pressing a
-		 * value a group already holds sends nothing at all.
+		 * row edit uses. Members that ALREADY agree are skipped: making a mixed group uniform
+		 * sends only the difference, and pressing a value a group already holds sends nothing
+		 * at all. Core 1.15's `api.flow.setNodesData` makes the whole press ONE undo step
+		 * (still one `nodedata` per member on the wire); an older core has only the per-node
+		 * call, so the fallback writes them one by one.
 		 * @param {any[]} items @param {string} key @param {string} value @param {string} fallback
 		 * @returns {number} how many members actually changed
 		 */
@@ -614,13 +615,13 @@ export default {
 			// writer that reaches here with it does nothing rather than writing an empty
 			// string over the whole group
 			if (value === MIXED_VALUE) return 0;
-			let changed = 0;
-			for (const item of items) {
-				if (String(item.data?.[key] ?? fallback) === value) continue;
-				api.flow.setNodeData(item.id, { [key]: value });
-				changed++;
-			}
-			return changed;
+			const writes = items
+				.filter((item) => String(item.data?.[key] ?? fallback) !== value)
+				.map((item) => ({ id: item.id, patch: { [key]: value } }));
+			if (!writes.length) return 0;
+			if (typeof api.flow.setNodesData === 'function') api.flow.setNodesData(writes);
+			else for (const w of writes) api.flow.setNodeData(w.id, w.patch);
+			return writes.length;
 		}
 
 		/** rows grouped by variable, with the target object resolved for display */
@@ -914,8 +915,9 @@ export default {
 				});
 				head.appendChild(disc);
 
-				// THE BULK CONTROLS. Both write through api.flow.setNodeData, per member — the
-				// replicated path a row edit always used, just aimed at the whole group.
+				// THE BULK CONTROLS. Both write through bulkApply — the replicated path a row
+				// edit always used, aimed at the whole group, and one undo step where core has
+				// the batch call.
 				const bulk = elem('div', { className: 'cm-bulk' });
 				bulk.appendChild(elem('span', { className: 'cm-bulk-label', textContent: 'all' }));
 				const groupTrigger = bulkSelect(['click', 'touch'], agreedOn(items, 'trigger', 'click'), 'Trigger');
