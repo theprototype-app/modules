@@ -21,6 +21,8 @@ import { indexGraph, targetsOf, chainsOf, feedersOf, triggerSourcesOf, zoneOf, n
 
 const SWEEP = 0.1;
 const AT_SUFFIX = '.at';
+/** the per-player kill count, on the killer's own row */
+const KILLS_ROW = 'kills';
 
 /** @param {any} api */
 export function createEngine(api) {
@@ -142,9 +144,12 @@ export function createEngine(api) {
 	 * Fire `n` pulses from a damage/heal node. `local` keeps them in this peer's log
 	 * (every peer derives the same ones); otherwise they replicate (only this peer saw
 	 * the cause). Player-scoped chains also write this peer's row.
+	 * `credit` names this peer as the one who caused it (its click, its own hand's knock):
+	 * a killing blow then bumps this peer's own `kills` row — per-player scoring on the
+	 * peerVars one-writer rule, the football sheet's shape.
 	 * @param {any} node the damage or heal node
 	 * @param {number} n pulses (hit points)
-	 * @param {{local: boolean, sign: 1|-1}} how
+	 * @param {{local: boolean, sign: 1|-1, credit?: boolean}} how
 	 * @param {import('./graph.js').GraphIndex} g
 	 * @returns {number} pulses fired
 	 */
@@ -163,6 +168,14 @@ export function createEngine(api) {
 		const t = now();
 		for (let i = 0; i < n; i++)
 			api.fireNodeTrigger(node.type, (/** @type {any} */ _d, /** @type {string} */ id) => id === node.id, how.local ? { replicate: false } : undefined);
+		// the counter's value republishes ~6/s, so "did this kill" is read off the LAST
+		// sweep's number minus what we just fired — the same arithmetic every peer does
+		if (how.credit && how.sign < 0)
+			for (const chain of live) {
+				const s = state.get(chain.health.id);
+				if (!s || s.scope === 'player' || s.dead) continue;
+				if (s.hp - n <= 0) api.peerVars.setMine(KILLS_ROW, api.peerVars.mine(KILLS_ROW, 0) + 1);
+			}
 		for (const chain of live) {
 			const s = state.get(chain.health.id);
 			if (!s || s.scope !== 'player') continue;
@@ -204,7 +217,7 @@ export function createEngine(api) {
 	 * `amount` pulses (speed-scaled when the node says so). `local` says whether every
 	 * peer derives this cause itself (a knock message everyone receives) or only this
 	 * peer saw it (its own click, its own touch), in which case the pulse replicates.
-	 * @param {string[]} uuids @param {string} source @param {{speed?: number, local: boolean, g?: any}} how
+	 * @param {string[]} uuids @param {string} source @param {{speed?: number, local: boolean, credit?: boolean, g?: any}} how
 	 * @returns {number} damage nodes fired
 	 */
 	function hitObjects(uuids, source, how) {
@@ -222,7 +235,7 @@ export function createEngine(api) {
 				speed: how.speed,
 				speedRef: node.data?.speedRef
 			});
-			if (pulse(node, n, { local: how.local, sign: -1 }, g)) fired++;
+			if (pulse(node, n, { local: how.local, sign: -1, credit: how.credit ?? !how.local }, g)) fired++;
 		}
 		return fired;
 	}
@@ -236,7 +249,7 @@ export function createEngine(api) {
 			if (!hit?.uuid) return;
 			if (knocked.get(hit.uuid) === hit.at) return;
 			knocked.set(hit.uuid, hit.at);
-			hitObjects([hit.uuid], 'hit', { speed: Number(hit.speed) || 0, local: true });
+			hitObjects([hit.uuid], 'hit', { speed: Number(hit.speed) || 0, local: true, credit: !!hit.local });
 		});
 
 	// ---- self-proximity: `touch` (an edge) and `zone` (per second, while inside) ----------
@@ -292,7 +305,7 @@ export function createEngine(api) {
 	/** @param {any} node @param {{uuid: string, local: boolean}} t @param {import('./graph.js').GraphIndex} g */
 	function fireAt(node, t, g) {
 		const n = pulsesFor({ amount: node.data?.amount ?? 1 });
-		pulse(node, n, { local: t.local, sign: -1 }, g);
+		pulse(node, n, { local: t.local, sign: -1, credit: !t.local }, g);
 	}
 
 	// ---- events + respawn -----------------------------------------------------------

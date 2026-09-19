@@ -17,7 +17,9 @@
 		"build:football": "esbuild modules/football/src/index.js --bundle --format=esm --outfile=modules/football/module.js && node modules/football/emit-def.mjs",
 		"test:football": "node modules/football/test/run.mjs",
 		"build:health": "esbuild modules/health/src/index.js --bundle --format=esm --outfile=modules/health/module.js",
-		"test:health": "node modules/health/test/run.mjs"
+		"test:health": "node modules/health/test/run.mjs",
+		"build:waves": "esbuild modules/waves/src/index.js --bundle --format=esm --outfile=modules/waves/module.js && node modules/waves/emit-def.mjs",
+		"test:waves": "node modules/waves/test/run.mjs"
 	},
 	"devDependencies": {
 		"esbuild": "0.28.2",

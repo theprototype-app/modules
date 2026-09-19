@@ -140,9 +140,11 @@ export function run(check) {
 		check(f.fired.length === 1 && f.fired[0].replicate === true, 'a click fires ONE replicated pulse');
 		check(engine.stateOf(ids[2])?.hp === 2, 'and the counter takes it to 2/3');
 		engine.hitObjects(['crate'], 'click', { local: false });
+		f.tick(); // a sweep between clicks, as in the app (the credit reads the last sweep's number)
 		engine.hitObjects(['crate'], 'click', { local: false });
 		f.tick();
 		check(engine.stateOf(ids[2])?.dead === true && engine.stateOf(ids[2])?.hp === 0, 'three hits: dead');
+		check(f.rows.get('kills') === 1, 'the killing click credits ONE kill on this peer\'s own row');
 		check(f.visible('crate') === false, 'and hidden (deathAction hide, in play)');
 		f.setPlaying(false);
 		f.tick();
@@ -266,5 +268,11 @@ export function run(check) {
 		f.knock({ uuid: 'other', speed: 6, at: 2, local: false });
 		f.tick();
 		check(engine.stateOf(ids[2])?.hp === 3, 'a knock on another object is not ours');
+		f.knock({ uuid: 'crate', speed: 9, at: 3, local: true });
+		f.tick();
+		check(engine.stateOf(ids[2])?.dead === true && f.rows.get('kills') === 1, 'my own hand\'s killing knock credits my kills row');
+		f.knock({ uuid: 'crate', speed: 9, at: 4, local: false });
+		f.tick();
+		check(f.rows.get('kills') === 1, 'COUNTERFACTUAL: a knock by another hand credits nothing here');
 	}
 }

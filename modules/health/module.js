@@ -163,6 +163,7 @@ function recipe(spec, layout = {}) {
 // modules/health/src/engine.js
 var SWEEP = 0.1;
 var AT_SUFFIX = ".at";
+var KILLS_ROW = "kills";
 function createEngine(api) {
   const state = /* @__PURE__ */ new Map();
   const acted = /* @__PURE__ */ new Map();
@@ -262,6 +263,12 @@ function createEngine(api) {
     const t = now();
     for (let i = 0; i < n; i++)
       api.fireNodeTrigger(node.type, (_d, id) => id === node.id, how.local ? { replicate: false } : void 0);
+    if (how.credit && how.sign < 0)
+      for (const chain of live) {
+        const s = state.get(chain.health.id);
+        if (!s || s.scope === "player" || s.dead) continue;
+        if (s.hp - n <= 0) api.peerVars.setMine(KILLS_ROW, api.peerVars.mine(KILLS_ROW, 0) + 1);
+      }
     for (const chain of live) {
       const s = state.get(chain.health.id);
       if (!s || s.scope !== "player") continue;
@@ -307,7 +314,7 @@ function createEngine(api) {
         speed: how.speed,
         speedRef: node.data?.speedRef
       });
-      if (pulse(node, n, { local: how.local, sign: -1 }, g)) fired++;
+      if (pulse(node, n, { local: how.local, sign: -1, credit: how.credit ?? !how.local }, g)) fired++;
     }
     return fired;
   }
@@ -316,7 +323,7 @@ function createEngine(api) {
       if (!hit?.uuid) return;
       if (knocked.get(hit.uuid) === hit.at) return;
       knocked.set(hit.uuid, hit.at);
-      hitObjects([hit.uuid], "hit", { speed: Number(hit.speed) || 0, local: true });
+      hitObjects([hit.uuid], "hit", { speed: Number(hit.speed) || 0, local: true, credit: !!hit.local });
     });
   function proximitySweep(g) {
     if (!api.isPlaying()) {
@@ -363,7 +370,7 @@ function createEngine(api) {
   }
   function fireAt(node, t, g) {
     const n = pulsesFor({ amount: node.data?.amount ?? 1 });
-    pulse(node, n, { local: t.local, sign: -1 }, g);
+    pulse(node, n, { local: t.local, sign: -1, credit: !t.local }, g);
   }
   function emit(name, kind) {
     api.fireNodeTrigger(
