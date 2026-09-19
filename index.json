@@ -30,7 +30,7 @@
 	{
 		"id": "collectible",
 		"name": "Collectibles",
-		"version": "1.0.0",
+		"version": "1.1.1",
 		"description": "One node makes an object collectible: click it or walk into it, it hides and counts. Shared or per-player score, with respawn and never-hiding checkpoints.",
 		"author": "theprototype-app",
 		"source": "modules/collectible",

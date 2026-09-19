@@ -27,8 +27,8 @@ promise from core.
 | 13 | play contract is name-keyed to `'dungeon-module'` | `dungeon-realms` | yes — squats the core module's group name |
 | 14 | grounded (no-fly) play-mode option | `dungeon-realms` | yes — window-capture swallows Q/E while the game runs |
 | 15 | peer roster + disconnect hook | `dungeon-realms` | partly — any player can free a stuck P1/P2 slot from the menu |
-| 16 | `api.flow.nodes()` carries no node POSITION | `collectible` | yes — the recipe derives its row from how many of its own nodes exist |
-| 17 | no change signal for the graph / game state | `collectible` | yes — a 500ms toolbox poll and a ~10Hz frame-task sweep |
+| 16 | ~~`api.flow.nodes()` carries no node POSITION~~ | `collectible` | **SHIPPED** (core PR #224) — snapshots carry `x`/`y` and `api.flow.freeRegion({w, h, graphId})` answers where a block lands; the recipe uses it and falls back to its fixed rows on an older app |
+| 17 | ~~no change signal for the graph / game state~~ | `collectible` | **SHIPPED** (core PR #224) — `api.flow.onChange` (graph + trigger log), `api.game.onChange`, `api.peerVars.onChange`, coalesced to one call per frame; the manager listens and polls only on an older app (the ~10Hz touch/count sweep stays: it watches positions and the clock) |
 | 18 | ~~the flow TRIGGER LOG has no handshake reply, so a late joiner never learns past pulses~~ | `collectible` | **SHIPPED** — `gettriggers`/`triggers` carries the log; the module gained a first-sight rule so arriving history is not banked |
 | 19 | `api.game.setState(state, outcome)` — a module cannot move the game shell | `football` | yes — a Football Event node fires `start`/`over`/`reset` and the template wires it to Set Game State |
 | 20 | a scene-physics block write (`api.physics.setScene({gravity, knock, …})`) | `football` | yes — the template carries the block; the "Build pitch" recipe toasts the Inspector rows to set |
@@ -295,7 +295,12 @@ vanished peer wedges the gate until someone frees their slot manually.
 **Ask:** `api.peers()` → `[{id, name}]` + `api.onPeerConnected/Disconnected`.
 The name half would also fix the HUD showing id prefixes instead of nicknames.
 
-## 16. `api.flow.nodes()` snapshots carry no POSITION
+## 16. `api.flow.nodes()` snapshots carry no POSITION — **SHIPPED**
+
+> Delivered both shapes (core PR #224): `x`/`y` on every snapshot, and
+> `api.flow.freeRegion({w, h, graphId})` — left-aligned under the lowest card — so the
+> placement rule is core's one copy (the HUD editor's bindings call the same function).
+> The collectible recipe asks it once per pair. The original request is kept below.
 
 **Found in:** `modules/collectible` — the manager's "Make collectible" recipe
 creates a node pair per selected object and has to lay the rows out, but a
@@ -311,7 +316,15 @@ deterministic and idempotent, and wrong the moment a user drags one of them.
 takes them on the way in), or an `api.flow.freeRegion({w, h})` that answers
 "somewhere empty" so layout stays core's problem.
 
-## 17. No change signal for the graph, the trigger log or the game state
+## 17. No change signal for the graph, the trigger log or the game state — **SHIPPED**
+
+> Delivered (core PR #224): `api.flow.onChange`, `api.game.onChange`,
+> `api.peerVars.onChange`, journalled like every `register*` and also returning an `off()`
+> for a toolbox that mounts and unmounts. Coalesced INSIDE the seam to one call per frame
+> (a microtask was measured NOT to fold thirty arriving peer edits). `flow.onChange` covers
+> the trigger log too, because a collected-state list changes when a node fires. The
+> manager now redraws on these and keeps a clock only for a live respawn countdown; an
+> idle panel writes nothing to the DOM (asserted). The original request is kept below.
 
 **Found in:** `modules/collectible` — the manager toolbox and the debug line are
 both views over the graph, so both POLL: the toolbox on a 500ms interval,
