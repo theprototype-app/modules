@@ -270,6 +270,7 @@
 		"source": "modules/untangle",
 		"zip": "untangle.zip",
 		"category": "game",
+		"template": "games/untangle",
 		"tags": [
 			"puzzle",
 			"co-op",
