@@ -91,6 +91,7 @@ async function fillForm(peer, o) {
 	await numbers.nth(1).fill(String(o.regen ?? 0));
 	await numbers.nth(2).fill(String(o.respawnDelay ?? 3));
 	await numbers.nth(3).fill(String(o.amount ?? 1));
+	await numbers.nth(4).fill(String(o.radius ?? 1.5));
 	const selects = panel.locator('.hm-form select');
 	await selects.nth(0).selectOption(o.deathAction ?? 'hide');
 	await selects.nth(1).selectOption(o.source ?? 'click');
@@ -133,8 +134,8 @@ h.run(async () => {
 		return {
 			items,
 			effect: !!s.moduleSDK.moduleEffects.health,
-			values: ['damage', 'heal', 'healthreset', 'healthvalue', 'healthevent'].filter((t) => !!s.moduleNodeIO.moduleValueNodes[t]),
-			types: { damage: s.moduleNodeIO.moduleValueTypes.damage, healthvalue: s.moduleNodeIO.moduleValueTypes.healthvalue },
+			values: ['health', 'damage', 'heal', 'healthreset', 'healthvalue', 'healthevent'].filter((t) => !!s.moduleNodeIO.moduleValueNodes[t]),
+			types: { health: s.moduleNodeIO.moduleValueTypes.health, damage: s.moduleNodeIO.moduleValueTypes.damage, healthvalue: s.moduleNodeIO.moduleValueTypes.healthvalue },
 			inputs: s.moduleNodeIO.moduleNodeInputs.health,
 			toolbox: (boxes ?? []).map((b) => b.id),
 			debugLines: s.moduleHudKinds.moduleDebugLineTexts(),
@@ -146,10 +147,10 @@ h.run(async () => {
 		['health', 'damage', 'heal', 'healthreset', 'healthvalue', 'healthevent'].every((t) => registered.items.includes(t)),
 		'the six nodes are in the palette (' + JSON.stringify(registered.items.filter((t) => /health|damage|heal/.test(t))) + ')'
 	);
-	h.check(registered.effect, 'health is an EFFECT (it targets an object and hides it on death)');
-	h.check(registered.values.length === 5, 'the five value/event nodes are registered (' + registered.values.join(',') + ')');
+	h.check(!registered.effect && registered.types.health === 'number', 'health is a VALUE node (its hp), NOT an effect — an effect would pin its target\'s pose');
+	h.check(registered.values.length === 6, 'the six value/event nodes are registered (' + registered.values.join(',') + ')');
 	h.check(registered.types.damage === 'event' && registered.types.healthvalue === 'number', 'damage outputs an EVENT, healthvalue a number');
-	h.check(registered.inputs?.damage === 'number' && registered.inputs?.heal === 'number' && registered.inputs?.respawnAt === 'object', 'health declares damage/heal (number) and respawnAt (object) inputs');
+	h.check(registered.inputs?.target === 'object' && registered.inputs?.damage === 'number' && registered.inputs?.heal === 'number' && registered.inputs?.respawnAt === 'object', 'health declares target/respawnAt (object) and damage/heal (number) inputs');
 	h.check(registered.toolbox.includes(TOOLBOX), 'the manager toolbox is registered as ' + TOOLBOX);
 	h.check(registered.actions.includes('mod-health-showhealth') && registered.actions.includes('mod-health-showhp'), 'the two HUD actions are in the catalog, namespaced');
 	h.check(registered.debugLines.length === 0, 'the debug line stays silent with no health in the scene');
@@ -176,7 +177,7 @@ h.run(async () => {
 
 	const healths = await nodesOf(A, 'health');
 	h.check(healths.length === 2, 'one health node per selected object (' + healths.length + ')');
-	h.check(healths.every((n) => n.data.max === 3 && n.data.scope === 'object' && n.data.whilePlaying === true), 'each carries the form and core\'s whilePlaying flag');
+	h.check(healths.every((n) => n.data.max === 3 && n.data.scope === 'object'), 'each carries the form');
 	const allA = await nodesOf(A);
 	const counts = allA.reduce((m, n) => ((m[n.type] = (m[n.type] ?? 0) + 1), m), {});
 	h.check(counts.damage === 2 && counts.counter === 2 && counts.healthreset === 2 && counts.objectselector === 2, 'each chain: damage, counter, health, reset, selector (' + JSON.stringify(counts) + ')');
@@ -184,7 +185,8 @@ h.run(async () => {
 	const pulseEdges = edgesA.filter((e) => e.targetHandle === 'pulse');
 	const dmgEdges = edgesA.filter((e) => e.targetHandle === 'damage');
 	const resetEdges = edgesA.filter((e) => e.targetHandle === 'reset');
-	h.check(pulseEdges.length === 2 && dmgEdges.length === 2 && resetEdges.length === 2, 'the wires: damage->counter.pulse, counter->health.damage, reset->counter.reset');
+	const targetEdges = edgesA.filter((e) => e.targetHandle === 'target');
+	h.check(pulseEdges.length === 2 && dmgEdges.length === 2 && resetEdges.length === 2 && targetEdges.length === 2, 'the wires: damage->counter.pulse, counter->health.damage, reset->counter.reset, selector->health.target');
 	h.check(edgesA.every((e) => e.id === 'e-' + e.source + '-' + e.target + (e.targetHandle ? '.' + e.targetHandle : '')), 'every edge id is the editor\'s canonical handle-qualified shape');
 	await h.eventually(() => nodesOf(B, 'health'), (n) => n.length === 2, 'both chains replicated to the peer', 12000);
 	await h.eventually(() => edgesOf(B), (e) => e.length === edgesA.length, 'and every wire (' + edgesA.length + ')');
@@ -369,6 +371,164 @@ h.run(async () => {
 	h.check(Array.isArray(healed) && healed.length === 3, 'premise: the heal chain was authored (' + healed.length + ' nodes)');
 
 	// =====================================================================
+	// 8. HIT — the knock feed: one `hit` message, every peer fires its own local pulses
+	// =====================================================================
+	// the damage node of Crate2's chain, found from the graph alone
+	const chainDamageOf = async (healthId) => {
+		const edges = await edgesOf(A);
+		const counter = edges.find((e) => e.target === healthId && e.targetHandle === 'damage')?.source;
+		return edges.find((e) => e.target === counter && e.targetHandle === 'pulse')?.source ?? null;
+	};
+	const dmg2 = await chainDamageOf(target2.id);
+	h.check(!!dmg2, 'premise: Crate2\'s damage node resolves from the wires');
+	await A.page.evaluate(({ id }) => window.__health.api.flow.setNodeData(id, { source: 'hit', scale: 'speed', speedRef: 3, amount: 1 }), { id: dmg2 });
+	await h.eventually(() => nodesOf(B, 'damage'), (n) => n.some((x) => x.id === dmg2 && x.data.source === 'hit' && x.data.scale === 'speed'), 'the edit replicated (source hit, speed-scaled)');
+	// the knock needs a body and the knock block (scene physics has no api write, DEVX #20)
+	await A.page.evaluate(() =>
+		window.__stores.scenePhysics.setScenePhysics({ knock: { enabled: true, gain: 1, maxSpeed: 10, spin: 0.8 }, play: { interaction: 'grab', grounded: false, simOnPlay: false } })
+	);
+	await A.page.evaluate((u) => window.__health.api.physics.set(u, { mode: 'dynamic', mass: 1, restitution: 0.2, friction: 0.6 }), crate2);
+	await A.page.waitForTimeout(800);
+	for (const peer of [A, B, C]) await setPlay(peer, true);
+	await A.page.evaluate(() => window.__stores.physics.warmup().catch(() => {}));
+	await A.page.evaluate(() => window.__stores.physics.toggleSimulation());
+	await h.eventually(() => A.page.evaluate(() => window.__stores.physics.physicsDebug().length), (n) => n > 0, 'premise: the simulation runs on A');
+	await A.page.waitForTimeout(1200);
+	const knock = await A.page.evaluate(
+		({ uuid, speed }) => {
+			let group = null;
+			window.__stores.objectsGroup.subscribe((g) => (group = g))();
+			const o = group?.getObjectByProperty('uuid', uuid);
+			if (!o) return { hits: 0, reason: 'no object' };
+			const k = window.__stores.knock;
+			const id = 'hp-probe';
+			k.dropProbe(id);
+			const [bx, by, bz] = o.position.toArray();
+			let hits = 0;
+			let t = 1000;
+			const step = (speed * 16) / 1000;
+			for (let x = bx - 1.2; x <= bx + 0.05; x += step) {
+				hits += k.feedProbe(id, [x, by, bz], t).hits;
+				t += 16;
+			}
+			k.dropProbe(id);
+			return { hits };
+		},
+		{ uuid: crate2, speed: 6 }
+	);
+	h.check(knock.hits >= 1, 'premise: a 6 m/s probe sweep knocks Crate2 (' + JSON.stringify(knock) + ')');
+	// 6 m/s against speedRef 3 = 2 points per knock, on every peer, from ONE message
+	const expectHp = Math.max(0, 3 - 2 * knock.hits);
+	await h.eventually(() => healthOf(A, crate2), (s) => s?.hp === expectHp, 'A: Crate2 took 2 points per knock (speed-scaled) -> ' + expectHp + '/3', 8000);
+	await h.eventually(() => healthOf(B, crate2), (s) => s?.hp === expectHp, 'B reads the same from the hit message it received', 10000);
+	await h.eventually(() => healthOf(C, crate2), (s) => s?.hp === expectHp, 'and so does C', 10000);
+	await A.page.evaluate(() => window.__stores.physics.stopSimulation());
+	await A.page.waitForTimeout(800);
+
+	// =====================================================================
+	// 9. TOUCH — self-proximity, an EDGE: the toucher fires a replicated pulse once
+	// =====================================================================
+	// In play the rig re-seats the camera at (0, 1.6, 0) every frame, so a flight moves
+	// the OBJECT (a replicated move) rather than the player. Only B is in play: touch is
+	// self-detected, and a peer out of play detects nothing.
+	const objectPos = (peer, uuid) =>
+		peer.page.evaluate((u) => {
+			let group;
+			window.__stores.objectsGroup.subscribe((v) => (group = v))();
+			return group?.getObjectByProperty('uuid', u)?.position.toArray() ?? null;
+		}, uuid);
+	const moveTo = (uuid, pos) => A.page.evaluate(({ u, p }) => window.__health.api.moveObject(u, { pos: p }), { u: uuid, p: pos });
+	for (const peer of [A, C]) await setPlay(peer, null);
+	await A.page.waitForTimeout(400);
+	const crate3 = await makeBox(A, 'Crate3');
+	await moveTo(crate3, [6, 0, 0]);
+	await openToolbox(A);
+	await A.page.evaluate((u) => window.__stores.objectActions.selectObject(u), crate3);
+	await A.page.waitForTimeout(300);
+	await fillForm(A, { name: 'hp', max: 3, source: 'touch', amount: 1, radius: 2.5, deathAction: 'hide' });
+	await A.page.locator('.health-manager').getByRole('button', { name: 'Make damageable' }).click();
+	await A.page.waitForTimeout(1200);
+	await A.page.evaluate(() => window.__stores.objectActions.deselectObject());
+	await h.eventually(() => healthOf(B, crate3), (s) => s?.hp === 3, 'Crate3 has a touch chain on B', 12000);
+	await h.eventually(() => objectPos(B, crate3), (p) => p && Math.abs(p[0] - 6) < 0.01, 'and stands 6 m away on B (the move replicated)');
+	// where B's player stands in play is the rig's business; the flight reads it and puts
+	// the crate exactly there (a replicated move), then takes it away and brings it back
+	const bPlayer = await B.page.evaluate(() => window.__health.api.playerPosition());
+	h.check(Array.isArray(bPlayer) && bPlayer.length === 3, 'premise: B\'s player has a position in play (' + JSON.stringify(bPlayer) + ')');
+	const away3 = [bPlayer[0] + 9, bPlayer[1], bPlayer[2] + 9];
+	await moveTo(crate3, bPlayer);
+	await h.eventually(() => healthOf(B, crate3), (s) => s?.hp === 2, 'Crate3 arrives under B: B touched it, 2/3 on the toucher', 8000);
+	await h.eventually(() => healthOf(A, crate3), (s) => s?.hp === 2, 'and on A (the toucher\'s pulse replicated; A is not even in play)', 8000);
+	await B.page.waitForTimeout(1500);
+	h.check((await healthOf(A, crate3))?.hp === 2, 'standing there does NOT keep hurting it: touch is an edge');
+	await moveTo(crate3, away3);
+	await B.page.waitForTimeout(700);
+	await moveTo(crate3, bPlayer);
+	await h.eventually(() => healthOf(A, crate3), (s) => s?.hp === 1, 'leaving and coming back is a second touch: 1/3', 8000);
+	await moveTo(crate3, away3);
+	await B.page.waitForTimeout(400);
+
+	// =====================================================================
+	// 10. ZONE — the PLAYER in a hazard: per second, local, on their own row
+	// =====================================================================
+	const zone = await A.page.evaluate(
+		({ hp, crate }) =>
+			window.__health.api.flow.addNodes({
+				nodes: [
+					{ type: 'damage', x: 60, y: 1100, data: { source: 'zone', amount: 1, perSecond: 2, radius: 2 } },
+					{ type: 'objectselector', x: 60, y: 1200, data: { selected: crate } },
+					{ type: 'counter', x: 280, y: 1100, data: { op: 'up', step: 1 } }
+				],
+				edges: [{ from: 1, to: 0, handle: 'zone' }, { from: 0, to: 2, handle: 'pulse' }, { from: 2, to: hp, handle: 'damage' }]
+			}),
+		{ hp: player.id, crate: crate3 }
+	);
+	h.check(zone.length === 3, 'premise: a zone chain into the player health, the zone being Crate3');
+	// the respawn point: Crate1, far off, wired into respawnAt
+	await moveTo(crate1, [40, 0, 40]);
+	const spawnSel = await A.page.evaluate(
+		({ hp, crate }) => window.__health.api.flow.addNodes({ nodes: [{ type: 'objectselector', x: 700, y: 1100, data: { selected: crate } }], edges: [{ from: 0, to: hp, handle: 'respawnAt' }] }),
+		{ hp: player.id, crate: crate1 }
+	);
+	h.check(spawnSel.length === 1, 'premise: Crate1 is the respawn point');
+	await setPlay(B, null);
+	await setPlay(A, true);
+	await A.page.waitForTimeout(2500); // the play rig settles the camera after a moment
+	h.check((await playerOf(A, 'me'))?.hp === 5, 'premise: A at 5/5 before the hazard');
+	const aPlayer = await A.page.evaluate(() => window.__health.api.playerPosition());
+	await A.page.waitForTimeout(600);
+	const aPlayer2 = await A.page.evaluate(() => window.__health.api.playerPosition());
+	h.check(Array.isArray(aPlayer) && aPlayer.every((v, i) => Math.abs(v - aPlayer2[i]) < 0.01), 'premise: A\'s play position is stable (' + JSON.stringify(aPlayer) + ')');
+	await moveTo(crate3, aPlayer2); // the hazard arrives under A
+	const zoneView = async () => ({
+		me: (await playerOf(A, 'me'))?.hp,
+		diag: await A.page.evaluate((u) => {
+			const api = window.__health.api;
+			let group;
+			window.__stores.objectsGroup.subscribe((v) => (group = v))();
+			const o = group?.getObjectByProperty('uuid', u);
+			const edges = api.flow.edges().filter((e) => e.targetHandle === 'zone' || e.targetHandle === 'respawnAt').map((e) => ({ s: e.source.slice(0, 6), t: e.target.slice(0, 6), h: e.targetHandle }));
+			const zones = api.flow.nodes('damage').filter((n) => n.data.source === 'zone').map((n) => ({ id: n.id.slice(0, 6), radius: n.data.radius, perSecond: n.data.perSecond }));
+			return { playing: api.isPlaying(), player: api.playerPosition(), crate: o?.getWorldPosition(new api.THREE.Vector3()).toArray(), edges, zones, row: window.__stores.peerVars.myPeerVar('me', null) };
+		}, crate3)
+	});
+	await h.eventually(zoneView, (v) => typeof v.me === 'number' && v.me <= 3, 'in the zone: A loses about 2 points a second, on A\'s own row', 5000);
+	h.check((await playerOf(B, 'me'))?.hp === 5, 'B, out of play, is untouched (5/5)');
+	await h.eventually(() => playerOf(A, 'me'), (s) => s?.dead === true, 'staying kills A', 8000);
+	// leave play: the editor camera is free to fly, and the zone hurts nobody outside play
+	await setPlay(A, null);
+	await h.eventually(() => playerOf(A, 'me'), (s) => s && !s.dead && s.hp === 5, 'respawn after 2 s: 5/5 on the row', 8000);
+	await h.eventually(
+		() => A.page.evaluate(() => window.__health.api.playerPosition()),
+		(p) => p && Math.hypot(p[0] - 40, p[2] - 40) < 2,
+		'and the camera flew to Crate1 (respawnAt) — the editor camera; in play the rig owns it (DEVX #23)',
+		6000
+	);
+	await A.page.waitForTimeout(1200);
+	h.check((await playerOf(A, 'me'))?.hp === 5, 'the number holds at 5/5');
+	await moveTo(crate3, away3);
+
+	// =====================================================================
 	// 7. THE MANAGER — live rows
 	// =====================================================================
 	await setPlay(A, null);
@@ -378,8 +538,11 @@ h.run(async () => {
 	const rowsUi = await A.page.evaluate(() =>
 		[...document.querySelectorAll('.health-manager .hm-row')].map((r) => ({ name: r.querySelector('.hm-name')?.textContent, hp: r.querySelector('.hm-hp')?.textContent, status: r.querySelector('.hm-status')?.textContent }))
 	);
-	h.check(rowsUi.length === 3, 'three rows: two crates and the player (' + JSON.stringify(rowsUi) + ')');
-	h.check(rowsUi.some((r) => /Crate2/.test(r.name) && r.hp === '3 / 3' && r.status === 'full'), 'Crate2 reads 3 / 3, full');
+	h.check(rowsUi.length === 4, 'four rows: three crates and the player (' + JSON.stringify(rowsUi) + ')');
+	h.check(rowsUi.some((r) => /Crate1/.test(r.name) && r.hp === '3 / 3' && r.status === 'full'), 'Crate1 reads 3 / 3, full');
+	// Crate3 took its third touch when it arrived under A (A was in play as the hazard's
+	// bearer, and touch is self-detected by whoever is in play) — dead, and the row says so
+	h.check(rowsUi.some((r) => /Crate3/.test(r.name) && r.hp === '0 / 3' && r.status === 'dead'), 'Crate3 reads 0 / 3, dead (its third touch was A\'s, in the zone section)');
 	h.check(rowsUi.some((r) => /player/.test(r.name) && r.hp === '5 / 5'), 'the player row reads 5 / 5');
 
 	await h.finish(browser);

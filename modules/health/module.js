@@ -79,11 +79,12 @@ function indexGraph(nodes, edges) {
 function targetsOf(node, g) {
   const out = [];
   let wired = false;
-  for (const edge of g.bySource.get(node.id) ?? []) {
-    const target = g.byId.get(edge.target);
-    if (target?.type !== "objectselector") continue;
+  for (const edge of g.byTarget.get(node.id) ?? []) {
+    if ((edge.targetHandle ?? null) !== "target") continue;
+    const src = g.byId.get(edge.source);
+    if (src?.type !== "objectselector") continue;
     wired = true;
-    const selected = String(target.data?.selected ?? "");
+    const selected = String(src.data?.selected ?? "");
     if (selected && selected !== "-None-") out.push(selected);
   }
   if (!wired && node.graphId && node.graphId !== SCENE) out.push(node.graphId);
@@ -123,6 +124,16 @@ function feedersOf(health, g) {
 function triggerSourcesOf(node, g) {
   return sourcesInto(node.id, "trigger", g);
 }
+function zoneOf(node, g) {
+  for (const edge of g.byTarget.get(node.id) ?? []) {
+    if ((edge.targetHandle ?? null) !== "zone") continue;
+    const src = g.byId.get(edge.source);
+    if (src?.type !== "objectselector") continue;
+    const selected = String(src.data?.selected ?? "");
+    if (selected && selected !== "-None-") return selected;
+  }
+  return null;
+}
 var nameOf = (node) => String(node?.data?.name ?? "").trim() || "hp";
 function recipe(spec, layout = {}) {
   const COL = layout.col ?? 220;
@@ -130,7 +141,7 @@ function recipe(spec, layout = {}) {
   const x0 = layout.x ?? 60;
   const y = (layout.y ?? 40) + spec.row * ROW;
   const name = String(spec.health.name ?? "").trim() || "hp";
-  const health = { ...spec.health, name, scope: spec.uuid ? "object" : "player", whilePlaying: true };
+  const health = { ...spec.health, name, scope: spec.uuid ? "object" : "player" };
   const nodes = [
     { type: "damage", x: x0, y, data: { ...spec.damage } },
     { type: "counter", x: x0 + COL, y, data: { op: "up", step: 1 } },
@@ -144,7 +155,7 @@ function recipe(spec, layout = {}) {
   ];
   if (spec.uuid) {
     nodes.push({ type: "objectselector", x: x0 + 3 * COL, y, data: { selected: spec.uuid } });
-    edges.push({ from: 2, to: 4 });
+    edges.push({ from: 4, to: 2, handle: "target" });
   }
   return { nodes, edges };
 }
@@ -158,6 +169,10 @@ function createEngine(api) {
   const wasDead = /* @__PURE__ */ new Map();
   const lastHp = /* @__PURE__ */ new Map();
   const respawned = /* @__PURE__ */ new Map();
+  const inside = /* @__PURE__ */ new Map();
+  const zoneTick = /* @__PURE__ */ new Map();
+  const knocked = /* @__PURE__ */ new Map();
+  const hidden = /* @__PURE__ */ new Set();
   let roundSeen = (
     /** @type {any} */
     void 0
@@ -277,10 +292,10 @@ function createEngine(api) {
     }
     for (const id of [...acted.keys()]) if (!g.byId.has(id)) acted.delete(id);
   }
-  function hitObjects(uuids, source, extra) {
+  function hitObjects(uuids, source, how) {
     if (!uuids.length) return 0;
     const wanted = new Set(uuids);
-    const g = graphView();
+    const g = how.g ?? graphView();
     let fired = 0;
     for (const node of g.nodes) {
       if (node.type !== "damage" || (node.data?.source ?? "wired") !== source) continue;
@@ -289,12 +304,66 @@ function createEngine(api) {
       const n = pulsesFor({
         amount: node.data?.amount ?? 1,
         scale: node.data?.scale,
-        speed: extra?.speed,
+        speed: how.speed,
         speedRef: node.data?.speedRef
       });
-      if (pulse(node, n, { local: false, sign: -1 }, g)) fired++;
+      if (pulse(node, n, { local: how.local, sign: -1 }, g)) fired++;
     }
     return fired;
+  }
+  if (typeof api.onHit === "function")
+    api.onHit((hit) => {
+      if (!hit?.uuid) return;
+      if (knocked.get(hit.uuid) === hit.at) return;
+      knocked.set(hit.uuid, hit.at);
+      hitObjects([hit.uuid], "hit", { speed: Number(hit.speed) || 0, local: true });
+    });
+  function proximitySweep(g) {
+    if (!api.isPlaying()) {
+      inside.clear();
+      return;
+    }
+    const position = api.playerPosition();
+    if (!position) return;
+    const here = new api.THREE.Vector3(position[0], position[1], position[2]);
+    const tick = performance.now() / 1e3;
+    for (const node of g.nodes) {
+      if (node.type !== "damage") continue;
+      const source = node.data?.source ?? "wired";
+      if (source !== "touch" && source !== "zone") continue;
+      const radius = clamp(node.data?.radius, 0.1, 100, 1.5);
+      const chains = chainsOf(node, g);
+      const targets = [];
+      for (const chain of chains) {
+        if (chain.health.data?.scope === "player") {
+          const zone = zoneOf(node, g);
+          if (zone) targets.push({ uuid: zone, local: true });
+        } else for (const uuid of targetsOf(chain.health, g)) targets.push({ uuid, local: false });
+      }
+      const was = inside.get(node.id) ?? /* @__PURE__ */ new Set();
+      const nowIn = /* @__PURE__ */ new Set();
+      for (const t of targets) {
+        const object = objectOf(t.uuid);
+        if (!object) continue;
+        if (object.getWorldPosition(new api.THREE.Vector3()).distanceTo(here) > radius) continue;
+        nowIn.add(t.uuid);
+        if (source === "touch" && !was.has(t.uuid)) fireAt(node, t, g);
+      }
+      if (source === "zone" && nowIn.size) {
+        const every = 1 / clamp(node.data?.perSecond, 0.1, 100, 1);
+        const last = zoneTick.get(node.id) ?? -Infinity;
+        if (tick - last >= every) {
+          zoneTick.set(node.id, tick);
+          for (const t of targets) if (nowIn.has(t.uuid)) fireAt(node, t, g);
+        }
+      } else if (source === "zone") zoneTick.delete(node.id);
+      inside.set(node.id, nowIn);
+    }
+    for (const id of [...inside.keys()]) if (!g.byId.has(id)) inside.delete(id);
+  }
+  function fireAt(node, t, g) {
+    const n = pulsesFor({ amount: node.data?.amount ?? 1 });
+    pulse(node, n, { local: t.local, sign: -1 }, g);
   }
   function emit(name, kind) {
     api.fireNodeTrigger(
@@ -367,6 +436,24 @@ function createEngine(api) {
       emit(name, "reset");
     }
   }
+  function visibilitySweep() {
+    const playing = api.isPlaying();
+    const shouldHide = /* @__PURE__ */ new Set();
+    for (const s of state.values())
+      if (s.scope === "object" && s.uuid && s.dead && playing && s.deathAction !== "nothing") shouldHide.add(s.uuid);
+    for (const uuid of shouldHide) {
+      const object = objectOf(uuid);
+      if (!object) continue;
+      if (!hidden.has(uuid)) hidden.add(uuid);
+      object.visible = false;
+    }
+    for (const uuid of [...hidden]) {
+      if (shouldHide.has(uuid)) continue;
+      hidden.delete(uuid);
+      const object = objectOf(uuid);
+      if (object) object.visible = true;
+    }
+  }
   function sweep() {
     const g = graphView();
     const live = /* @__PURE__ */ new Set();
@@ -379,6 +466,7 @@ function createEngine(api) {
       edges(s, firstSight);
       respawnSweep(s);
     }
+    visibilitySweep();
     for (const id of [...state.keys()])
       if (!live.has(id)) {
         state.delete(id);
@@ -388,6 +476,7 @@ function createEngine(api) {
       }
     roundSweep();
     wiredSweep(g);
+    proximitySweep(g);
     for (const fn of listeners) fn();
   }
   let lastSweep = -1;
@@ -431,6 +520,10 @@ function createEngine(api) {
     wasDead.clear();
     lastHp.clear();
     respawned.clear();
+    hidden.clear();
+    inside.clear();
+    zoneTick.clear();
+    knocked.clear();
     roundSeen = void 0;
   }
   return {
@@ -461,7 +554,7 @@ function registerNodes(api, engine) {
       {
         type: "health",
         label: "Health",
-        defaults: { ...DEFAULTS, damage: 0, heal: 0, respawnAt: "", whilePlaying: true },
+        defaults: { ...DEFAULTS, target: "", damage: 0, heal: 0, respawnAt: "" },
         params: [
           { key: "name", kind: "text", placeholder: DEFAULTS.name, maxLength: 40 },
           { key: "scope", kind: "select", options: SCOPES },
@@ -516,14 +609,10 @@ function registerNodes(api, engine) {
       }
     ]
   });
-  api.registerEffect(
+  api.registerValueNode(
     "health",
-    (object, _base, data, _time, ctx) => {
-      if (String(data?.deathAction ?? DEFAULTS.deathAction) === "nothing") return;
-      const s = ctx?.id ? engine.stateOf(ctx.id) : null;
-      if (s?.dead && s.scope === "object") object.visible = false;
-    },
-    { inputs: { damage: "number", heal: "number", respawnAt: "object" } }
+    (_data, _time, ctx) => engine.stateOf(ctx?.id)?.hp ?? 0,
+    { vtype: "number", inputs: { target: "object", damage: "number", heal: "number", respawnAt: "object" } }
   );
   api.registerValueNode("damage", () => 0, { vtype: "event", inputs: { trigger: "event", zone: "object" } });
   api.registerValueNode("heal", () => 0, { vtype: "event", inputs: { trigger: "event" } });
@@ -646,6 +735,11 @@ function registerToolbox(api, engine) {
       /** @type {HTMLInputElement} */
       elem("input", { type: "number", min: "1", max: String(MAX_PULSES), step: "1", value: "1" }, INPUT_CSS)
     );
+    const radius = (
+      /** @type {HTMLInputElement} */
+      elem("input", { type: "number", min: "0.5", max: "10", step: "0.5", value: "1.5" }, INPUT_CSS)
+    );
+    radius.title = "For touch and zone: how close the player has to be";
     for (const [label, control] of [
       ["Name", name],
       ["Max hp", max],
@@ -653,7 +747,8 @@ function registerToolbox(api, engine) {
       ["On death", deathAction],
       ["Respawn (s)", respawnDelay],
       ["Damage from", source],
-      ["Damage", amount]
+      ["Damage", amount],
+      ["Radius", radius]
     ]) {
       form.appendChild(elem("label", { textContent: label }));
       form.appendChild(
@@ -672,7 +767,8 @@ function registerToolbox(api, engine) {
       },
       damage: {
         amount: Math.max(1, Math.min(MAX_PULSES, Number(amount.value) || 1)),
-        source: source.value
+        source: source.value,
+        radius: Math.max(0.5, Math.min(10, Number(radius.value) || 1.5))
       }
     });
     const buttons = elem("div", { className: "hm-buttons" });
@@ -778,7 +874,7 @@ var index_default = {
     const toolbox = registerToolbox(api, engine);
     api.registerClickHandler((object) => {
       const chain = uuidChain(api, object);
-      if (chain.length) engine.hitObjects(chain, "click");
+      if (chain.length) engine.hitObjects(chain, "click", { local: false });
       return false;
     });
     api.hud.registerDebugLine(() => {

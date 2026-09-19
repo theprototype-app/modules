@@ -121,6 +121,8 @@ export function registerToolbox(api, engine) {
 		const respawnDelay = /** @type {HTMLInputElement} */ (elem('input', { type: 'number', min: '0', max: '30', step: '1', value: String(DEFAULTS.respawnDelay) }, INPUT_CSS));
 		const source = select(DAMAGE_SOURCES, 'click');
 		const amount = /** @type {HTMLInputElement} */ (elem('input', { type: 'number', min: '1', max: String(MAX_PULSES), step: '1', value: '1' }, INPUT_CSS));
+		const radius = /** @type {HTMLInputElement} */ (elem('input', { type: 'number', min: '0.5', max: '10', step: '0.5', value: '1.5' }, INPUT_CSS));
+		radius.title = 'For touch and zone: how close the player has to be';
 		for (const [label, control] of [
 			['Name', name],
 			['Max hp', max],
@@ -128,7 +130,8 @@ export function registerToolbox(api, engine) {
 			['On death', deathAction],
 			['Respawn (s)', respawnDelay],
 			['Damage from', source],
-			['Damage', amount]
+			['Damage', amount],
+			['Radius', radius]
 		]) {
 			form.appendChild(elem('label', { textContent: label }));
 			form.appendChild(/** @type {any} */ (control));
@@ -144,7 +147,8 @@ export function registerToolbox(api, engine) {
 			},
 			damage: {
 				amount: Math.max(1, Math.min(MAX_PULSES, Number(amount.value) || 1)),
-				source: source.value
+				source: source.value,
+				radius: Math.max(0.5, Math.min(10, Number(radius.value) || 1.5))
 			}
 		});
 		const buttons = elem('div', { className: 'hm-buttons' });

@@ -17,7 +17,7 @@
 // on. It is what stops a late joiner from re-applying every hit in the handshake.
 
 import { objectHp, playerHp, applyDelta, pulsesFor, fraction, respawnDue, DEFAULTS, clamp } from './ledger.js';
-import { indexGraph, targetsOf, chainsOf, feedersOf, triggerSourcesOf, nameOf } from './graph.js';
+import { indexGraph, targetsOf, chainsOf, feedersOf, triggerSourcesOf, zoneOf, nameOf } from './graph.js';
 
 const SWEEP = 0.1;
 const AT_SUFFIX = '.at';
@@ -35,6 +35,17 @@ export function createEngine(api) {
 	const lastHp = new Map();
 	/** health id -> the deadAt a respawn was already fired for */
 	const respawned = new Map();
+	/** damage node id -> the object uuids the local player is currently inside (touch/zone) */
+	const inside = new Map();
+	/** damage node id -> performance.now()/1000 of the last zone tick */
+	const zoneTick = new Map();
+	/** uuid -> the knock stamp already applied (the feed fires once per hit per peer;
+	 * this is the belt to that brace) */
+	const knocked = new Map();
+	/** the objects THIS module hid (uuid -> true), so it gives back exactly those and
+	 * never fights a manual hide — the 21-F2 rule, kept by hand because health is a value
+	 * node, not an effect (an effect would pin its target's pose) */
+	const hidden = new Set();
 	/** the round cutoff we last saw (null = not seen yet) */
 	let roundSeen = /** @type {any} */ (undefined);
 	/** the listeners the toolbox uses (a local refresh, never a wire) @type {Set<() => void>} */
@@ -189,15 +200,17 @@ export function createEngine(api) {
 	}
 
 	/**
-	 * A source only THIS peer witnessed (its click, its touch): fire replicated pulses on
-	 * every damage node of `source` kind whose health targets one of `uuids`.
-	 * @param {string[]} uuids @param {string} source @param {{speed?: number}=} extra
+	 * Damage nodes of `source` kind whose health targets one of `uuids`, fired with
+	 * `amount` pulses (speed-scaled when the node says so). `local` says whether every
+	 * peer derives this cause itself (a knock message everyone receives) or only this
+	 * peer saw it (its own click, its own touch), in which case the pulse replicates.
+	 * @param {string[]} uuids @param {string} source @param {{speed?: number, local: boolean, g?: any}} how
 	 * @returns {number} damage nodes fired
 	 */
-	function hitObjects(uuids, source, extra) {
+	function hitObjects(uuids, source, how) {
 		if (!uuids.length) return 0;
 		const wanted = new Set(uuids);
-		const g = graphView();
+		const g = how.g ?? graphView();
 		let fired = 0;
 		for (const node of g.nodes) {
 			if (node.type !== 'damage' || (node.data?.source ?? 'wired') !== source) continue;
@@ -206,12 +219,80 @@ export function createEngine(api) {
 			const n = pulsesFor({
 				amount: node.data?.amount ?? 1,
 				scale: node.data?.scale,
-				speed: extra?.speed,
+				speed: how.speed,
 				speedRef: node.data?.speedRef
 			});
-			if (pulse(node, n, { local: false, sign: -1 }, g)) fired++;
+			if (pulse(node, n, { local: how.local, sign: -1 }, g)) fired++;
 		}
 		return fired;
+	}
+
+	// ---- the knock feed: `hit` ---------------------------------------------------------
+	// Every peer receives every knock (one `hit` message, identical `at` stamps), so every
+	// peer fires its own LOCAL pulses — the replicated-source rule. A joiner's log starts
+	// empty, which is exactly "first sight never fires" for free.
+	if (typeof api.onHit === 'function')
+		api.onHit((/** @type {any} */ hit) => {
+			if (!hit?.uuid) return;
+			if (knocked.get(hit.uuid) === hit.at) return;
+			knocked.set(hit.uuid, hit.at);
+			hitObjects([hit.uuid], 'hit', { speed: Number(hit.speed) || 0, local: true });
+		});
+
+	// ---- self-proximity: `touch` (an edge) and `zone` (per second, while inside) ----------
+	// Each peer detects ITSELF near an object — no sensor, no sim, no initiator. An OBJECT
+	// chain hurts the object the toucher walked into (this peer alone saw it: replicated);
+	// a PLAYER chain hurts the toucher, near the object wired into `zone` (local + the row).
+	/** @param {import('./graph.js').GraphIndex} g */
+	function proximitySweep(g) {
+		if (!api.isPlaying()) {
+			inside.clear();
+			return;
+		}
+		const position = api.playerPosition();
+		if (!position) return;
+		const here = new api.THREE.Vector3(position[0], position[1], position[2]);
+		const tick = performance.now() / 1000;
+		for (const node of g.nodes) {
+			if (node.type !== 'damage') continue;
+			const source = node.data?.source ?? 'wired';
+			if (source !== 'touch' && source !== 'zone') continue;
+			const radius = clamp(node.data?.radius, 0.1, 100, 1.5);
+			const chains = chainsOf(node, g);
+			/** @type {{uuid: string, local: boolean}[]} */
+			const targets = [];
+			for (const chain of chains) {
+				if (chain.health.data?.scope === 'player') {
+					const zone = zoneOf(node, g);
+					if (zone) targets.push({ uuid: zone, local: true });
+				} else for (const uuid of targetsOf(chain.health, g)) targets.push({ uuid, local: false });
+			}
+			const was = inside.get(node.id) ?? new Set();
+			const nowIn = new Set();
+			for (const t of targets) {
+				const object = objectOf(t.uuid);
+				if (!object) continue;
+				if (object.getWorldPosition(new api.THREE.Vector3()).distanceTo(here) > radius) continue;
+				nowIn.add(t.uuid);
+				if (source === 'touch' && !was.has(t.uuid)) fireAt(node, t, g);
+			}
+			if (source === 'zone' && nowIn.size) {
+				const every = 1 / clamp(node.data?.perSecond, 0.1, 100, 1);
+				const last = zoneTick.get(node.id) ?? -Infinity;
+				if (tick - last >= every) {
+					zoneTick.set(node.id, tick);
+					for (const t of targets) if (nowIn.has(t.uuid)) fireAt(node, t, g);
+				}
+			} else if (source === 'zone') zoneTick.delete(node.id);
+			inside.set(node.id, nowIn);
+		}
+		for (const id of [...inside.keys()]) if (!g.byId.has(id)) inside.delete(id);
+	}
+
+	/** @param {any} node @param {{uuid: string, local: boolean}} t @param {import('./graph.js').GraphIndex} g */
+	function fireAt(node, t, g) {
+		const n = pulsesFor({ amount: node.data?.amount ?? 1 });
+		pulse(node, n, { local: t.local, sign: -1 }, g);
 	}
 
 	// ---- events + respawn -----------------------------------------------------------
@@ -307,6 +388,27 @@ export function createEngine(api) {
 		}
 	}
 
+	/** hide a dead object while playing; give back what we hid the moment it is not
+	 * (alive again, out of play, action changed) — and only what WE hid */
+	function visibilitySweep() {
+		const playing = api.isPlaying();
+		const shouldHide = new Set();
+		for (const s of state.values())
+			if (s.scope === 'object' && s.uuid && s.dead && playing && s.deathAction !== 'nothing') shouldHide.add(s.uuid);
+		for (const uuid of shouldHide) {
+			const object = objectOf(uuid);
+			if (!object) continue;
+			if (!hidden.has(uuid)) hidden.add(uuid);
+			object.visible = false;
+		}
+		for (const uuid of [...hidden]) {
+			if (shouldHide.has(uuid)) continue;
+			hidden.delete(uuid);
+			const object = objectOf(uuid);
+			if (object) object.visible = true;
+		}
+	}
+
 	// ---- the sweep ------------------------------------------------------------------
 	function sweep() {
 		const g = graphView();
@@ -320,6 +422,7 @@ export function createEngine(api) {
 			edges(s, firstSight);
 			respawnSweep(s);
 		}
+		visibilitySweep();
 		for (const id of [...state.keys()])
 			if (!live.has(id)) {
 				state.delete(id);
@@ -329,6 +432,7 @@ export function createEngine(api) {
 			}
 		roundSweep();
 		wiredSweep(g);
+		proximitySweep(g);
 		for (const fn of listeners) fn();
 	}
 
@@ -385,6 +489,10 @@ export function createEngine(api) {
 		wasDead.clear();
 		lastHp.clear();
 		respawned.clear();
+		hidden.clear();
+		inside.clear();
+		zoneTick.clear();
+		knocked.clear();
 		roundSeen = undefined;
 	}
 

@@ -1,10 +1,14 @@
 // health — THE NODE FAMILY (group "Health").
 //
-//   health       EFFECT. Targets an object (Object Selector wire, or its own graph) and
+//   health       VALUE (its hp). Names its object through the `target` input (an Object
+//                Selector wire; a node in an object's own graph implicitly owns it) and
 //                owns the numbers: `max`, `scope`, `regen`, `deathAction`, `respawnDelay`.
 //                Inputs `damage` / `heal` (numbers — wire the counters) and `respawnAt`
-//                (an object: where a player comes back). `whilePlaying` is core's flag:
-//                the hide on death hands the object back outside play, for free.
+//                (an object: where a player comes back). NOT an effect, on purpose: the
+//                runtime re-seats an effect target's base pose every frame (football's
+//                "no node may target the ball"), and a damageable thing must be free to
+//                move — an enemy walks, a crate gets knocked. So the engine hides a dead
+//                object itself, in play only, and gives back exactly what it hid.
 //   damage       EVENT out. Fires hit points into whatever health it feeds. `source`
 //                says what sets it off: a wired event (`trigger` in), a click, a touch,
 //                a zone, a knock (H2); `amount` is points per event.
@@ -29,7 +33,7 @@ export function registerNodes(api, engine) {
 			{
 				type: 'health',
 				label: 'Health',
-				defaults: { ...DEFAULTS, damage: 0, heal: 0, respawnAt: '', whilePlaying: true },
+				defaults: { ...DEFAULTS, target: '', damage: 0, heal: 0, respawnAt: '' },
 				params: [
 					{ key: 'name', kind: 'text', placeholder: DEFAULTS.name, maxLength: 40 },
 					{ key: 'scope', kind: 'select', options: SCOPES },
@@ -85,17 +89,12 @@ export function registerNodes(api, engine) {
 		]
 	});
 
-	// THE EFFECT does one thing: hide a dead object. The numbers come from the engine's
-	// sweep (the same derivation the HUD and the toolbox read), never from a second copy
-	// here. Giving the object back is core's restore loop (`whilePlaying`).
-	api.registerEffect(
+	// THE NUMBER: a health node reads as its own hp, so a card shows it live and a HUD
+	// can take it straight. The derivation is the engine's (one place), never a copy here.
+	api.registerValueNode(
 		'health',
-		(/** @type {any} */ object, /** @type {any} */ _base, /** @type {any} */ data, /** @type {number} */ _time, /** @type {any} */ ctx) => {
-			if (String(data?.deathAction ?? DEFAULTS.deathAction) === 'nothing') return;
-			const s = ctx?.id ? engine.stateOf(ctx.id) : null;
-			if (s?.dead && s.scope === 'object') object.visible = false;
-		},
-		{ inputs: { damage: 'number', heal: 'number', respawnAt: 'object' } }
+		(/** @type {any} */ _data, /** @type {number} */ _time, /** @type {any} */ ctx) => engine.stateOf(ctx?.id)?.hp ?? 0,
+		{ vtype: 'number', inputs: { target: 'object', damage: 'number', heal: 'number', respawnAt: 'object' } }
 	);
 
 	// the event nodes: their pulses are fired by the engine through api.fireNodeTrigger

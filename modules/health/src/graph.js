@@ -2,14 +2,14 @@
 //
 // The chain a damage source rides, as the recipe wires it and as a user may re-wire it:
 //
-//   [any event]──trigger──▶ damage ──▶ counter.pulse ──▶ health.damage ──▶ objectselector
+//   [any event]──trigger──▶ damage ──▶ counter.pulse ──▶ health.damage ◀──target── objectselector
 //                                        ▲                       ▲
 //                       healthreset ─────┘ (reset)     heal ──▶ counter.pulse ──▶ health.heal
 //
 // A `damage` node hurts WHATEVER HEALTH IT FEEDS (through a counter, or wired straight in);
-// it never names a target itself. A `health` node targets an object the collectible way:
-// an explicit Object Selector wire wins, and a node in an object's own graph implicitly
-// targets its owner.
+// it never names a target itself. A `health` node names its object through its `target`
+// input (an Object Selector wired IN — a value, not an effect target, so the runtime never
+// pins the object's pose); a node in an object's own graph implicitly owns that object.
 
 const SCENE = 'scene';
 
@@ -32,17 +32,19 @@ export function indexGraph(nodes, edges) {
 
 /** @typedef {ReturnType<typeof indexGraph>} GraphIndex */
 
-/** the object uuids a health node acts on (selector wire wins; owner graph implicit)
+/** the object uuids a health node acts on: Object Selectors wired into `target` win, and
+ * a node in an object's own graph implicitly owns it
  * @param {any} node @param {GraphIndex} g @returns {string[]} */
 export function targetsOf(node, g) {
 	/** @type {string[]} */
 	const out = [];
 	let wired = false;
-	for (const edge of g.bySource.get(node.id) ?? []) {
-		const target = g.byId.get(edge.target);
-		if (target?.type !== 'objectselector') continue;
+	for (const edge of g.byTarget.get(node.id) ?? []) {
+		if ((edge.targetHandle ?? null) !== 'target') continue;
+		const src = g.byId.get(edge.source);
+		if (src?.type !== 'objectselector') continue;
 		wired = true;
-		const selected = String(target.data?.selected ?? '');
+		const selected = String(src.data?.selected ?? '');
 		if (selected && selected !== '-None-') out.push(selected);
 	}
 	if (!wired && node.graphId && node.graphId !== SCENE) out.push(node.graphId);
@@ -109,6 +111,19 @@ export function triggerSourcesOf(node, g) {
 	return sourcesInto(node.id, 'trigger', g);
 }
 
+/** the object wired into a damage node's `zone` input (an Object Selector), or null
+ * @param {any} node @param {GraphIndex} g @returns {string|null} */
+export function zoneOf(node, g) {
+	for (const edge of g.byTarget.get(node.id) ?? []) {
+		if ((edge.targetHandle ?? null) !== 'zone') continue;
+		const src = g.byId.get(edge.source);
+		if (src?.type !== 'objectselector') continue;
+		const selected = String(src.data?.selected ?? '');
+		if (selected && selected !== '-None-') return selected;
+	}
+	return null;
+}
+
 /** @param {any} node @returns {string} */
 export const nameOf = (node) => String(node?.data?.name ?? '').trim() || 'hp';
 
@@ -124,7 +139,7 @@ export function recipe(spec, layout = {}) {
 	const x0 = layout.x ?? 60;
 	const y = (layout.y ?? 40) + spec.row * ROW;
 	const name = String(spec.health.name ?? '').trim() || 'hp';
-	const health = { ...spec.health, name, scope: spec.uuid ? 'object' : 'player', whilePlaying: true };
+	const health = { ...spec.health, name, scope: spec.uuid ? 'object' : 'player' };
 	/** @type {any[]} */
 	const nodes = [
 		{ type: 'damage', x: x0, y, data: { ...spec.damage } },
@@ -140,7 +155,7 @@ export function recipe(spec, layout = {}) {
 	];
 	if (spec.uuid) {
 		nodes.push({ type: 'objectselector', x: x0 + 3 * COL, y, data: { selected: spec.uuid } });
-		edges.push({ from: 2, to: 4 });
+		edges.push({ from: 4, to: 2, handle: 'target' });
 	}
 	return { nodes, edges };
 }

@@ -34,7 +34,7 @@ export default {
 		// (the collectible's model). A pure observer — selection is untouched.
 		api.registerClickHandler((/** @type {any} */ object) => {
 			const chain = uuidChain(api, object);
-			if (chain.length) engine.hitObjects(chain, 'click');
+			if (chain.length) engine.hitObjects(chain, 'click', { local: false });
 			return false;
 		});
 

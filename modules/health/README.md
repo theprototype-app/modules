@@ -53,7 +53,7 @@ would reset the counts the handshake had just delivered (it did, once, in the fl
 
 | Node | Kind | Params / inputs |
 |---|---|---|
-| **Health** `health` | effect — targets an object through an Object Selector (or its own graph) | `name` · `scope: object\|player` · `max` · `regen` (per second; player scope) · `deathAction: hide\|respawn\|nothing` · `respawnDelay` · inputs `damage`, `heal` (numbers — wire the Counters), `respawnAt` (object — where a player comes back). `whilePlaying` is core's flag, so the hide on death hands the object back outside play. |
+| **Health** `health` | value (its hp) — names its object through the `target` input (wire an Object Selector in; a node in an object's own graph owns that object) | `name` · `scope: object\|player` · `max` · `regen` (per second; player scope) · `deathAction: hide\|respawn\|nothing` · `respawnDelay` · inputs `target` (object), `damage`, `heal` (numbers — wire the Counters), `respawnAt` (object — where a player comes back). **Not an effect, on purpose**: the runtime re-seats an effect target's base pose every frame (football's "no node may target the ball"), which would pin a damageable crate or a walking enemy in place. The module hides a dead object itself, in play only, and gives back exactly what it hid. |
 | **Damage** `damage` | event out | `amount` (points per event, ≤ 20) · `source: wired\|click\|touch\|zone\|hit` · `radius` · `perSecond` · `scale: none\|speed` · `speedRef` · inputs `trigger` (event: what sets it off when `wired`), `zone` (object, for a hazard). It hurts **whatever health it feeds** — through a Counter's `pulse`, or wired straight into `health.damage`. |
 | **Heal** `heal` | event out | `amount` · input `trigger`. The same shape with the opposite sign; a heal past full is remembered (a count-only ledger cannot tell a heal at full from one that landed — the plan's "negative stamp", stated honestly). |
 | **Health Reset** `healthreset` | event out | `name`. Wire it into the Counters' `reset`; the module fires it locally on every peer on a new round and on an object's respawn. |
@@ -63,7 +63,7 @@ would reset the counts the handshake had just delivered (it did, once, in the fl
 The recipe (**Health ▸ Make damageable**) builds, per selected object:
 
 ```
-damage ──▶ counter.pulse ──▶ health.damage ──▶ objectselector
+damage ──▶ counter.pulse ──▶ health.damage ◀──target── objectselector
              ▲
 healthreset ─┘ (reset)
 ```
@@ -72,19 +72,29 @@ healthreset ─┘ (reset)
 player's number is read from their row; the Counter in the chain then counts the hits
 this peer took (a free readout).
 
-Damage sources in this phase: `wired` (any event into `trigger`; the stamp replicates, so a
-shared source hurts every player who has that node — use a `perPlayer` source for one) and
-`click` (desktop click or the VR trigger on the object). `touch`, `zone`, `hit` and speed
-scaling are H2.
+## Damage sources (`damage.source`)
+
+| Source | What sets it off | Who fires, does it replicate |
+|---|---|---|
+| `wired` | any event wired into `trigger` — On Click, On Impact, On Enter, On Hit, a Delay, a Key, a HUD button through a Delay | the stamp replicated, so every peer fires its own local pulse; a shared source hurts every player who has that chain — make the source `perPlayer` for one |
+| `click` | a desktop click or the VR trigger on the health's object | the clicker, replicated |
+| `touch` | the local player walks within `radius` of the health's object (an edge: leave and come back to touch again) | the toucher, replicated |
+| `zone` | the local player stands within `radius` of the object wired into `zone`, `amount` every `1/perSecond` seconds | the player hurt, local + their row |
+| `hit` | core's knock feed (24-A): a hand or the head probe knocked the object | every peer receives the one `hit` message and fires its own local pulses; `scale: speed` multiplies `amount` by `speed / speedRef` (capped at 3×, floored at one point) |
+
+`touch` and `zone` are self-detected from `api.playerPosition()` — no sensor, no sim, no
+initiator, exactly the collectible's touch. Only a peer **in play** detects; a peer in the
+editor hurts nothing and is hurt by nothing.
 
 ## Death and respawn
 
-- `hide`: the object vanishes on every peer (core's restore loop gives it back outside play).
+- `hide`: the object vanishes on every peer while in play; the module gives it back outside play, on a reset and on a respawn (only what it hid).
 - `respawn`: hidden for `respawnDelay` seconds counted from the **killing pulse's stamp**
   (replicated, so every peer reaches the moment together), then the module fires
   `healthreset` for the name — the Counters zero, the object returns. A player comes back
-  at full on their own row, and flies to the object wired into `respawnAt` where the app
-  lets a module move the camera (see the owed list).
+  at full on their own row and the camera flies to the object wired into `respawnAt` —
+  through `api.flyTo`, which moves the **editor** camera; in play the rig owns the camera and
+  there is no seam to move the player (DEVX #23). The flight proves the fly-to in the editor.
 - `nothing`: only the events fire; the graph decides.
 
 ## HUD
