@@ -482,6 +482,25 @@ kept in your own replicated state becomes `registerValueNode` -> a HUD Text node
 level cleared becomes `fireNodeTrigger` -> a Counter; your host settings become a
 toolbox instead of an overlay at `z-index: 900`.
 
+### 21-C C6 (2026-09-19, modules `feat/29-c6-dungeon`) — what dungeon-realms 2.0 retired
+
+- **#11** — `api.isPlaying()` is the play gate (the `#dungeon-minimap` DOM watch is gone, kept only as the fallback on an older app).
+- **#13** — the Kit (`dungeon` 2.0) is the ONE publisher of `userData.play` on `'dungeon-module'`; Realms publishes nothing of its own and puts its gems/portals on the minimap through the Kit's `setMarkers` seam → `userData.play.markers`.
+- **#14** — Game Rules ▸ disableFlight writes `userData.play.grounded` (through the Kit); the capture-phase Q/E swallow is deleted.
+- **#9/#12** — Realms Value / Realms Event / Realms HUD Rows replace the `drhud` node: the HUD is core HUD elements the template authors.
+- The `#dungeon-panel` overlay is a registered toolbox (the SDK's worked example, AUTHORING.md).
+
+## 23. No play-mode MENU surface
+
+**Found in:** `modules/dungeon-realms` (21-C C6.2). The start / victory menu is a modal,
+keyboard-driven (↑↓ + Enter, because play mode holds pointer lock), focus-owning dialog.
+It is neither a HUD element (a HUD publishes values and reacts to presses; it does not own
+focus or arrow-key navigation) nor a toolbox (hidden in play mode by design). It stays
+module DOM (`#dr-menu`, restyled onto the app's card conventions).
+
+**Ask:** a `hudscreen` variant with `input: 'menu'` that OWNS keyboard focus and arrow
+navigation between its buttons while pointer-locked, or `api.registerPlayMenu({buttons})`.
+
 Still open from this list: **#5** (replicated create/move — partly answered by the 17-A
 world api: `api.create`/`api.moveObject` exist), **#7**, **#10** (answered differently:
 a TEMPLATE carries the placed nodes, so the api needs no graph write path — closing),

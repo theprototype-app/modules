@@ -1,9 +1,9 @@
 {
 	"id": "dungeon",
-	"name": "Dungeon Generator",
-	"version": "1.1.0",
+	"name": "Dungeon Kit",
+	"version": "2.0.0",
 	"format": 1,
-	"description": "Seed-replicated procedural dungeon (rooms, corridors, torches) with a key-and-door objective; publishes userData.play so the app walks it in play mode.",
+	"description": "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) with a toolbox, a Dungeon node and the userData.play contract the app walks in play mode. The playable game is Dungeon Realms.",
 	"entry": "module.js",
 	"files": ["module.js"]
 }
