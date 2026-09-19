@@ -275,6 +275,52 @@ h.run(async () => {
 	});
 	h.check(layout.hits.length === 0, 'the new pairs land on free space — no card overlaps another (' + JSON.stringify(layout.hits.slice(0, 3)) + ', ' + layout.n + ' nodes)');
 
+	// =====================================================================
+	// 12. R29 S3 — a group press is ONE undo step (core's api.flow.setNodesData)
+	// =====================================================================
+	await A.page.evaluate(() =>
+		window.__ct.flow.addNodes({
+			nodes: Array.from({ length: 20 }, (_, i) => ({
+				type: 'collectible',
+				x: 2400,
+				y: 40 + i * 60,
+				data: { variable: 'bulk', scope: 'player', trigger: 'click', hide: 'on', respawn: 0, perRound: true, whilePlaying: true }
+			}))
+		})
+	);
+	const bulkGroup = panel3.locator('.cm-group[data-var="bulk"]');
+	await h.eventually(() => bulkGroup.locator('.cm-row').count(), (n) => n === 20, 'premise: a twenty-member group in the manager');
+	const bulkNodes = async (peer) => (await nodesOf(peer, 'collectible')).filter((n) => n.data.variable === 'bulk');
+	const undoTop = () =>
+		A.page.evaluate(() => {
+			let v;
+			window.__stores.history.undoStack.subscribe((x) => (v = x))();
+			const e = v[v.length - 1];
+			return { depth: v.length, kind: e?.kind, op: e?.op, items: e?.items?.length ?? 0, moduleId: e?.moduleId };
+		});
+	const before12 = await undoTop();
+	await bulkGroup.locator('.cm-bulk select').nth(0).selectOption('touch');
+	await A.page.waitForTimeout(600);
+	const after12 = await undoTop();
+	h.check(
+		after12.depth === before12.depth + 1 && after12.kind === 'flownodes' && after12.op === 'data' && after12.items === 20,
+		'one group press is ONE undo entry holding all twenty (' + before12.depth + ' -> ' + after12.depth + ', ' + after12.items + ' items)'
+	);
+	h.check(after12.moduleId === 'collectible', 'attributed to the module (' + after12.moduleId + ')');
+	await h.eventually(
+		() => bulkNodes(B),
+		(ns) => ns.length === 20 && ns.every((n) => n.data.trigger === 'touch'),
+		'the press still replicates node by node — all twenty on the peer',
+		25000
+	);
+	await A.page.evaluate(() => window.__stores.history.undo());
+	await h.eventually(
+		async () => [await bulkNodes(A), await bulkNodes(B)],
+		([a, b]) => a.length === 20 && b.length === 20 && [...a, ...b].every((n) => n.data.trigger === 'click'),
+		'ONE undo puts all twenty back, on both peers'
+	);
+	h.check((await undoTop()).depth === before12.depth, 'and leaves the stack where the press found it');
+
 	// THE FALLBACK: the same module source, registered against an api with the R29 seams
 	// REMOVED — what a user running core 1.14.0 hands it. It must still build and list.
 	const D = await h.setupPage(browser, 'D');
@@ -291,7 +337,7 @@ h.run(async () => {
 				register(api) {
 					const old = {
 						...api,
-						flow: { ...api.flow, onChange: undefined, freeRegion: undefined },
+						flow: { ...api.flow, onChange: undefined, freeRegion: undefined, setNodesData: undefined },
 						game: { ...api.game, onChange: undefined },
 						peerVars: { ...api.peerVars, onChange: undefined }
 					};
@@ -327,6 +373,13 @@ h.run(async () => {
 		() => panelD.locator('.cm-row').count(),
 		(n) => n === 2,
 		'and the polled panel lists them'
+	);
+	// and a group press without setNodesData still writes every member, one by one
+	await panelD.locator('.cm-group[data-var="old"] .cm-bulk select').nth(0).selectOption('touch');
+	await h.eventually(
+		async () => (await nodesOf(D, 'collectible')).filter((n) => n.data.variable === 'old').map((n) => n.data.trigger),
+		(t) => t.length === 2 && t.every((x) => x === 'touch'),
+		'without setNodesData the group press falls back to per-node writes'
 	);
 
 	await h.finish(browser);
