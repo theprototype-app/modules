@@ -126,7 +126,8 @@ async function runRecipe(peer, options) {
 	await panel.locator('.cm-form select').nth(0).selectOption(options.scope ?? 'shared');
 	await panel.locator('.cm-form select').nth(1).selectOption(options.trigger ?? 'click');
 	await panel.locator('.cm-form select').nth(2).selectOption(options.hide ?? 'on');
-	await panel.locator('.cm-form input[type=number]').fill(String(options.respawn ?? 0));
+	if (options.radius != null) await panel.locator('.cm-form input.cm-in-radius').fill(String(options.radius));
+	await panel.locator('.cm-form input.cm-in-respawn').fill(String(options.respawn ?? 0));
 	await panel.getByRole('button', { name: 'Make collectible' }).click();
 	await peer.page.waitForTimeout(1400);
 }
@@ -683,6 +684,13 @@ h.run(async () => {
 		troveCounts === '2 collected, 0 left of 2',
 		'and the header agrees with the count node (' + troveCounts + ')'
 	);
+	// S4: the counts include the hand-built LEGACY chain while only module nodes get rows —
+	// the header now says so instead of leaving a count that disagrees with the rows
+	const legacyLines = await panel.locator('.cm-legacy').evaluateAll((els) => els.map((el) => el.textContent));
+	h.check(
+		legacyLines.length === 1 && /^\+1 older recipe chain counted here/.test(legacyLines[0] ?? ''),
+		'a group whose count includes an older recipe chain says so (' + JSON.stringify(legacyLines) + ')'
+	);
 	const gateRow = panel.locator('.cm-row').filter({ hasText: 'Gate' });
 	h.check(await gateRow.count() === 1, 'a row is named after its target object');
 	await A.page.evaluate(() => window.__stores.objectActions.deselectObject());
@@ -1089,10 +1097,10 @@ h.run(async () => {
 	);
 
 	// ---- 10i. WHAT A BULK APPLY COSTS AT SCALE ----------------------------------
-	// There is no batch node-data write in the SDK, so a bulk apply is N `nodedata`
-	// messages. This measures the SYNCHRONOUS cost of one press on a twenty-member group and
-	// proves all twenty land on the peer — inventing a core seam is not a module's call, so
-	// the number is the deliverable.
+	// A bulk apply is N `nodedata` messages on the wire (core 1.15's setNodesData batches
+	// the UNDO, not the wire — the signals flight asserts the one entry). This measures the
+	// SYNCHRONOUS cost of one press on a twenty-member group and proves all twenty land on
+	// the peer.
 	const probeIds = await A.page.evaluate(() => {
 		const nodes = [];
 		for (let i = 0; i < 20; i++)

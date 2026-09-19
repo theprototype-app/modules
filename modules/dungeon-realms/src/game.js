@@ -1,45 +1,37 @@
-// The game layer: replication (deterministic model — only {seed, params,
-// floorIndex} + discrete events travel), the co-op rules (P1/P2 slots,
-// gem-gated portals, travel-together), GUI state machine and the frame tick.
+// The game layer: the co-op rules (P1/P2 slots, gem-gated portals, travel-together),
+// the menu state machine and the frame tick — as an OVERLAY on the Dungeon Kit.
 //
-// Movement is the app's own play mode (red Play button): WASD walking, wall
-// collision and per-peer spawn all come FREE from publishing userData.play in
-// the exact dungeonPlay.js shape. The group name MUST be 'dungeon-module' —
-// core resolves the play contract by that name (DEVX-REQUESTS #13).
+// 21-C C6: the world is the Kit's. This module never generates or renders a level;
+// it reads the Kit's scene-root group ('dungeon-module') through api.scene() —
+// `userData.play` is the published contract (raster, rooms, props, portals, world
+// offsets), `userData.kit` the function seam (generate / showFloor / setMarkers /
+// setGrounded). Realms OBSERVES {seed, floorIndex} every frame and rebuilds its
+// overlay when the Kit's world changes, whoever changed it (this module's portal,
+// the Kit's toolbox, a Dungeon node, a late-join sync); it DRIVES travel by calling
+// kit.showFloor, which the Kit replicates itself. So what replicates here is only
+// the rule state: gem pickups, slots, start/reset, portal presence, prop counters.
 
-import { generateCampaign } from './gen/campaign.js';
-import { FLOOR } from './gen/dungeon.js';
-import { hash32 } from './gen/rng.js';
-import { buildFloorGroup, applyGems, setPortalSealed, animateFloor } from './render.js';
+import { DEFAULT_RULES, DEFAULT_MENU, gemTotals as totals, objectiveText, minimapMarkers, canTravelTogether } from './rules.js';
+import { hash32 } from './hash.js';
+import { buildOverlay, applyGems, setPortalSealed, animateOverlay } from './overlay.js';
 import * as gui from './gui.js';
 import * as audio from './audio.js';
 
-export const GROUP_NAME = 'dungeon-module';
-
-export const DEFAULT_RULES = {
-	gemShare: 0.7,
-	pickupRadius: 0.9,
-	allPlayersPortal: true,
-	disableFlight: true
-};
-export const DEFAULT_MENU = {
-	show: 'auto',
-	button1: 'join-p1',
-	button2: 'join-p2',
-	button3: 'start',
-	button4: 'new-dungeon'
-};
-export const DEFAULT_HUD = { showGems: true, showLevel: true, showPlayers: true, showObjective: true, corner: 'top-left' };
+export const GROUP_NAME = 'dungeon-realms';
+export const KIT_GROUP = 'dungeon-module';
+export { DEFAULT_RULES, DEFAULT_MENU };
 
 /** @param {any} api the module SDK surface */
 export function createGame(api) {
 	const THREE = api.THREE;
 
 	const state = {
+		/** the Kit world this rule state belongs to (observed) */
 		seed: /** @type {number | null} */ (null),
-		params: /** @type {any} */ ({}),
-		campaign: /** @type {any} */ (null),
+		campaignChecksum: 0,
+		checksum: 0,
 		floorIndex: 1,
+		levelCount: 0,
 		/** @type {Record<number, Set<number>>} floor -> collected gem indices */
 		collected: {},
 		/** @type {Record<string, {peerId: string, name: string} | null>} */
@@ -53,29 +45,55 @@ export function createGame(api) {
 		combo: 0,
 		lastGemAt: 0,
 		/** @type {Record<string, number>} custom prop counters (drprop nodes) */
-		propValues: {}
+		propValues: {},
+		/** a late-join state waiting for the Kit to show its seed */
+		wanted: /** @type {any} */ (null),
+		_wasSealed: /** @type {boolean | undefined} */ (undefined),
+		_menuSuppressed: false
 	};
 
 	// live node-config overrides (nodes.js writes these; absent nodes = defaults)
 	const config = {
 		rules: { ...DEFAULT_RULES },
 		menu: { ...DEFAULT_MENU },
-		hud: { ...DEFAULT_HUD },
 		/** @type {Record<string, {initial: number, showInHud: boolean}>} */
 		props: {}
 	};
 
 	let guiDirty = true;
 	let playingNow = false;
+	let groundedSent = /** @type {boolean | null} */ (null);
+	/** @type {((event: string) => void) | null} nodes.js hooks the event node here */
+	let eventSink = null;
 
 	const me = () => api.peerId() ?? 'me';
 	const shortName = (peerId) => (peerId === me() ? 'you' : String(peerId).slice(0, 6));
-	const currentFloor = () => state.campaign?.floors[state.floorIndex - 1] ?? null;
 	const collectedSet = (floor = state.floorIndex) => (state.collected[floor] ??= new Set());
 
+	// ---- the Kit, through the scene -------------------------------------------------
+	const kitGroup = () => api.scene()?.getObjectByName(KIT_GROUP) ?? null;
+	/** the Kit's function seam, or null when the Kit is not installed */
+	const kit = () => kitGroup()?.userData?.kit ?? null;
+	/** the Kit's published contract, or null when no dungeon exists */
+	const play = () => kitGroup()?.userData?.play ?? null;
 	const group = () => api.scene()?.getObjectByName(GROUP_NAME) ?? null;
 
-	function disposeGroup() {
+	const gemCount = (floor = state.floorIndex) => {
+		if (floor === state.floorIndex) return (play()?.props ?? []).filter((p) => p.kind === 'gem').length;
+		const dungeon = kit()?.campaign?.()?.floors[floor - 1];
+		return dungeon ? dungeon.props.filter((p) => p.kind === 'gem').length : 0;
+	};
+	function gemTotals(floor = state.floorIndex) {
+		return totals(gemCount(floor), collectedSet(floor).size, config.rules.gemShare);
+	}
+	const sealed = () => {
+		const { need, have } = gemTotals();
+		return have < need;
+	};
+	const topFloor = () => state.floorIndex >= (state.levelCount || 1);
+	const players = () => ['p1', 'p2'].filter((slot) => state.slots[slot]).length;
+
+	function disposeOverlay() {
 		const existing = group();
 		if (!existing) return;
 		existing.traverse((child) => {
@@ -85,60 +103,21 @@ export function createGame(api) {
 		existing.parent?.remove(existing);
 	}
 
-	function gemTotals(floor = state.floorIndex) {
-		const dungeon = state.campaign?.floors[floor - 1];
-		if (!dungeon) return { total: 0, need: 0, have: 0 };
-		const total = dungeon.props.filter((p) => p.kind === 'gem').length;
-		const need = Math.max(1, Math.ceil(total * config.rules.gemShare));
-		return { total, need, have: Math.min(collectedSet(floor).size, total) };
+	/** the minimap half of the seam: uncollected gems + portals as markers */
+	function publishMarkers() {
+		kit()?.setMarkers?.(GROUP_NAME, minimapMarkers(play(), collectedSet()));
 	}
 
-	const sealed = () => {
-		const { need, have } = gemTotals();
-		return have < need;
-	};
-	const topFloor = () => state.floorIndex >= (state.campaign?.floors.length ?? 1);
-
-	/** (Re)build the current floor's meshes + play contract. */
+	/** (Re)build the overlay for the Kit's CURRENT floor. */
 	function rebuild() {
-		disposeGroup();
+		disposeOverlay();
 		const scene = api.scene();
-		const dungeon = currentFloor();
-		if (!scene || !dungeon) return;
-		const built = buildFloorGroup(THREE, dungeon, collectedSet());
+		const p = play();
+		if (!scene || !p) return;
+		const built = buildOverlay(THREE, p, collectedSet());
 		built.name = GROUP_NAME;
-
-		// play contract — EXACT dungeonPlay.js shape; rooms ordered entrance-first
-		// then by depth so both players spawn at the dungeon start together
-		const ordered = [...dungeon.rooms]
-			.sort((a, b) => {
-				const ka = a.type === 'entrance' ? -1 : a.depth;
-				const kb = b.type === 'entrance' ? -1 : b.depth;
-				return ka - kb || a.id - b.id;
-			})
-			.map((room) => ({ x: room.x + dungeon.ox, y: room.y + dungeon.oy, w: room.w, h: room.h }));
-		built.userData = {
-			seed: state.seed,
-			params: state.params,
-			floorIndex: state.floorIndex,
-			levelCount: state.campaign.floors.length,
-			checksum: dungeon.checksum,
-			campaignChecksum: state.campaign.checksum,
-			name: dungeon.name,
-			stats: dungeon.stats,
-			_dr: built.userData._dr,
-			play: {
-				grid: dungeon.grid,
-				width: dungeon.W,
-				height: dungeon.H,
-				minX: dungeon.ox,
-				minY: dungeon.oy,
-				rooms: ordered,
-				floorValue: FLOOR
-			}
-		};
-		// debug/test hook (scene-root local, never serialized) — the flight drives
-		// the game through this instead of reaching into module scope
+		// debug/test hook (scene-root local, never serialized) — the flight drives the
+		// game through this instead of reaching into module scope
 		built.userData._dr.game = {
 			state,
 			config,
@@ -147,28 +126,18 @@ export function createGame(api) {
 			start: () => start(),
 			claimSlot: (slot) => claimSlot(slot),
 			menuAction,
-			gemTotals
+			gemTotals,
+			sealed,
+			objective
 		};
 		scene.add(built);
-		setPortalSealed(built, sealed(), dungeon.theme);
+		setPortalSealed(built, sealed(), p.theme);
+		publishMarkers();
 		guiDirty = true;
 	}
 
-	// ---- actions (each: apply locally, optionally broadcast; receivers never
-	// re-send — the applier is shared by both paths) -----------------------------
-
-	function generate(seed, params = {}, broadcast = true) {
-		let campaign;
-		try {
-			campaign = generateCampaign(seed, params);
-		} catch (error) {
-			api.toast('Dungeon generation failed: ' + error.message);
-			return false;
-		}
-		state.seed = seed >>> 0;
-		state.params = params;
-		state.campaign = campaign;
-		state.floorIndex = 1;
+	/** reset the rule state for a NEW world (keeps the slots — the players are still here) */
+	function resetForWorld() {
 		state.collected = {};
 		state.started = false;
 		state.wonAt = 0;
@@ -177,16 +146,80 @@ export function createGame(api) {
 		state.combo = 0;
 		state._wasSealed = undefined;
 		state._menuSuppressed = false;
-		rebuild();
-		if (broadcast) api.send({ op: 'generate', seed: state.seed, params, checksum: campaign.checksum });
-		return true;
 	}
 
-	function applyRemoteGenerate(data) {
-		if (data.seed === state.seed && JSON.stringify(data.params ?? {}) === JSON.stringify(state.params) && state.campaign) return;
-		if (!generate(data.seed, data.params ?? {}, false)) return;
-		if (data.checksum && data.checksum !== state.campaign.checksum)
-			api.toast('Dungeon checksum differs from the sender — versions may not match');
+	/** apply a late-join state now that the Kit shows its seed @param {any} remote */
+	function applyWanted(remote) {
+		state.collected = {};
+		Object.entries(remote.collected ?? {}).forEach(([floor, indices]) => {
+			state.collected[floor] = new Set(indices);
+		});
+		state.slots = { p1: null, p2: null, ...(remote.slots ?? {}) };
+		state.started = !!remote.started;
+		state.startedAt = remote.startedAt ?? 0;
+		state.wonAt = remote.wonAt ?? 0;
+		state.propValues = remote.propValues ?? {};
+		state._wasSealed = undefined;
+	}
+
+	/**
+	 * Every frame: follow the Kit. A new seed = a new game (unless a late-join state
+	 * for exactly that seed is waiting); a new floor = rebuild the overlay there.
+	 */
+	function observe() {
+		const p = play();
+		if (!p) {
+			if (state.seed != null || group()) {
+				disposeOverlay();
+				state.seed = null;
+				state.levelCount = 0;
+				resetForWorld();
+				gui.hideMenu();
+				guiDirty = true;
+			}
+			return;
+		}
+		const newWorld = p.seed !== state.seed || p.campaignChecksum !== state.campaignChecksum;
+		const newFloor = p.floorIndex !== state.floorIndex || p.checksum !== state.checksum;
+		if (!newWorld && !newFloor) {
+			if (!group()) rebuild(); // the overlay was cleared under us (scene clear ordering)
+			return;
+		}
+		if (newWorld) {
+			state.seed = p.seed;
+			state.campaignChecksum = p.campaignChecksum;
+			state.levelCount = p.levelCount;
+			if (state.wanted && state.wanted.seed === p.seed) {
+				applyWanted(state.wanted);
+				if (state.wanted.floorIndex && state.wanted.floorIndex !== p.floorIndex) kit()?.showFloor(state.wanted.floorIndex, { broadcast: false });
+				state.wanted = null;
+			} else resetForWorld();
+		} else {
+			state.onPortal = {};
+			state.myOnPortal = false;
+			state._wasSealed = undefined;
+			audio.portalWhoosh();
+			api.toast('LEVEL ' + p.floorIndex + ' / ' + p.levelCount + ' — ' + p.name);
+		}
+		state.floorIndex = p.floorIndex;
+		state.checksum = p.checksum;
+		rebuild();
+		guiDirty = true;
+	}
+
+	// ---- actions (each: apply locally, optionally broadcast; receivers never
+	// re-send — the applier is shared by both paths) -----------------------------
+
+	/** ask the Kit for a new world (the Kit replicates it) @param {number} seed */
+	function newDungeon(seed) {
+		const k = kit();
+		if (!k) {
+			api.toast('Dungeon Realms needs the Dungeon Kit module — install "dungeon" first');
+			return false;
+		}
+		const ok = k.generate(seed, k.state().params);
+		if (ok) eventSink?.('reset');
+		return ok;
 	}
 
 	function collectGem(floor, index, broadcast = true) {
@@ -201,9 +234,11 @@ export function createGame(api) {
 			if (wasSealed && !nowSealed && !topFloor()) {
 				audio.sealBreak();
 				api.toast('The portal unseals!');
-				setPortalSealed(g, false, currentFloor()?.theme);
+				setPortalSealed(g, false, play()?.theme);
+				if (broadcast) eventSink?.('unseal');
 			}
 			state._wasSealed = nowSealed;
+			publishMarkers();
 		}
 		if (broadcast) {
 			const now = api.now();
@@ -211,28 +246,25 @@ export function createGame(api) {
 			state.lastGemAt = now;
 			audio.gemChime(state.combo);
 			api.send({ op: 'gem', floor, index });
+			eventSink?.('gem');
 		}
 		guiDirty = true;
 		// victory: enough gems on the top floor
 		if (floor === state.floorIndex && topFloor() && state.started && !state.wonAt && !sealed()) {
 			state.wonAt = api.now();
 			audio.winFanfare();
+			if (broadcast) eventSink?.('victory');
 			guiDirty = true;
 		}
 	}
 
-	function travel(target, broadcast = true) {
-		const levels = state.campaign?.floors.length ?? 0;
-		if (!levels || target < 1 || target > levels || target === state.floorIndex) return;
-		state.floorIndex = target;
-		state.onPortal = {};
-		state.myOnPortal = false;
-		state._wasSealed = undefined;
-		rebuild();
-		audio.portalWhoosh();
-		const dungeon = currentFloor();
-		api.toast('LEVEL ' + target + ' / ' + levels + ' — ' + dungeon.name);
-		if (broadcast) api.send({ op: 'floor', floorIndex: target });
+	/** travel to floor `target` — the Kit shows it and replicates; observe() follows */
+	function travel(target) {
+		const k = kit();
+		if (!k || target === state.floorIndex) return false;
+		const ok = k.showFloor(target);
+		if (ok) eventSink?.('travel');
+		return ok;
 	}
 
 	function claimSlot(slot, broadcast = true, peerId = me()) {
@@ -255,13 +287,16 @@ export function createGame(api) {
 	}
 
 	function start(broadcast = true) {
-		if (!state.campaign || state.started) return;
+		if (state.seed == null || state.started) return;
 		state.started = true;
 		state.startedAt = api.now();
 		state.wonAt = 0;
 		audio.startThump();
 		guiDirty = true;
-		if (broadcast) api.send({ op: 'start' });
+		if (broadcast) {
+			api.send({ op: 'start' });
+			eventSink?.('start');
+		}
 	}
 
 	function reset(broadcast = true) {
@@ -277,17 +312,16 @@ export function createGame(api) {
 		if (broadcast) api.send({ op: 'prop', name, value: state.propValues[name] });
 	}
 
+	/** drop the overlay and the rule state (the Kit clears its own world) */
 	function clear() {
-		disposeGroup();
-		state.campaign = null;
+		disposeOverlay();
 		state.seed = null;
-		state.started = false;
-		state.wonAt = 0;
-		state.collected = {};
-		state.onPortal = {};
+		state.levelCount = 0;
+		resetForWorld();
 		state.propValues = {};
+		state.wanted = null;
 		gui.hideMenu();
-		gui.hideHud();
+		guiDirty = true;
 	}
 
 	// ---- menu ------------------------------------------------------------------
@@ -299,13 +333,9 @@ export function createGame(api) {
 		else if (id === 'resume') {
 			state._menuSuppressed = true;
 			guiDirty = true;
-		} else if (id === 'new-dungeon' || id === 'play-again') {
+		} else if (id === 'new-dungeon' || id === 'play-again' || id === 'generate') {
 			const seed = hash32((api.now() * 1000) | 0, 'dice') % 100000;
-			generate(seed, state.params ?? {});
-			api.toast('New dungeon — seed ' + seed);
-		} else if (id === 'generate') {
-			const seed = hash32((api.now() * 1000) | 0, 'dice') % 100000;
-			generate(seed, {});
+			if (newDungeon(seed)) api.toast('New dungeon — seed ' + seed);
 		}
 		guiDirty = true;
 	}
@@ -320,12 +350,26 @@ export function createGame(api) {
 		switch (action) {
 			case 'join-p1': return { id: action, label: slotLabel('p1', 'Join as Player 1') };
 			case 'join-p2': return { id: action, label: slotLabel('p2', 'Join as Player 2') };
-			case 'start': return { id: action, label: 'Start adventure', disabled: !state.campaign };
+			case 'start': return { id: action, label: 'Start adventure', disabled: state.seed == null };
 			case 'resume': return { id: action, label: 'Resume' };
 			case 'new-dungeon': return { id: action, label: 'New dungeon \u{1F3B2}' };
 			case 'play-again': return { id: action, label: 'Play again \u{1F3B2}' };
 			default: return null;
 		}
+	}
+
+	/** the objective line (also what the HUD rows node publishes) */
+	function objective() {
+		const { need, have } = gemTotals();
+		return objectiveText({
+			won: !!state.wonAt,
+			sealed: sealed(),
+			need,
+			have,
+			topFloor: topFloor(),
+			allPlayersPortal: config.rules.allPlayersPortal,
+			players: players()
+		});
 	}
 
 	function refreshGui() {
@@ -335,6 +379,7 @@ export function createGame(api) {
 			playingNow &&
 			showMode !== 'never' &&
 			(showMode === 'always' || (!state.started && !state._menuSuppressed) || state.wonAt > 0);
+		const p = play();
 
 		if (menuWanted && state.wonAt) {
 			const seconds = Math.max(0, Math.round(state.wonAt - state.startedAt));
@@ -345,116 +390,95 @@ export function createGame(api) {
 				lines: [
 					'Gems collected: ' + totalGems,
 					'Time: ' + Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's',
-					'Floors conquered: ' + state.campaign.floors.length
+					'Floors conquered: ' + state.levelCount
 				],
 				buttons: [buttonFor('play-again'), buttonFor('resume')].filter(Boolean),
 				onAction: menuAction
 			});
 		} else if (menuWanted) {
-			const dungeon = currentFloor();
 			const { total } = gemTotals();
-			const buttons = state.campaign
-				? [config.menu.button1, config.menu.button2, config.menu.button3, config.menu.button4]
-						.map(buttonFor)
-						.filter(Boolean)
+			const buttons = p
+				? [config.menu.button1, config.menu.button2, config.menu.button3, config.menu.button4].map(buttonFor).filter(Boolean)
 				: [{ id: 'generate', label: 'Generate a dungeon \u{1F3B2}' }];
 			if (state.started && !buttons.some((b) => b.id === 'resume')) buttons.push(buttonFor('resume'));
 			gui.showMenu({
-				title: dungeon ? dungeon.name : 'Dungeon Realms',
-				subtitle: dungeon
-					? 'LEVEL ' + state.floorIndex + ' / ' + state.campaign.floors.length + ' · ' +
-						dungeon.rooms.length + ' rooms · ' + total + ' gems hidden'
-					: 'Co-op gem hunt · collect gems, unseal portals, reach the top',
+				title: p ? p.name : 'Dungeon Realms',
+				subtitle: p
+					? 'LEVEL ' + state.floorIndex + ' / ' + state.levelCount + ' · ' + p.rooms.length + ' rooms · ' + total + ' gems hidden'
+					: kit()
+						? 'Co-op gem hunt · collect gems, unseal portals, reach the top'
+						: 'Install the Dungeon Kit module (id "dungeon") to generate a world',
 				buttons,
 				onAction: menuAction
 			});
 		} else gui.hideMenu();
-
-		const hudWanted = playingNow && state.started && state.campaign;
-		if (hudWanted) {
-			const dungeon = currentFloor();
-			const { total, need, have } = gemTotals();
-			const players = ['p1', 'p2']
-				.filter((slot) => state.slots[slot])
-				.map((slot) => ({ slot, name: state.slots[slot].name, me: state.slots[slot].peerId === me() }));
-			const extraProps = Object.entries(config.props)
-				.filter(([, def]) => def.showInHud)
-				.map(([name, def]) => ({ name, value: state.propValues[name] ?? def.initial ?? 0 }));
-			const objective = state.wonAt
-				? 'Victory! Press Esc to leave play mode.'
-				: sealed()
-					? 'Collect ' + (need - have) + ' more gem' + (need - have === 1 ? '' : 's') +
-						(topFloor() ? ' to claim the dragon’s hoard' : ' to unseal the portal')
-					: topFloor()
-						? 'The hoard is yours!'
-						: config.rules.allPlayersPortal && players.length > 1
-							? 'Portal unsealed — stand on it together!'
-							: 'Portal unsealed — step through!';
-			gui.showHud({
-				gems: { have, need, total },
-				level: { k: state.floorIndex, n: state.campaign.floors.length, name: dungeon.name },
-				players,
-				objective,
-				extraProps,
-				corner: config.hud.corner,
-				show: {
-					gems: config.hud.showGems,
-					level: config.hud.showLevel,
-					players: config.hud.showPlayers,
-					objective: config.hud.showObjective
-				}
-			});
-		} else gui.hideHud();
 	}
 
 	// ---- frame tick --------------------------------------------------------------
 
-	function tick(time) {
-		// play-mode signal: the core minimap is visible exactly while play mode is
-		// engaged AND our play contract exists (no api.isPlaying() yet — DEVX #11)
+	/** play-mode signal: api.isPlaying() (DEVX #11), the minimap DOM on an older app */
+	function isPlaying() {
+		if (typeof api.isPlaying === 'function') return !!api.isPlaying();
 		const minimap = typeof document !== 'undefined' ? document.getElementById('dungeon-minimap') : null;
-		const playing = !!minimap && !minimap.classList.contains('hidden');
+		return !!minimap && !minimap.classList.contains('hidden');
+	}
+
+	/** where the player stands: api.playerPosition() (R3a), the pointer ray origin before it */
+	function playerXZ() {
+		if (typeof api.playerPosition === 'function') {
+			const p = api.playerPosition();
+			if (p) return { x: p[0], y: p[1], z: p[2] };
+		}
+		const origin = api.pointerRay()?.ray?.origin;
+		return origin ? { x: origin.x, y: origin.y, z: origin.z } : null;
+	}
+
+	function tick(time) {
+		observe();
+
+		const playing = isPlaying();
 		if (playing !== playingNow) {
 			playingNow = playing;
 			if (!playing) state._menuSuppressed = false;
 			guiDirty = true;
 		}
 
+		// Game Rules ▸ disableFlight rides the CONTRACT (userData.play.grounded, DEVX
+		// #14) instead of swallowing Q/E at window capture; sent on change only
+		const grounded = !!config.rules.disableFlight;
+		if (grounded !== groundedSent && kit()) {
+			kit().setGrounded?.(grounded);
+			groundedSent = grounded;
+		}
+
 		const g = group();
-		if (g) animateFloor(THREE, g, collectedSet(), time);
+		if (g) animateOverlay(THREE, g, collectedSet(), time);
 
 		if (playingNow && state.started && !state.wonAt && g) {
-			const ray = api.pointerRay();
-			const origin = ray?.ray?.origin;
-			if (origin) {
+			const pos = playerXZ();
+			if (pos) {
 				// gem pickup by proximity (walk over it)
 				const gems = g.userData._dr?.gemWorld ?? [];
 				const set = collectedSet();
+				const r2 = config.rules.pickupRadius * config.rules.pickupRadius;
 				for (const gem of gems) {
 					if (set.has(gem.index)) continue;
-					const dx = origin.x - gem.x;
-					const dz = origin.z - gem.z;
-					if (dx * dx + dz * dz < config.rules.pickupRadius * config.rules.pickupRadius && Math.abs(origin.y - gem.y) < 2.6)
-						collectGem(state.floorIndex, gem.index);
+					const dx = pos.x - gem.x;
+					const dz = pos.z - gem.z;
+					if (dx * dx + dz * dz < r2 && Math.abs(pos.y - gem.y) < 2.6) collectGem(state.floorIndex, gem.index);
 				}
 				// portal travel: stand on the unsealed UP portal (together, by default)
 				const portal = g.getObjectByName('dr-portal-up');
 				if (portal && !sealed()) {
-					const dx = origin.x - portal.position.x;
-					const dz = origin.z - portal.position.z;
+					const dx = pos.x - portal.position.x;
+					const dz = pos.z - portal.position.z;
 					const on = dx * dx + dz * dz < 1.4 * 1.4;
 					if (on !== state.myOnPortal) {
 						state.myOnPortal = on;
 						state.onPortal[me()] = on;
 						api.send({ op: 'onportal', peerId: me(), on });
 					}
-					if (on) {
-						const others = ['p1', 'p2']
-							.map((slot) => state.slots[slot]?.peerId)
-							.filter((peerId) => peerId && peerId !== me());
-						const together = !config.rules.allPlayersPortal || others.every((peerId) => state.onPortal[peerId]);
-						if (together) travel(state.floorIndex + 1);
-					}
+					if (on && canTravelTogether(state.slots, state.onPortal, me(), config.rules.allPlayersPortal)) travel(state.floorIndex + 1);
 				}
 			}
 		}
@@ -465,9 +489,7 @@ export function createGame(api) {
 	// ---- netcode -----------------------------------------------------------------
 
 	function handleMessage(data) {
-		if (data.op === 'generate') applyRemoteGenerate(data);
-		else if (data.op === 'floor') travel(data.floorIndex, false);
-		else if (data.op === 'gem') collectGem(data.floor, data.index, false);
+		if (data.op === 'gem') collectGem(data.floor, data.index, false);
 		else if (data.op === 'slot') applyRemoteSlot(data);
 		else if (data.op === 'start') {
 			state.started = true;
@@ -482,14 +504,13 @@ export function createGame(api) {
 		} else if (data.op === 'prop') {
 			state.propValues[data.name] = data.value;
 			guiDirty = true;
-		} else if (data.op === 'clear') clear();
+		}
 	}
 
 	function getState() {
 		if (state.seed == null) return null;
 		return {
 			seed: state.seed,
-			params: state.params,
 			floorIndex: state.floorIndex,
 			collected: Object.fromEntries(Object.entries(state.collected).map(([floor, set]) => [floor, [...set]])),
 			slots: state.slots,
@@ -500,29 +521,33 @@ export function createGame(api) {
 		};
 	}
 
+	/** the Kit syncs its own world; this waits for it when it has not arrived yet */
 	function applyState(remote) {
 		if (!remote || remote.seed == null) return;
-		if (!generate(remote.seed, remote.params ?? {}, false)) return;
-		Object.entries(remote.collected ?? {}).forEach(([floor, indices]) => {
-			state.collected[floor] = new Set(indices);
-		});
-		state.slots = { p1: null, p2: null, ...(remote.slots ?? {}) };
-		state.started = !!remote.started;
-		state.startedAt = remote.startedAt ?? 0;
-		state.wonAt = remote.wonAt ?? 0;
-		state.propValues = remote.propValues ?? {};
-		if (remote.floorIndex && remote.floorIndex !== state.floorIndex) travel(remote.floorIndex, false);
-		else rebuild();
+		const p = play();
+		if (p && p.seed === remote.seed) {
+			state.seed = p.seed;
+			state.campaignChecksum = p.campaignChecksum;
+			state.levelCount = p.levelCount;
+			applyWanted(remote);
+			if (remote.floorIndex && remote.floorIndex !== p.floorIndex) kit()?.showFloor(remote.floorIndex, { broadcast: false });
+			else {
+				state.floorIndex = p.floorIndex;
+				state.checksum = p.checksum;
+				rebuild();
+			}
+			state.wanted = null;
+		} else state.wanted = remote; // observe() applies it when the Kit shows this seed
 		guiDirty = true;
 	}
-
-	const suppressFlight = () =>
-		playingNow && state.started && !state.wonAt && config.rules.disableFlight;
 
 	return {
 		state,
 		config,
-		generate,
+		kit,
+		play,
+		group,
+		newDungeon,
 		collectGem,
 		travel,
 		claimSlot,
@@ -536,8 +561,13 @@ export function createGame(api) {
 		getState,
 		applyState,
 		gemTotals,
-		suppressFlight,
-		group,
-		markGuiDirty: () => (guiDirty = true)
+		sealed,
+		topFloor,
+		players,
+		objective,
+		isPlaying,
+		markGuiDirty: () => (guiDirty = true),
+		/** @param {(event: string) => void} fn */
+		onEvent: (fn) => (eventSink = fn)
 	};
 }

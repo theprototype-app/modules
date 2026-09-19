@@ -1,40 +1,35 @@
-// The node family — the ENTIRE game surface as flow nodes. Every node OWNS a
-// rule group while it is alive in a running graph: its (replicated) node data
-// overrides the module defaults on every peer identically, so no extra
+// The node family (group "Dungeon Realms") — the RULE surface, not the engine. A
+// node OWNS a rule group while it is alive in a running graph: its (replicated)
+// node data overrides the module defaults on every peer identically, so no extra
 // netcode is needed. Remove the node and the defaults return within a second.
 //
-// Runtime reality (SDK v1, see DEVX-REQUESTS.md): module nodes are EFFECT
-// nodes — they run when wired to an Object Selector, or with no wiring at all
-// inside any object's own graph (the implicit-owner rule). Range params get
-// wireable input sockets for free; module nodes cannot yet OUTPUT values or
-// fire triggers, and a module cannot pre-seed a wired example graph.
+// 21-C C6: the Dungeon (recipe) node moved to the Kit (`dkdungeon`); the Game HUD
+// node is DELETED, not ported — the HUD is core HUD elements the template authors,
+// and this module publishes VALUES into them: `drvalue` (a number for a HUD Text /
+// Compare / Gate), `drrows` (lines into a HUD list element by id, the football
+// Records shape) and `drevent` (an event a Counter / Set Game State / Sound wires
+// to, pulsed on the peer where the event happened — fireNodeTrigger replicates).
 
-import { DEFAULT_RULES, DEFAULT_MENU, DEFAULT_HUD } from './game.js';
+import { DEFAULT_RULES, DEFAULT_MENU } from './rules.js';
 
 const EXPIRE_FRAMES = 40; // node gone from the graph -> defaults return
+
+export const EVENTS = ['start', 'gem', 'unseal', 'travel', 'victory', 'reset'];
+export const READS = ['gems', 'need', 'total', 'level', 'levels', 'players', 'started', 'won', 'sealed', 'score'];
+export const ROWS = ['objective', 'players', 'level', 'gems', 'all'];
 
 /** @param {any} api @param {ReturnType<import('./game.js').createGame>} game */
 export function registerNodes(api, game) {
 	let frame = 0;
-	const seen = { rules: -1, menu: -1, hud: -1 };
+	const seen = { rules: -1, menu: -1 };
 	/** @type {Record<string, number>} prop name -> last seen frame */
 	const propSeen = {};
+
+	const MENU_OPTIONS = ['none', 'join-p1', 'join-p2', 'start', 'resume', 'new-dungeon'];
 
 	api.registerNodeGroup({
 		group: 'Dungeon Realms',
 		items: [
-			{
-				type: 'drdungeon',
-				label: 'Dungeon',
-				defaults: { seed: 7, roomCount: 0, levelCount: 5, gemDensity: 1, apply: false },
-				params: [
-					{ key: 'seed', kind: 'range', min: 1, max: 9999, step: 1 },
-					{ key: 'roomCount', kind: 'range', min: 0, max: 60, step: 2 },
-					{ key: 'levelCount', kind: 'range', min: 1, max: 9, step: 1 },
-					{ key: 'gemDensity', kind: 'range', min: 0.25, max: 2, step: 0.05 },
-					{ key: 'apply', kind: 'toggle' }
-				]
-			},
 			{
 				type: 'drrules',
 				label: 'Game Rules',
@@ -52,22 +47,10 @@ export function registerNodes(api, game) {
 				defaults: { ...DEFAULT_MENU },
 				params: [
 					{ key: 'show', kind: 'select', options: ['auto', 'always', 'never'] },
-					{ key: 'button1', kind: 'select', options: ['none', 'join-p1', 'join-p2', 'start', 'resume', 'new-dungeon'] },
-					{ key: 'button2', kind: 'select', options: ['none', 'join-p1', 'join-p2', 'start', 'resume', 'new-dungeon'] },
-					{ key: 'button3', kind: 'select', options: ['none', 'join-p1', 'join-p2', 'start', 'resume', 'new-dungeon'] },
-					{ key: 'button4', kind: 'select', options: ['none', 'join-p1', 'join-p2', 'start', 'resume', 'new-dungeon'] }
-				]
-			},
-			{
-				type: 'drhud',
-				label: 'Game HUD',
-				defaults: { ...DEFAULT_HUD },
-				params: [
-					{ key: 'showGems', kind: 'toggle' },
-					{ key: 'showLevel', kind: 'toggle' },
-					{ key: 'showPlayers', kind: 'toggle' },
-					{ key: 'showObjective', kind: 'toggle' },
-					{ key: 'corner', kind: 'select', options: ['top-left', 'top-right', 'bottom-left', 'bottom-right'] }
+					{ key: 'button1', kind: 'select', options: MENU_OPTIONS },
+					{ key: 'button2', kind: 'select', options: MENU_OPTIONS },
+					{ key: 'button3', kind: 'select', options: MENU_OPTIONS },
+					{ key: 'button4', kind: 'select', options: MENU_OPTIONS }
 				]
 			},
 			{
@@ -79,6 +62,27 @@ export function registerNodes(api, game) {
 					{ key: 'initial', kind: 'range', min: 0, max: 100, step: 1 },
 					{ key: 'showInHud', kind: 'toggle' }
 				]
+			},
+			{
+				type: 'drvalue',
+				label: 'Realms Value',
+				defaults: { read: 'gems' },
+				params: [{ key: 'read', kind: 'select', options: READS }]
+			},
+			{
+				type: 'drrows',
+				label: 'Realms HUD Rows',
+				defaults: { element: '', show: 'objective' },
+				params: [
+					{ key: 'element', kind: 'text', placeholder: 'HUD list id', maxLength: 40 },
+					{ key: 'show', kind: 'select', options: ROWS }
+				]
+			},
+			{
+				type: 'drevent',
+				label: 'Realms Event',
+				defaults: { event: 'start' },
+				params: [{ key: 'event', kind: 'select', options: EVENTS }]
 			}
 		]
 	});
@@ -94,20 +98,6 @@ export function registerNodes(api, game) {
 		}
 		if (changed) game.markGuiDirty();
 	};
-
-	api.registerEffect('drdungeon', (object, base, data) => {
-		if (!data.apply) return;
-		const seed = Math.round(data.seed ?? 7);
-		const params = {
-			roomCount: Math.round(data.roomCount ?? 0) || 0,
-			levelCount: Math.round(data.levelCount ?? 5),
-			gemDensity: data.gemDensity ?? 1
-		};
-		// the node data replicates with the graph, so every peer regenerates the
-		// SAME dungeon locally — deterministic model, no op needed
-		if (game.state.seed !== seed || JSON.stringify(game.state.params) !== JSON.stringify(params))
-			game.generate(seed, params, false);
-	});
 
 	api.registerEffect('drrules', (object, base, data) => {
 		seen.rules = frame;
@@ -130,17 +120,6 @@ export function registerNodes(api, game) {
 		});
 	});
 
-	api.registerEffect('drhud', (object, base, data) => {
-		seen.hud = frame;
-		assign(game.config.hud, {
-			showGems: !!(data.showGems ?? true),
-			showLevel: !!(data.showLevel ?? true),
-			showPlayers: !!(data.showPlayers ?? true),
-			showObjective: !!(data.showObjective ?? true),
-			corner: data.corner ?? 'top-left'
-		});
-	});
-
 	api.registerEffect('drprop', (object, base, data) => {
 		const name = data.prop ?? 'score';
 		propSeen[name] = frame;
@@ -150,6 +129,71 @@ export function registerNodes(api, game) {
 			game.config.props[name] = next;
 			game.markGuiDirty();
 		}
+	});
+
+	// ---- the HUD half: rows into a core HUD list element, by id ------------------------
+	/** @type {Record<string, string>} node id -> last pushed rows (push on change only) */
+	const lastRows = {};
+	api.registerEffect('drrows', (object, base, data, time, ctx) => {
+		if (!api.hud?.rows) return;
+		const element = String(data.element ?? '').trim();
+		if (!element) return;
+		const rows = rowsFor(data.show ?? 'objective');
+		const key = JSON.stringify(rows);
+		const id = ctx?.id ?? element;
+		if (lastRows[id] === key) return;
+		lastRows[id] = key;
+		api.hud.rows(element, rows);
+	});
+
+	/** @param {string} show */
+	function rowsFor(show) {
+		const s = game.state;
+		const p = game.play();
+		const { total, need, have } = game.gemTotals();
+		const level = p ? 'LEVEL ' + s.floorIndex + ' / ' + s.levelCount + ' · ' + p.name : 'no dungeon';
+		const gems = have + ' / ' + need + ' needed · ' + total + ' hidden';
+		const players = ['p1', 'p2']
+			.filter((slot) => s.slots[slot])
+			.map((slot) => slot.toUpperCase() + ' ' + s.slots[slot].name + (s.slots[slot].peerId === (api.peerId() ?? 'me') ? ' (you)' : ''));
+		const props = Object.entries(game.config.props)
+			.filter(([, def]) => def.showInHud)
+			.map(([name, def]) => name + ': ' + (s.propValues[name] ?? def.initial ?? 0));
+		if (show === 'objective') return p ? [game.objective()] : [];
+		if (show === 'players') return players;
+		if (show === 'level') return p ? [level] : [];
+		if (show === 'gems') return p ? [gems, ...props] : [];
+		return p ? [gems, level, ...players, ...props, game.objective()] : [];
+	}
+
+	// ---- the readable half: a number a core HUD Text / Compare / Gate consumes --------------
+	// PURE of (data) over replicated state: collected/slots/started ride this module's
+	// ops + state sync, the floor rides the Kit's (the value-node contract)
+	api.registerValueNode(
+		'drvalue',
+		(data) => {
+			const s = game.state;
+			const { total, need, have } = game.gemTotals();
+			switch (data?.read) {
+				case 'need': return need;
+				case 'total': return total;
+				case 'level': return s.seed == null ? 0 : s.floorIndex;
+				case 'levels': return s.levelCount;
+				case 'players': return game.players();
+				case 'started': return s.started ? 1 : 0;
+				case 'won': return s.wonAt ? 1 : 0;
+				case 'sealed': return s.seed != null && game.sealed() ? 1 : 0;
+				case 'score': return s.propValues.score ?? game.config.props.score?.initial ?? 0;
+				default: return have;
+			}
+		},
+		{ vtype: 'number' }
+	);
+	// the event half is pulsed by game.js on the ORIGINATING peer (fireNodeTrigger replicates)
+	api.registerValueNode('drevent', () => 0, { vtype: 'event' });
+	game.onEvent((event) => {
+		if (typeof api.fireNodeTrigger !== 'function') return;
+		api.fireNodeTrigger('drevent', (data) => (data?.event ?? 'start') === event);
 	});
 
 	/** called from the module frame task: expire configs whose node vanished */
@@ -163,10 +207,6 @@ export function registerNodes(api, game) {
 			seen.menu = -1;
 			assign(game.config.menu, { ...DEFAULT_MENU });
 		}
-		if (seen.hud >= 0 && frame - seen.hud > EXPIRE_FRAMES) {
-			seen.hud = -1;
-			assign(game.config.hud, { ...DEFAULT_HUD });
-		}
 		for (const [name, at] of Object.entries(propSeen)) {
 			if (frame - at > EXPIRE_FRAMES) {
 				delete propSeen[name];
@@ -176,5 +216,5 @@ export function registerNodes(api, game) {
 		}
 	}
 
-	return { tick };
+	return { tick, rowsFor };
 }

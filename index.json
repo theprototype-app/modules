@@ -30,7 +30,7 @@
 	{
 		"id": "collectible",
 		"name": "Collectibles",
-		"version": "1.0.0",
+		"version": "1.1.1",
 		"description": "One node makes an object collectible: click it or walk into it, it hides and counts. Shared or per-player score, with respawn and never-hiding checkpoints.",
 		"author": "theprototype-app",
 		"source": "modules/collectible",
@@ -59,23 +59,24 @@
 	},
 	{
 		"id": "dungeon",
-		"name": "Dungeon Generator",
-		"version": "1.1.0",
-		"description": "Seed-replicated procedural dungeon (rooms, corridors, torches) with a key-and-door objective; publishes userData.play so the app walks it in play mode.",
+		"name": "Dungeon Kit",
+		"version": "2.0.0",
+		"description": "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) with a toolbox, a Dungeon node and the userData.play contract the app walks in play mode. The playable game is Dungeon Realms.",
 		"author": "theprototype-app",
 		"source": "modules/dungeon",
 		"zip": "dungeon.zip",
 		"category": "tool",
 		"tags": [
 			"procedural",
-			"level design"
+			"level design",
+			"toolbox"
 		]
 	},
 	{
 		"id": "dungeon-realms",
 		"name": "Dungeon Realms",
-		"version": "1.0.0",
-		"description": "Co-op dungeon crawl: seeded multi-floor generator, gem-gated portals, P1/P2 play - every rule editable as flow nodes.",
+		"version": "2.0.0",
+		"description": "Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors - every rule and readout a flow node. Requires the dungeon (Dungeon Kit) module.",
 		"author": "theprototype-app",
 		"source": "modules/dungeon-realms",
 		"zip": "dungeon-realms.zip",
@@ -144,6 +145,21 @@
 		"tags": [
 			"movement",
 			"first person"
+		]
+	},
+	{
+		"id": "health",
+		"name": "Health",
+		"version": "1.0.0",
+		"description": "Hit points for objects and players: damage and heal nodes, death and respawn, converging on every peer with no authority - an object's hp from core Counters, a player's on their own peer row.",
+		"author": "theprototype-app",
+		"source": "modules/health",
+		"zip": "health.zip",
+		"category": "game",
+		"tags": [
+			"game",
+			"health",
+			"flow"
 		]
 	},
 	{
@@ -248,14 +264,30 @@
 	{
 		"id": "untangle",
 		"name": "Untangle",
-		"version": "1.0.0",
-		"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - built purely on the module SDK.",
+		"version": "2.0.0",
+		"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - board pose, level and readouts as flow nodes.",
 		"author": "theprototype-app",
 		"source": "modules/untangle",
 		"zip": "untangle.zip",
 		"category": "game",
 		"tags": [
 			"puzzle",
+			"co-op",
+			"procedural"
+		]
+	},
+	{
+		"id": "waves",
+		"name": "Waves",
+		"version": "1.0.0",
+		"description": "Wave survival on the health module: enemies walk from spawn points to a goal, a wave ends when its last enemy dies, the run when the last wave does - derived on every peer, kills on each player's own row, the run log in the saved scene.",
+		"author": "theprototype-app",
+		"source": "modules/waves",
+		"zip": "waves.zip",
+		"category": "game",
+		"tags": [
+			"game",
+			"survival",
 			"co-op"
 		]
 	}

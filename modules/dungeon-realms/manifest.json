@@ -1,9 +1,9 @@
 {
 	"id": "dungeon-realms",
 	"name": "Dungeon Realms",
-	"version": "1.0.0",
+	"version": "2.0.0",
 	"format": 1,
-	"description": "Co-op dungeon crawl: seeded multi-floor generator, gem-gated portals, P1/P2 play - every rule editable as flow nodes.",
+	"description": "Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors - every rule and readout a flow node. Requires the dungeon (Dungeon Kit) module.",
 	"entry": "module.js",
 	"files": ["module.js"]
 }
