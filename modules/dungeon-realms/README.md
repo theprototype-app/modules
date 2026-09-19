@@ -1,28 +1,62 @@
 # dungeon-realms — co-op dungeon crawl, every rule on the node canvas
 
-A multi-floor procedural dungeon you *play*: generate a campaign from one seed,
-press the app's red **Play** button, pick **Player 1 / Player 2** in the start
-menu, walk with WASD, collect gems to unseal the boss-room portal, stand on it
-together, and climb to the top floor to claim the dragon's hoard. Two peers get
-the identical dungeon from `{seed, params}` — determinism *is* the netcode.
+A multi-floor procedural dungeon you *play*, as an **overlay on the Dungeon Kit**
+(`modules/dungeon`, id `dungeon` — install both). The Kit generates and renders the
+world from one seed and publishes `userData.play`; this module reads that contract
+through `api.scene()` and adds the game: gems, gem-gated portals, P1/P2 slots,
+travel-together co-op and the start/victory menu. Press the app's red **Play**
+button, pick **Player 1 / Player 2**, walk with WASD, collect gems to unseal the
+boss-room portal, stand on it together, and climb to the top floor to claim the
+dragon's hoard. Two peers get the identical dungeon from the Kit's `{seed, params}`
+— determinism *is* the netcode.
 
 ```
 modules/dungeon-realms/
-  src/gen/       the 9-stage PURE-DATA generator (zero THREE/DOM — node-runnable)
-  src/           renderer / game / GUI / nodes / audio (bundled by esbuild)
-  test/          node tests: determinism, connectivity, perf (no app needed)
-  module.js      the bundled, self-contained entry (committed)
+  src/rules.js     the PURE rules (gem share, objective text, markers, travel-together)
+  src/overlay.js   gems + portals from the Kit's contract, in Realms' own group
+  src/game.js      the rule state machine: observes the Kit, drives travel through it
+  src/nodes.js     Game Rules · Start Menu · Prop Counter · Realms Value / HUD Rows / Event
+  src/gui.js       the start / victory MENU (module DOM, keyboard-driven)
+  test/            node tests for the rules (no app needed)
+  module.js        the bundled, self-contained entry (committed)
 ```
 
 ```bash
 npm run build:dungeon-realms   # src/ -> module.js (esbuild)
-npm run test:dungeon-realms    # generator acceptance: 100-seed sweep, <50ms
-npm run pack -- dungeon-realms # -> dungeon-realms.zip (manifest + module.js only)
-APP_URL=https://localhost:5189/ npm test -- dungeon-realms   # the test-flight
+npm run test:dungeon-realms    # the pure rules
+npm run pack -- dungeon && npm run pack -- dungeon-realms
+APP_URL=https://localhost:5216/ npm test -- dungeon-realms   # the test-flight (both zips)
 ```
 
-## The generator (C1)
+## How the two modules fit (21-C C6)
 
+An installed module's entry file may have **no imports**, so two modules cannot share
+code. They share the **scene**: the Kit owns the ONE scene-root group `dungeon-module`
+and publishes `userData.play` (raster, rooms, world-space props and portals, seed,
+floor) plus `userData.kit` (`generate` / `showFloor` / `setMarkers` / `setGrounded`).
+Realms OBSERVES `{seed, floorIndex}` every frame and rebuilds its overlay group
+`dungeon-realms` whenever the world changes — whoever changed it (a portal here, the
+Kit's toolbox, a Dungeon node, a late-join sync) — and DRIVES travel by calling
+`kit.showFloor`, which the Kit replicates itself. Realms replicates only rule events.
+
+- **Minimap:** uncollected gems + portals go through `kit.setMarkers` →
+  `userData.play.markers` (DEVX #13). A bare Kit puts nothing there.
+- **No flying:** Game Rules ▸ disableFlight writes `userData.play.grounded` through the
+  Kit (DEVX #14) — the old capture-phase Q/E swallow is gone.
+- **Play gate:** `api.isPlaying()` (DEVX #11).
+- **HUD:** DELETED as module DOM. The template authors core HUD elements and this
+  module publishes into them — **Realms Value** (a number: gems / need / total / level /
+  levels / players / started / won / sealed / score → a HUD Text, Compare, Gate),
+  **Realms HUD Rows** (lines into a HUD list element by id: objective / players / level /
+  gems / all) and **Realms Event** (start / gem / unseal / travel / victory / reset →
+  a Counter, Set Game State, a Sound).
+- **Menu:** stays module DOM (`#dr-menu`) — a modal, keyboard-driven, focus-owning
+  dialog under pointer lock is not a HUD (DEVX #23).
+
+## The generator (C1 — now in the Kit)
+
+The pipeline below lives in `modules/dungeon/src/gen/` since 21-C C6 (moved with its
+node tests); it is documented here because this is the game it was written for.
 Spec-shaped pipeline, each stage a pure function on a per-stage forked
 mulberry32 stream (inserting a draw in one stage never reshuffles another):
 
@@ -61,12 +95,11 @@ peers are already standing on the arrival portal (no teleport API needed).
 
 ## How movement works (and what the module does NOT do)
 
-The group is named `dungeon-module` and publishes `userData.play` in the exact
+The Kit's group `dungeon-module` publishes `userData.play` in the exact
 `dungeonPlay.js` shape — the app's own play mode then provides WASD walking,
 wall-slide collision, per-peer spawn rooms and the corner minimap for free
-(spawn rooms are ordered entrance-first, so P1/P2 start together). The module
-adds: gems, portal gating, the GUI, and swallows the Q/E fly keys while the
-game runs (Game Rules ▸ disableFlight). See DEVX-REQUESTS #13/#14.
+(spawn rooms are ordered entrance-first, so P1/P2 start together). This module
+adds: gems, portal gating, the menu, the markers and the grounded flag.
 
 ## The node family (group "Dungeon Realms")
 
@@ -78,33 +111,34 @@ scene flow. `range` params accept wired value inputs.
 
 | Node | Owns | Params |
 |---|---|---|
-| **Dungeon** | the campaign recipe | seed · roomCount (0 = auto ramp) · levelCount · gemDensity · apply |
 | **Game Rules** | gameplay | gemShare (portion to unseal) · pickupRadius · allPlayersPortal · disableFlight |
 | **Start Menu** | the play-mode menu | show (auto/always/never) · button1–4 (action selects) |
-| **Game HUD** | the top-left HUD | showGems/Level/Players/Objective · corner |
-| **Prop Counter** | an extra HUD counter | prop (score/keys/…) · initial · showInHud |
+| **Prop Counter** | an extra counter | prop (score/keys/…) · initial · showInHud |
+| **Realms Value** | a readout (number OUT) | read: gems · need · total · level · levels · players · started · won · sealed · score |
+| **Realms HUD Rows** | lines into a core HUD list | element (HUD list id) · show: objective / players / level / gems / all |
+| **Realms Event** | an event OUT | event: start · gem · unseal · travel · victory · reset |
 
-Reference graph (build it in any object's flow — a module cannot seed node
-instances yet, DEVX #10):
+The recipe node is the Kit's **Dungeon** (group "Dungeon Kit"): seed · roomCount ·
+levelCount · loopChance · gemDensity · apply.
+
+Reference graph — this is what the `games/dungeon-realms` TEMPLATE carries, wired
+(a template is `api.seedFlowGraph`, DEVX #10):
 
 ```
-[Number: 1337] ──seed──▶ [Dungeon (apply ✓)]      [Game Rules (gemShare .7, all-players ✓)]
-                          [Start Menu (join-p1 · join-p2 · start · new-dungeon)]
-                          [Game HUD (top-left)]   [Prop Counter (score)]
+[Number 1337] ──seed──▶ [Dungeon Kit ▸ Dungeon (apply ✓)] ──▶ [Object Selector: Entrance]
+[Game Rules (gemShare .7, all-players ✓)]   [Start Menu (join-p1 · join-p2 · start · new-dungeon)]
+[Realms Value: gems] ──▶ [HUD Text "Gems {v}"]     [Realms HUD Rows: objective ▸ list]
+[Realms Event: start] ──▶ [Set Game State: playing]  [Realms Event: victory] ──▶ [Set Game State: over]
 ```
-
-Buttons "program what happens next" via their action select — trigger OUT
-sockets need core support (DEVX #9). GUI text params need a `text` kind
-(DEVX #12).
 
 ## Replication model
 
-Deterministic (golden rule 8): `{op:'generate', seed, params, checksum}` — every
-peer regenerates locally, the checksum only *detects* divergence (toast, never
-fight). Discrete events: `floor`, `gem`, `slot`, `start`, `onportal`, `prop`,
-`clear`. Late joiners get the full state via `registerStateSync` and rebuild
-mid-game. The Dungeon NODE path broadcasts nothing at all — the node's
-replicated data regenerates identically on every peer.
+The WORLD is the Kit's (deterministic, golden rule 8): it replicates `{op:'generate',
+seed, params, checksum}` / `{op:'floor'}` / `{op:'clear'}` and syncs `{seed, params,
+floorIndex}` to late joiners. This module replicates only discrete rule events: `gem`,
+`slot`, `start`, `reset`, `onportal`, `prop`, and syncs `{seed, floorIndex, collected,
+slots, started, wonAt, propValues}` — applied when the Kit shows that seed, whichever
+module's sync arrives first.
 
 ## Controls
 

@@ -11,6 +11,12 @@ be read start-to-finish by a person **or** pasted whole into an AI assistant.
   [`_template`](modules/_template/) (start here) ·
   [`door-keypad`](modules/door-keypad/) (replicated objects, a discrete event, a
   deterministic animation from one timestamp, late-joiner state) ·
+  [`dungeon`](modules/dungeon/) (**the worked toolbox example**: `api.registerToolbox`
+  with a `#dungeon-panel` DOM fallback behind a feature-detect, a node that IS the
+  recipe, and a published `userData.play` contract other modules read) ·
+  [`dungeon-realms`](modules/dungeon-realms/) (a game as an OVERLAY on another module:
+  two modules cannot share code, so they share the scene — the Kit's
+  `userData.play` / `userData.kit` seam, read through `api.scene()`) ·
   [`tutorial-room`](modules/tutorial-room/) (derived content: local geometry,
   replicated *intent*) · [`sabers`](modules/sabers/) (per-frame pose streaming,
   VR and desktop from one code path) · [`fps-player`](modules/fps-player/)

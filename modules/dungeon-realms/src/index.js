@@ -2,25 +2,26 @@
 // module.js by esbuild (npm run build:dungeon-realms); everything outside
 // comes through `api`.
 //
-// The game in one breath: a 9-stage pure-data generator (src/gen, node-tested
-// without the app) builds a multi-floor campaign from ONE seed; the renderer
-// instances it into the scene-root 'dungeon-module' group and publishes
-// userData.play, so the app's own play mode (red Play button) provides WASD
-// walking, wall collision, spawns and the minimap; the game layer adds gems,
-// gem-gated portals, P1/P2 slots, travel-together co-op and the GUI; the node
-// family exposes every rule in the flow editor. Replication is deterministic:
-// {seed, params, floorIndex} + tiny discrete events.
+// The game in one breath (21-C C6): the DUNGEON KIT module (id 'dungeon') generates
+// and renders a multi-floor campaign from one seed and publishes userData.play on
+// its scene-root group, so the app's own play mode provides WASD walking, wall
+// collision, spawns and the minimap; THIS module reads that contract through
+// api.scene() and adds the game on top — gems, gem-gated portals, P1/P2 slots,
+// travel-together co-op, the start/victory menu — and exposes every rule and every
+// readout as flow nodes so a template's core HUD shows the game. Replication is
+// deterministic: the Kit replicates {seed, params, floorIndex}; this module
+// replicates only tiny discrete rule events.
 
 import { createGame, GROUP_NAME } from './game.js';
 import { registerNodes } from './nodes.js';
-import { hash32 } from './gen/rng.js';
+import { hash32 } from './hash.js';
 
 export default {
 	id: 'dungeon-realms',
 	name: 'Dungeon Realms',
-	version: '1.0.0',
+	version: '2.0.0',
 	description:
-		'Co-op dungeon crawl: seeded multi-floor generator, gem-gated portals, P1/P2 play — every rule editable as flow nodes.',
+		'Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors — every rule and readout a flow node. Requires the "dungeon" (Dungeon Kit) module.',
 
 	/** @param {any} api the module SDK surface */
 	register(api) {
@@ -33,12 +34,11 @@ export default {
 		// ---- module card buttons -------------------------------------------------
 		api.registerMenu('Generate dungeon', () => {
 			const seed = hash32((api.now() * 1000) | 0, 'menu') % 100000;
-			if (game.generate(seed, game.state.params ?? {}))
-				api.toast('Dungeon Realms seed ' + seed + ' — press the red Play button to start');
+			if (game.newDungeon(seed)) api.toast('Dungeon Realms seed ' + seed + ' — press the red Play button to start');
 		});
 		api.registerMenu('Clear dungeon', () => {
+			game.kit()?.clear();
 			game.clear();
-			api.send({ op: 'clear' });
 		});
 
 		// ---- clicks: portals travel, gems collect (desktop editor + VR trigger) ---
@@ -85,27 +85,23 @@ export default {
 			game.tick(time);
 		});
 
-		// ---- flight suppression (Game Rules ▸ disableFlight) ---------------------------
-		// Play mode's Q/E fly keys are swallowed at window CAPTURE while the game
-		// runs, so players walk the dungeon instead of flying out of it. keyup
-		// passes through so a held key can never wedge the move state. A proper
-		// "grounded" play-mode option is filed in DEVX-REQUESTS.md.
-		if (typeof window !== 'undefined') {
-			window.addEventListener(
-				'keydown',
-				(event) => {
-					if ((event.code === 'KeyQ' || event.code === 'KeyE') && game.suppressFlight()) {
-						event.preventDefault();
-						event.stopImmediatePropagation();
-					}
-				},
-				true
-			);
-		}
+		if (api.hud?.registerDebugLine)
+			api.hud.registerDebugLine(() => {
+				const s = game.state;
+				if (s.seed == null) return null;
+				const { have, need } = game.gemTotals();
+				return 'realms seed ' + s.seed + ' floor ' + s.floorIndex + '/' + s.levelCount + ' gems ' + have + '/' + need + (s.started ? ' playing' : '');
+			});
 
 		api.registerBindings([
 			{ label: 'Menu — select option', keys: 'ArrowUp / ArrowDown' },
 			{ label: 'Menu — confirm', keys: 'Enter' }
 		]);
+
+		// test/debug hook (never serialized): the flight reaches the game here too, so
+		// it can assert before any dungeon exists
+		if (typeof window !== 'undefined') {
+			/** @type {any} */ (window).__dungeonRealms = { game, nodes };
+		}
 	}
 };
