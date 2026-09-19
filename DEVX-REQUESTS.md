@@ -26,7 +26,7 @@ promise from core.
 | 12 | `text` param kind for module nodes | `dungeon-realms` | yes — button labels derive from their action select |
 | 13 | play contract is name-keyed to `'dungeon-module'` | `dungeon-realms` | yes — squats the core module's group name |
 | 14 | grounded (no-fly) play-mode option | `dungeon-realms` | yes — window-capture swallows Q/E while the game runs |
-| 15 | peer roster + disconnect hook | `dungeon-realms` | partly — any player can free a stuck P1/P2 slot from the menu |
+| 15 | peer roster + disconnect hook | `dungeon-realms`, `football` | yes — `api.peerIds()` (the replicated roster) diffed each second frees a vanished peer's slot; `football` does exactly this. The name half is `api.peerNames()` |
 | 16 | `api.flow.nodes()` carries no node POSITION | `collectible` | yes — the recipe derives its row from how many of its own nodes exist |
 | 17 | no change signal for the graph / game state | `collectible` | yes — a 500ms toolbox poll and a ~10Hz frame-task sweep |
 | 18 | ~~the flow TRIGGER LOG has no handshake reply, so a late joiner never learns past pulses~~ | `collectible` | **SHIPPED** — `gettriggers`/`triggers` carries the log; the module gained a first-sight rule so arriving history is not banked |
@@ -459,6 +459,7 @@ the Length / Width sliders (+ a toast), which replicate as ordinary `move`s.
 | 12 | no `text` param kind | **SHIPPED** (21-A1) — `{key, kind: 'text', placeholder?, maxLength?}`. It writes on COMMIT (change/blur), never on `input`: a node edit replicates the whole node, so a per-keystroke write is one broadcast per character. |
 | — | a module node cannot learn its own id | **SHIPPED** (21-A1) — an effect's 5th arg and a value node's 3rd are `{id, graphId}`. Additive, so a four-parameter effect is byte-unchanged. This is what lets one module host several instances of the same node type. |
 | — | no module UI surface (the `#dr-gui` / `#dungeon-panel` workaround) | **SHIPPED** (21-A5) — `api.registerToolbox({id, title, mount, …})` over core's shared ToolboxWindow: write plain DOM and inherit header drag + position persistence, the width grip, z-band focus, the <=640px bottom sheet and the whole `.tbx-*` CSS contract. Opened from the sidebar's Modules section, the viewport menu and an optional `shortcut`. Retire the hand-rolled fixed overlays — they sit in z bands they do not own. |
+| 15 | peer roster + disconnect hook | **YES, per 24-B D2** — `api.peerIds()` (the replicated roster) polled each second is the disconnect signal (`football` frees a vanished player's slot this way) and `api.peerNames()` the name half. A push-style `onPeerConnected/Disconnected` stays unbuilt: no module has needed more than the diff. |
 
 ### 21-A (2026-08-18, core branch `feat/21-module-node-io`)
 
