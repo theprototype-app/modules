@@ -40,7 +40,7 @@
 export default {
 	id: 'collectible',
 	name: 'Collectibles',
-	version: '1.0.0',
+	version: '1.1.0',
 	description:
 		'One node makes an object collectible: click it or walk into it, it hides and counts.',
 
@@ -663,8 +663,16 @@ export default {
 			const taken = new Set();
 			for (const node of collectibles)
 				for (const uuid of targetsOf(node, bySource, byId)) taken.add(uuid);
-			// no positions in a flow snapshot (see DEVX-REQUESTS), so the row index comes
-			// from how many collectibles the graph already holds — same answer every time
+			// WHERE each pair lands. Core answers it when it can (`api.flow.freeRegion`, the
+			// one placement rule, DEVX #16): under everything already in the graph, asked
+			// again per pair because the answer moves as the graph grows. An older app has
+			// no freeRegion and no positions in a snapshot, so there the row index comes
+			// from how many collectibles the graph already holds — deterministic, and wrong
+			// only once a user drags one, which is exactly what the seam fixed.
+			const place = (/** @type {number} */ row) =>
+				typeof api.flow.freeRegion === 'function'
+					? api.flow.freeRegion({ w: COL + 150, h: 150, graphId: SCENE })
+					: { x: START.x, y: START.y + row * ROW };
 			let row = collectibles.length;
 			let built = 0;
 			let skipped = 0;
@@ -673,11 +681,11 @@ export default {
 					skipped++;
 					continue;
 				}
-				const y = START.y + row * ROW;
+				const { x, y } = place(row);
 				api.flow.addNodes({
 					nodes: [
-						{ type: 'collectible', x: START.x, y, data: { ...options, perRound: true, whilePlaying: true } },
-						{ type: 'objectselector', x: START.x + COL, y, data: { selected: uuid } }
+						{ type: 'collectible', x, y, data: { ...options, perRound: true, whilePlaying: true } },
+						{ type: 'objectselector', x: x + COL, y, data: { selected: uuid } }
 					],
 					edges: [{ from: 0, to: 1 }]
 				});
@@ -732,7 +740,8 @@ export default {
 						'.cm-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
 						'.cm-status{flex:0 0 auto;font-size:10px;opacity:0.7;white-space:nowrap}' +
 						'.cm-respawn{flex:0 0 auto;width:38px}' +
-						'.cm-empty{opacity:0.6;font-size:11px}'
+						'.cm-empty{opacity:0.6;font-size:11px}' +
+						'.cm-legacy{flex:1 1 100%;order:3;font-size:10px;opacity:0.6}'
 				})
 			);
 
@@ -749,12 +758,27 @@ export default {
 			const trigger = select(['click', 'touch'], 'click');
 			const hide = select(['on', 'off'], 'on');
 			const respawn = /** @type {HTMLInputElement} */ (
-				elem('input', { type: 'number', min: '0', max: '120', step: '1', value: '0' }, INPUT_CSS)
+				elem('input', { type: 'number', min: '0', max: '120', step: '1', value: '0', className: 'cm-in-respawn' }, INPUT_CSS)
 			);
+			// S4: the touch RADIUS was fixed at 1.5 by this form and editable only on the node
+			// card afterwards. It only means something for a touch trigger, so it is disabled
+			// (with the reason) under click rather than hidden — the form keeps its shape.
+			const radius = /** @type {HTMLInputElement} */ (
+				elem('input', { type: 'number', min: '0.5', max: '10', step: '0.5', value: '1.5', className: 'cm-in-radius' }, INPUT_CSS)
+			);
+			const syncRadius = () => {
+				radius.disabled = trigger.value !== 'touch';
+				radius.title = radius.disabled
+					? 'Only a touch trigger has a radius — switch Trigger to touch'
+					: 'How close (metres) you must walk to collect it';
+			};
+			trigger.addEventListener('change', syncRadius);
+			syncRadius();
 			const rows = [
 				['Counts into', variable],
 				['Scope', scope],
 				['Trigger', trigger],
+				['Touch radius', radius],
 				['Hide', hide],
 				['Respawn (s)', respawn]
 			];
@@ -771,7 +795,7 @@ export default {
 					scope: scope.value,
 					trigger: trigger.value,
 					hide: hide.value,
-					radius: 1.5,
+					radius: Math.max(0.5, Math.min(10, Number(radius.value) || 1.5)),
 					respawn: Math.max(0, Math.min(120, Number(respawn.value) || 0))
 				});
 				refresh(true);
@@ -868,10 +892,23 @@ export default {
 				const counts = elem('span', { className: 'cm-counts', textContent: '' });
 				countEls.set(name, counts);
 				disc.appendChild(counts);
+				// S4: the COUNTS include older recipe chains (21-F's seven-node shape) that
+				// count into the same variable, while only this module's nodes get rows — right
+				// by design (the variable is what a HUD reads), and confusing unless said.
+				const legacy = legacyLatches(name).length;
+				if (legacy)
+					head.appendChild(
+						elem('div', {
+							className: 'cm-legacy',
+							textContent:
+								'+' + legacy + ' older recipe chain' + (legacy === 1 ? '' : 's') +
+								' counted here (edit in the node editor)'
+						})
+					);
 				disc.addEventListener('click', () => {
 					setCollapsed(name, !isCollapsed(name));
 					// the rows are DROPPED rather than hidden (see rebuild), so folding is a
-					// rebuild — and the flag rides the signature, so the 500ms refresh cannot
+					// rebuild — and the flag rides the signature, so a later refresh cannot
 					// quietly unfold what you just closed
 					refresh(true);
 				});
@@ -977,6 +1014,51 @@ export default {
 			}
 
 			refresh(true);
+
+			// WHEN TO REDRAW (DEVX #17). With core's change signals the panel stops polling:
+			// it redraws when the graph changes or a node FIRES (`api.flow.onChange` — both
+			// structure and collected state), and when the round moves (`api.game.onChange`,
+			// which retires perRound stamps). Core coalesces those to one call per frame.
+			// Two things are NOT events and keep a clock, each only while it is needed:
+			//   - a respawn countdown ("back in 4s") ages with time, so a 1s tick runs only
+			//     while some row is counting down;
+			//   - an OLDER recipe chain's latch is read as a node VALUE, which core
+			//     republishes a beat after the trigger, so a change is re-read once 300ms on.
+			// An object renamed or deleted in the viewport is neither; the panel re-reads on
+			// pointerenter, so it is fresh the moment you look at it.
+			// An older app has no onChange: the 500ms poll it always had.
+			/** @type {any} */ let settle = null;
+			/** @type {any} */ let countdown = null;
+			const counting = () => [...statusEls.values()].some((el) => /^back in /.test(el.textContent ?? ''));
+			const tickCountdown = () => {
+				countdown = null;
+				refresh();
+				if (counting()) countdown = setTimeout(tickCountdown, 1000);
+			};
+			const onSignal = () => {
+				refresh();
+				clearTimeout(settle);
+				settle = setTimeout(() => {
+					settle = null;
+					refresh();
+					if (!countdown && counting()) countdown = setTimeout(tickCountdown, 1000);
+				}, 300);
+				if (!countdown && counting()) countdown = setTimeout(tickCountdown, 1000);
+			};
+			if (typeof api.flow.onChange === 'function' && typeof api.game.onChange === 'function') {
+				const offs = [api.flow.onChange(onSignal), api.game.onChange(onSignal)];
+				const onEnter = () => refresh();
+				el.addEventListener('pointerenter', onEnter);
+				if (counting()) countdown = setTimeout(tickCountdown, 1000);
+				el.dataset.refresh = 'signal';
+				return () => {
+					for (const off of offs) if (typeof off === 'function') off();
+					clearTimeout(settle);
+					clearTimeout(countdown);
+					el.removeEventListener('pointerenter', onEnter);
+				};
+			}
+			el.dataset.refresh = 'poll';
 			const timer = setInterval(refresh, 500);
 			return () => clearInterval(timer);
 		}
