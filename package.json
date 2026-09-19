@@ -15,7 +15,9 @@
 		"build:dungeon-realms": "esbuild modules/dungeon-realms/src/index.js --bundle --format=esm --outfile=modules/dungeon-realms/module.js",
 		"test:dungeon-realms": "node modules/dungeon-realms/test/run.mjs",
 		"build:football": "esbuild modules/football/src/index.js --bundle --format=esm --outfile=modules/football/module.js && node modules/football/emit-def.mjs",
-		"test:football": "node modules/football/test/run.mjs"
+		"test:football": "node modules/football/test/run.mjs",
+		"build:health": "esbuild modules/health/src/index.js --bundle --format=esm --outfile=modules/health/module.js",
+		"test:health": "node modules/health/test/run.mjs"
 	},
 	"devDependencies": {
 		"esbuild": "0.28.2",
