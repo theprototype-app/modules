@@ -25,7 +25,7 @@
 		"waves"
 	],
 	"env": {
-		"preset": "dusk",
+		"preset": "sunset",
 		"exposure": 0.9
 	},
 	"physics": {
