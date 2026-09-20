@@ -66,7 +66,7 @@ export function wavesDef() {
 		tags: ['vr', 'co-op', 'survival'],
 		modules: [{ id: 'health', version: '1.0.0' }, { id: 'waves', version: '1.0.0' }],
 		installModules: ['health', 'waves'],
-		env: { preset: 'dusk', exposure: 0.9 },
+		env: { preset: 'sunset', exposure: 0.9 },
 		physics: { knock: { enabled: true, gain: 1, maxSpeed: 10, spin: 0.8 }, play: { interaction: 'grab', grounded: true, simOnPlay: true } },
 		graphs: { scene: { nodes: [...a.nodes, ...h.nodes], edges: [...a.edges, ...h.edges] } },
 		hud: arenaHud(),
