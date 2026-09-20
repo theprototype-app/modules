@@ -75,13 +75,14 @@ h.run(async () => {
 	const doorUuid = await uuidOf(A.page, 'Kpdoor');
 	const code = codeFor(doorUuid);
 	h.check(code.length === 4 && code.every((d) => d >= 1 && d <= 4), 'code derives from the door uuid: ' + code.join('-'));
-	const revealed = await A.page.evaluate(async () => {
-		window.__stores.modulesOpen.set(true);
-		return true;
-	});
-	h.check(revealed, 'manager opens for the card check');
-	await A.page.getByRole('tab', { name: 'User', exact: true }).click();
-	await A.page.waitForTimeout(300);
+	// through the shared helper: once a module is installed the tab label grows a
+	// count ("User (1)"), so an exact-match locator for "User" never finds it again
+	// (measured: 30 s timeout on 1.15.1 with door-keypad installed)
+	await h.openModules(A.page);
+	h.check(
+		await A.page.locator('#user-module-card-door-keypad').isVisible(),
+		'manager opens for the card check'
+	);
 	await A.page.locator('#user-module-card-door-keypad').getByRole('button', { name: /Reveal the code/ }).click();
 	await h.eventually(
 		() => h.toasts(A.page),
