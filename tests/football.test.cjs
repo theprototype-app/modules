@@ -164,13 +164,44 @@ run(async () => {
 	await eventually(() => snap(B.page), (s) => s?.ball === ball && Object.keys(s.gates).length === 2 && s.buttons.length === 4, '3.2 B: the graph replicated — same ball, gates and buttons', 20000);
 	await eventually(() => B.page.evaluate(() => window.__stores.scenePhysics.scenePhysicsDebug()), (p) => p.gravity === 0 && p.knock?.enabled === true, '3.3 B: zero-g + knock block reached B');
 
-	// ---- 4. both play; the sim starts on A (simOnPlay) ---------------------------------
+	// ---- 4. both play: ONE simulator, elected by core's race rule (simOnPlay) -----------
+	// Both presses go in back to back, which puts them INSIDE the sim's start-up window:
+	// `maybeSimOnPlay` guards on "nothing is running anywhere", and that is still true on
+	// both peers until the other side's `simulate` lands. Before core 29-F both peers
+	// simulated and each one's 30 Hz `move` stream pinned every one of the other's bodies
+	// under a permanent `hold: 'external'` — this flight passed on TIMING alone, and when
+	// it lost the toss the ball snapped back and no goal could score. Core now resolves it
+	// with no round trip: THE LOWER PEER ID KEEPS THE WORLD, which is the same tie-break
+	// `game.isAuthority()` already falls back to when no sim runs at all.
+	const simOf = (page) =>
+		page.evaluate(() => {
+			const p = window.__stores.physics;
+			let own, remote;
+			p.simulating.subscribe((v) => (own = v))();
+			p.remoteSimulating.subscribe((v) => (remote = v))();
+			return { own: !!own, remote: remote ?? null };
+		});
 	await A.page.locator('#play-button').click();
 	await B.page.locator('#play-button').click();
-	await eventually(() => A.page.evaluate(() => new Promise((r) => window.__stores.physics.simulating.subscribe(r)())), (v) => v === true, '4.1 A simulates (sim on Play)');
-	await eventually(() => B.page.evaluate(() => new Promise((r) => window.__stores.physics.remoteSimulating.subscribe(r)())), (v) => !!v, '4.2 B knows A simulates');
-	await eventually(() => snap(A.page), (s) => s?.authority === true, '4.3 A is the match authority (the initiator)');
-	check((await snap(B.page))?.authority === false, '4.4 B is not');
+	const low = A.id < B.id ? A : B;
+	const high = A.id < B.id ? B : A;
+	await eventually(() => simOf(low.page), (v) => v.own === true, `4.1 the LOWER peer id keeps the world (${low === A ? 'A' : 'B'}: ${low.id} < ${high.id})`, 20000);
+	await eventually(() => simOf(high.page), (v) => v.own === false && v.remote === low.id, '4.2 the higher id yielded and knows who simulates', 20000);
+	await eventually(() => snap(low.page), (s) => s?.authority === true, '4.3 the winner is the match authority (the initiator)');
+	check((await snap(high.page))?.authority === false, '4.4 the loser is not');
+
+	// Everything below drives A as the authority (teleports, serve counts, the pitch
+	// tools), and which peer wins the toss is an accident of the ids, so hand the world to
+	// A before the rest of the flight. Run UNCONDITIONALLY, even when A already won, so
+	// every run takes the same path and produces the same checks. Deliberately explicit
+	// rather than parameterising eighty lines on `low`: the race and its rule are what
+	// section 4 covers, and the fixture for everything after it is A.
+	await low.page.evaluate(() => window.__stores.physics.stopSimulation());
+	await eventually(() => simOf(A.page), (v) => v.own === false && v.remote === null, '  (premise) the pitch is idle');
+	await A.page.evaluate(() => window.__stores.physics.toggleSimulation());
+	await eventually(() => simOf(A.page), (v) => v.own === true, '  (premise) A takes the world for the rest of the flight', 20000);
+	await eventually(() => simOf(B.page), (v) => v.own === false && v.remote === A.id, '  (premise) B follows A');
+	await eventually(() => snap(A.page), (s) => s?.authority === true, '  (premise) ...and is the match authority again');
 
 	// ---- 5. opposite teams through the physical buttons' click path --------------------
 	check(await clickObject(A.page, names['Join red']), '5.1 A clicks the Join red button object (module click handler consumed it)');
