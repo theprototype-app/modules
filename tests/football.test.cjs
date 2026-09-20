@@ -183,12 +183,23 @@ run(async () => {
 		});
 	await A.page.locator('#play-button').click();
 	await B.page.locator('#play-button').click();
-	const low = A.id < B.id ? A : B;
-	const high = A.id < B.id ? B : A;
-	await eventually(() => simOf(low.page), (v) => v.own === true, `4.1 the LOWER peer id keeps the world (${low === A ? 'A' : 'B'}: ${low.id} < ${high.id})`, 20000);
-	await eventually(() => simOf(high.page), (v) => v.own === false && v.remote === low.id, '4.2 the higher id yielded and knows who simulates', 20000);
-	await eventually(() => snap(low.page), (s) => s?.authority === true, '4.3 the winner is the match authority (the initiator)');
-	check((await snap(high.page))?.authority === false, '4.4 the loser is not');
+	// EXACTLY ONE world is what two presses can carry, and it is deliberately NOT "the
+	// lower id wins": MEASURED, they do not reliably race — the first peer's `simulate`
+	// often lands before the second peer's guard is read, and then nothing raced and
+	// whoever pressed first keeps it, higher id or not. Core's own game-football suite
+	// owns the id rule (it forces the race and proves the checks with counterfactuals);
+	// what this flight is for is that the MODULE agrees with whatever core elected.
+	await eventually(
+		() => Promise.all([simOf(A.page), simOf(B.page)]),
+		([a, b]) => (a.own ? !b.own && b.remote === A.id : b.own && a.remote === B.id),
+		'4.1 both presses leave exactly ONE simulator, and the other knows who it is',
+		25000
+	);
+	const holder = (await simOf(A.page)).own ? A : B;
+	const follower = holder === A ? B : A;
+	await eventually(() => snap(holder.page), (s) => s?.authority === true, '4.2 the peer stepping the world is the match authority (the initiator)');
+	check((await snap(follower.page))?.authority === false, '4.3 the other one is not');
+	check((await simOf(holder.page)).remote === null, '4.4 ...and it recorded nobody else as a simulator');
 
 	// Everything below drives A as the authority (teleports, serve counts, the pitch
 	// tools), and which peer wins the toss is an accident of the ids, so hand the world to
@@ -196,7 +207,7 @@ run(async () => {
 	// every run takes the same path and produces the same checks. Deliberately explicit
 	// rather than parameterising eighty lines on `low`: the race and its rule are what
 	// section 4 covers, and the fixture for everything after it is A.
-	await low.page.evaluate(() => window.__stores.physics.stopSimulation());
+	await holder.page.evaluate(() => window.__stores.physics.stopSimulation());
 	await eventually(() => simOf(A.page), (v) => v.own === false && v.remote === null, '  (premise) the pitch is idle');
 	await A.page.evaluate(() => window.__stores.physics.toggleSimulation());
 	await eventually(() => simOf(A.page), (v) => v.own === true, '  (premise) A takes the world for the rest of the flight', 20000);
