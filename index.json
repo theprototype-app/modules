@@ -286,6 +286,7 @@
 		"source": "modules/waves",
 		"zip": "waves.zip",
 		"category": "game",
+		"template": "games/waves",
 		"tags": [
 			"game",
 			"survival",
