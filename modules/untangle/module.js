@@ -17,9 +17,22 @@ function chordsCross(a, b, c, d, n) {
   if (a === c || a === d || b === c || b === d) return false;
   return between(c, a, b) !== between(d, a, b);
 }
+var CURVE_LEVELS = 30;
+var curveLevel = (lvl) => Math.min(Math.max(1, Math.round(Number(lvl) || 1)), CURVE_LEVELS);
+function dotsFor(lvl) {
+  return 5 + Math.round((curveLevel(lvl) - 1) * 11 / (CURVE_LEVELS - 1));
+}
+function chordsFor(lvl, n = dotsFor(lvl)) {
+  const t = (curveLevel(lvl) - 1) / (CURVE_LEVELS - 1);
+  return Math.max(1, Math.min(n - 3, Math.round((n - 3) * (0.35 + 0.45 * t))));
+}
+function minStartCrossings(lvl) {
+  const l = curveLevel(lvl);
+  return l <= 2 ? 1 : l <= 8 ? 2 : 3;
+}
 function generate(lvl) {
   const rand = mulberry32(2654435769 ^ lvl * 2654435761);
-  const n = Math.min(5 + lvl, 16);
+  const n = dotsFor(lvl);
   const edges = [];
   for (let i = 0; i < n; i++) edges.push([i, (i + 1) % n]);
   const chords = [];
@@ -30,7 +43,7 @@ function generate(lvl) {
     chords[i] = chords[k];
     chords[k] = swap;
   }
-  const wanted = Math.floor(n * 0.8);
+  const wanted = chordsFor(lvl, n);
   let added = 0;
   for (const [a, b] of chords) {
     if (added >= wanted) break;
@@ -38,13 +51,42 @@ function generate(lvl) {
     edges.push([a, b]);
     added++;
   }
-  const positions = [];
-  for (let i = 0; i < n; i++) {
-    const angle = rand() * Math.PI * 2;
-    const radius = Math.sqrt(rand()) * 0.9;
-    positions.push([Math.cos(angle) * radius, Math.sin(angle) * radius]);
+  return { n, edges, positions: scramble(rand, n, edges, minStartCrossings(lvl)) };
+}
+function minSeparation(n) {
+  return Math.max(0.2, 0.42 - n * 0.014);
+}
+function scramble(rand, n, edges, need) {
+  const sep = minSeparation(n);
+  let best = null;
+  let bestCount = -1;
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const positions = [];
+    for (let i = 0; i < n; i++) {
+      let p = null;
+      for (let tries = 0; tries < 60; tries++) {
+        const angle = rand() * Math.PI * 2;
+        const radius = Math.sqrt(rand()) * 0.9;
+        p = [Math.cos(angle) * radius, Math.sin(angle) * radius];
+        const q = p;
+        if (positions.every((o) => Math.hypot(o[0] - q[0], o[1] - q[1]) >= sep)) break;
+      }
+      positions.push(
+        /** @type {number[]} */
+        p
+      );
+    }
+    const count = totalCrossings(edgeCrossings(positions, edges));
+    if (count >= need) return positions;
+    if (count > bestCount) {
+      bestCount = count;
+      best = positions;
+    }
   }
-  return { n, edges, positions };
+  return (
+    /** @type {number[][]} */
+    best
+  );
 }
 function segsCross(p1, p2, p3, p4) {
   const d = (a, b, c) => (c[0] - a[0]) * (b[1] - a[1]) - (b[0] - a[0]) * (c[1] - a[1]);
@@ -538,8 +580,357 @@ function makeBurst(THREE) {
   };
 }
 
+// modules/untangle/src/progress.js
+var MAX_LEVEL = 30;
+var MODES = ["2d", "3d"];
+var PROGRESS_KEY = "progress";
+var STORAGE_PREFIX = "tp:mod:untangle:";
+function freshMode() {
+  return { unlocked: 1, solved: [], best: {} };
+}
+function defaultProgress() {
+  const out = {};
+  for (const m of MODES) out[m] = freshMode();
+  return out;
+}
+var isLevel = (n) => Number.isInteger(n) && n >= 1 && n <= MAX_LEVEL;
+function normalizeProgress(raw) {
+  const out = defaultProgress();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const m of MODES) {
+    const src = raw[m];
+    if (!src || typeof src !== "object" || Array.isArray(src)) continue;
+    const solved = Array.isArray(src.solved) ? [...new Set(src.solved.filter(isLevel))].sort((a, b) => a - b) : [];
+    const fromSolved = solved.length ? Math.min(MAX_LEVEL, Math.max(...solved) + 1) : 1;
+    const unlocked = isLevel(src.unlocked) ? src.unlocked : 1;
+    const best = {};
+    if (src.best && typeof src.best === "object" && !Array.isArray(src.best)) {
+      for (const [k, v] of Object.entries(src.best)) {
+        const lvl = Number(k);
+        if (isLevel(lvl) && typeof v === "number" && Number.isFinite(v) && v > 0) best[String(lvl)] = Math.round(v);
+      }
+    }
+    out[m] = { unlocked: Math.max(unlocked, fromSolved), solved, best };
+  }
+  return out;
+}
+function isUnlocked(progress, mode, level) {
+  const p = progress?.[mode];
+  return isLevel(level) && !!p && level <= p.unlocked;
+}
+function isSolved(progress, mode, level) {
+  return !!progress?.[mode]?.solved?.includes(level);
+}
+function continueLevel(progress, mode) {
+  const p = progress?.[mode] ?? freshMode();
+  for (let l = 1; l <= p.unlocked; l++) if (!p.solved.includes(l)) return l;
+  return Math.min(MAX_LEVEL, p.unlocked);
+}
+function recordSolve(progress, mode, level, ms) {
+  const next = normalizeProgress(progress);
+  const p = next[mode];
+  if (!p || !Number.isInteger(level) || level < 1) return { progress: next, unlockedNew: false, newBest: false };
+  const lvl = Math.min(level, MAX_LEVEL);
+  if (!p.solved.includes(lvl)) p.solved = [...p.solved, lvl].sort((a, b) => a - b);
+  const opened = Math.min(MAX_LEVEL, lvl + 1);
+  const unlockedNew = opened > p.unlocked;
+  if (unlockedNew) p.unlocked = opened;
+  let newBest = false;
+  if (typeof ms === "number" && Number.isFinite(ms) && ms > 0) {
+    const prior = p.best[String(lvl)];
+    if (!(prior > 0) || ms < prior) {
+      p.best[String(lvl)] = Math.round(ms);
+      newBest = true;
+    }
+  }
+  return { progress: next, unlockedNew, newBest };
+}
+function bestOf(progress, mode, level) {
+  const v = progress?.[mode]?.best?.[String(level)];
+  return typeof v === "number" && v > 0 ? v : null;
+}
+function formatTime(ms) {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0) return "\u2014";
+  const s = Math.floor(ms / 1e3);
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+function makeStorage(api, backing = defaultBacking) {
+  const s = api?.storage;
+  if (s && typeof s.get === "function" && typeof s.set === "function") {
+    return {
+      kind: "api",
+      get: (key) => {
+        try {
+          return s.get(key) ?? null;
+        } catch {
+          return null;
+        }
+      },
+      set: (key, value) => {
+        try {
+          return s.set(key, value) !== false;
+        } catch {
+          return false;
+        }
+      },
+      remove: (key) => {
+        try {
+          s.remove?.(key);
+        } catch {
+        }
+      }
+    };
+  }
+  const memory = /* @__PURE__ */ new Map();
+  const store = () => {
+    try {
+      return backing() ?? null;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    kind: "local",
+    get(key) {
+      const full = STORAGE_PREFIX + key;
+      let raw = memory.get(full) ?? null;
+      if (raw === null) {
+        try {
+          raw = store()?.getItem(full) ?? null;
+        } catch {
+          raw = null;
+        }
+      }
+      if (raw === null) return null;
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    },
+    set(key, value) {
+      const full = STORAGE_PREFIX + key;
+      const text = JSON.stringify(value);
+      const b = store();
+      try {
+        if (!b) throw new Error("no storage");
+        b.setItem(full, text);
+        memory.delete(full);
+        return true;
+      } catch {
+        memory.set(full, text);
+        return false;
+      }
+    },
+    remove(key) {
+      const full = STORAGE_PREFIX + key;
+      memory.delete(full);
+      try {
+        store()?.removeItem(full);
+      } catch {
+      }
+    }
+  };
+}
+function defaultBacking() {
+  return typeof localStorage === "undefined" ? null : localStorage;
+}
+
+// modules/untangle/src/menu.js
+var AMBER2 = "#fbbf24";
+var GREEN2 = "#3ee08f";
+var LOCK_SVG = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 7V5a3 3 0 1 1 6 0v2h.5A1.5 1.5 0 0 1 13 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-5A1.5 1.5 0 0 1 4.5 7H5zm1.5 0h3V5a1.5 1.5 0 1 0-3 0v2z"/></svg>';
+var CHECK_SVG = '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M6.2 11.6 2.8 8.2l1.1-1.1 2.3 2.3 5.9-5.9 1.1 1.1z"/></svg>';
+var style = (el, css) => Object.assign(el.style, css);
+var inRuntimeLayer = (el) => !!el.closest?.("#hud-layer");
+function makeMenuKinds(ctx) {
+  const renders = /* @__PURE__ */ new Set();
+  function mountLevels(el) {
+    const root = document.createElement("div");
+    root.className = "ut-levels";
+    style(root, { display: "flex", flexDirection: "column", gap: "10px", width: "100%", height: "100%", boxSizing: "border-box", color: "#e5e9f0", font: "inherit", userSelect: "none" });
+    el.appendChild(root);
+    let confirming = false;
+    const button = (label, css = {}) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.innerHTML = label;
+      style(b, { font: "inherit", fontSize: "13px", fontWeight: "600", border: "1px solid rgba(148,163,184,0.25)", borderRadius: "8px", background: "rgba(30,41,59,0.9)", color: "#e5e9f0", cursor: "pointer", pointerEvents: "auto", padding: "6px 10px", ...css });
+      return b;
+    };
+    function render() {
+      const live = inRuntimeLayer(el);
+      const v = ctx.view();
+      root.replaceChildren();
+      style(root, { pointerEvents: live ? "auto" : "none" });
+      if (v.modes.length > 1) {
+        const modes = document.createElement("div");
+        modes.className = "ut-modes";
+        style(modes, { display: "flex", gap: "6px", justifyContent: "center" });
+        for (const m of v.modes) {
+          const on = m === v.mode;
+          const b = button(m === "2d" ? "2D board" : "3D globe", {
+            flex: "1",
+            background: on ? AMBER2 : "rgba(30,41,59,0.9)",
+            color: on ? "#1a1305" : "#e5e9f0",
+            borderColor: on ? AMBER2 : "rgba(148,163,184,0.25)"
+          });
+          b.dataset.mode = m;
+          b.setAttribute("aria-pressed", String(on));
+          b.onclick = () => live && !on && ctx.pickMode(m);
+          modes.appendChild(b);
+        }
+        root.appendChild(modes);
+      }
+      const grid = document.createElement("div");
+      grid.className = "ut-grid";
+      style(grid, { display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "6px", flex: "1" });
+      const next = continueLevel(v.progress, v.mode);
+      for (let lvl = 1; lvl <= MAX_LEVEL; lvl++) {
+        const open = isUnlocked(v.progress, v.mode, lvl);
+        const solved = isSolved(v.progress, v.mode, lvl);
+        const current = lvl === v.level;
+        const isNext = open && lvl === next;
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.className = "ut-cell";
+        cell.dataset.level = String(lvl);
+        cell.dataset.state = !open ? "locked" : solved ? "solved" : isNext ? "next" : "open";
+        if (current) cell.dataset.current = "1";
+        const best = bestOf(v.progress, v.mode, lvl);
+        cell.title = !open ? "Level " + lvl + " \u2014 locked: solve level " + (lvl - 1) + " first" : "Level " + lvl + (best ? " \u2014 best " + formatTime(best) : "");
+        cell.innerHTML = open ? "<span>" + lvl + "</span>" + (solved ? '<span style="position:absolute;top:2px;right:3px;color:' + GREEN2 + '">' + CHECK_SVG + "</span>" : "") : LOCK_SVG;
+        style(cell, {
+          position: "relative",
+          font: "inherit",
+          fontSize: "14px",
+          fontWeight: "700",
+          minHeight: "30px",
+          borderRadius: "8px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          pointerEvents: live && open ? "auto" : "none",
+          cursor: open ? "pointer" : "default",
+          border: "1px solid " + (isNext ? AMBER2 : current ? "rgba(251,191,36,0.55)" : "rgba(148,163,184,0.2)"),
+          boxShadow: isNext ? "0 0 0 2px rgba(251,191,36,0.35), 0 0 14px rgba(251,191,36,0.35)" : "none",
+          background: !open ? "rgba(15,23,42,0.55)" : current ? "rgba(251,191,36,0.22)" : solved ? "rgba(62,224,143,0.12)" : "rgba(30,41,59,0.9)",
+          color: !open ? "#475569" : "#e5e9f0"
+        });
+        if (!open) {
+          cell.disabled = true;
+          cell.setAttribute("aria-disabled", "true");
+        } else cell.onclick = () => live && ctx.pickLevel(lvl);
+        grid.appendChild(cell);
+      }
+      root.appendChild(grid);
+      const foot = document.createElement("div");
+      style(foot, { display: "flex", gap: "8px", alignItems: "center" });
+      if (!confirming) {
+        const cont = button("Continue \xB7 Level " + next, { flex: "1", background: "rgba(217,119,6,0.95)", borderColor: "rgba(251,191,36,0.6)", color: "#fff" });
+        cont.className = "ut-continue";
+        cont.onclick = () => live && ctx.continueGame();
+        const reset = button("Reset progress", { background: "transparent", color: "#94a3b8" });
+        reset.className = "ut-reset";
+        reset.onclick = () => {
+          if (!live) return;
+          confirming = true;
+          render();
+        };
+        foot.append(cont, reset);
+      } else {
+        const q = document.createElement("span");
+        q.textContent = "Reset ALL progress in both modes?";
+        style(q, { flex: "1", fontSize: "13px", color: "#fca5a5" });
+        const yes = button("Reset", { background: "#b91c1c", borderColor: "#ef4444", color: "#fff" });
+        yes.className = "ut-reset-yes";
+        yes.onclick = () => {
+          confirming = false;
+          ctx.resetProgress();
+        };
+        const no = button("Keep", {});
+        no.className = "ut-reset-no";
+        no.onclick = () => {
+          confirming = false;
+          render();
+        };
+        foot.append(q, yes, no);
+      }
+      root.appendChild(foot);
+    }
+    render();
+    renders.add(render);
+    return {
+      update: () => render(),
+      destroy() {
+        renders.delete(render);
+        root.remove();
+      }
+    };
+  }
+  function mountStats(el, element) {
+    const root = document.createElement("div");
+    root.className = "ut-stats";
+    style(root, { font: "inherit", width: "100%", height: "100%", display: "flex", alignItems: "center", gap: "14px", color: "#cbd5e1", fontSize: "14px", fontVariantNumeric: "tabular-nums", pointerEvents: "none" });
+    el.appendChild(root);
+    let show = element?.show === "result" ? "result" : "play";
+    const render = () => {
+      const t = ctx.time();
+      if (show === "result") {
+        style(root, { justifyContent: "center", fontSize: "16px" });
+        root.innerHTML = '<span>Time <b style="color:#fff">' + formatTime(t.ms) + '</b></span><span>Best <b style="color:' + AMBER2 + '">' + formatTime(t.best) + "</b></span>" + (t.newBest ? '<span class="ut-newbest" style="color:' + GREEN2 + ';font-weight:700">NEW BEST</span>' : "");
+      } else {
+        style(root, { justifyContent: "flex-start", fontSize: "14px" });
+        root.innerHTML = '<span>\u23F1 <b class="ut-time" style="color:#fff">' + formatTime(t.ms) + '</b></span><span style="color:#94a3b8">best <b style="color:' + AMBER2 + '">' + formatTime(t.best) + "</b></span>";
+      }
+    };
+    render();
+    const timer = setInterval(render, 250);
+    renders.add(render);
+    return {
+      update(next) {
+        show = next?.show === "result" ? "result" : "play";
+        render();
+      },
+      destroy() {
+        clearInterval(timer);
+        renders.delete(render);
+        root.remove();
+      }
+    };
+  }
+  return {
+    levels: {
+      label: "Untangle levels",
+      summary: "Mode, the 30-level grid with locks, Continue and Reset progress (per player).",
+      icon: "grid",
+      defaultSize: { w: 480, h: 300 },
+      interactive: true,
+      mount: mountLevels
+    },
+    stats: {
+      label: "Untangle time",
+      summary: "The solve clock and your best for this level (m:ss).",
+      icon: "clock",
+      defaultSize: { w: 240, h: 24 },
+      defaults: { show: "play" },
+      fields: [{ key: "show", kind: "select", label: "show", options: ["play", "result"] }],
+      mount: mountStats
+    },
+    refreshAll() {
+      for (const r of renders) {
+        try {
+          r();
+        } catch {
+        }
+      }
+    }
+  };
+}
+
 // modules/untangle/src/index.js
 var GROUP = "untangle-module";
+var MODES_PLAYED = ["2d"];
 var EXPIRE_FRAMES = 40;
 var index_default = {
   id: "untangle",
@@ -550,6 +941,7 @@ var index_default = {
   register(api) {
     const THREE = api.THREE;
     let level = 1;
+    let mode = "2d";
     let positions = [];
     let edges = [];
     const board = { ...DEFAULT_BOARD };
@@ -572,7 +964,29 @@ var index_default = {
     let sceneClears = 0;
     let touched = false;
     let hook = null;
+    let menus = null;
     let gesture = null;
+    const storage = makeStorage(api);
+    let progress = normalizeProgress(storage.get(PROGRESS_KEY));
+    let participated = false;
+    const clock = { start: (
+      /** @type {number | null} */
+      null
+    ), ms: (
+      /** @type {number | null} */
+      null
+    ), newBest: false };
+    let wasUnderway = false;
+    const roundUnderway = () => !!api.game?.roundUnderway?.();
+    const shellUnused = () => typeof api.game?.roundCutoff === "function" ? api.game.roundCutoff() === null : true;
+    function saveProgress() {
+      storage.set(PROGRESS_KEY, progress);
+      menus?.refreshAll();
+    }
+    function clockMs() {
+      if (clock.ms !== null) return clock.ms;
+      return clock.start === null ? null : performance.now() - clock.start;
+    }
     const local = (p) => new THREE.Vector3(p[0] * board.radius, p[1] * board.radius, 0);
     function placeGroup() {
       if (!group) return;
@@ -723,16 +1137,29 @@ var index_default = {
       ambientSetTension(crossings);
       return crossings;
     }
-    function setLevel(lvl, announce = false) {
+    function setLevel(lvl, announce = false, md = mode) {
       level = Math.max(1, Math.round(Number(lvl) || 1));
+      mode = MODES_PLAYED.includes(md) ? md : "2d";
       const g = generate(level);
       edges = g.edges;
       positions = g.positions;
       won = false;
       carried = -1;
+      participated = false;
+      clock.start = roundUnderway() || shellUnused() ? performance.now() : null;
+      clock.ms = null;
+      clock.newBest = false;
       gesture?.reset();
       build();
+      menus?.refreshAll();
       if (announce) fire("level");
+    }
+    function selectLevel(lvl, md = mode) {
+      touched = true;
+      const l = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(lvl) || 1)));
+      const m = MODES_PLAYED.includes(md) ? md : "2d";
+      api.send({ op: "restart", level: l, mode: m });
+      setLevel(l, true, m);
     }
     let ac = null;
     let padGain = null;
@@ -790,6 +1217,13 @@ var index_default = {
       if (authoritative && total === 0 && !won) {
         won = true;
         solvedCount++;
+        if (clock.start !== null && clock.ms === null) clock.ms = performance.now() - clock.start;
+        if (participated) {
+          const r = recordSolve(progress, mode, level, clock.ms);
+          progress = r.progress;
+          clock.newBest = r.newBest;
+          saveProgress();
+        }
         winSting();
         burst?.start(
           positions.map((q) => local(q)),
@@ -810,6 +1244,7 @@ var index_default = {
     }
     function dropAt(i, p) {
       if (!positions[i]) return false;
+      participated = true;
       positions[i] = clampToBoard([p[0], p[1]]);
       api.send({ op: "move", i, p: positions[i] });
       applyMove(i, positions[i], true, true);
@@ -928,6 +1363,12 @@ var index_default = {
         placeGroup();
         refresh();
       }
+      const underway = roundUnderway();
+      if (underway && !wasUnderway && built) {
+        if (won) setLevel(Math.min(level + 1, MAX_LEVEL), false);
+        else if (clock.start === null) clock.start = performance.now();
+      }
+      wasUnderway = underway;
       if (!group) return;
       const t = performance.now() / 1e3;
       burst?.tick(t);
@@ -982,13 +1423,13 @@ var index_default = {
           type: "utvalue",
           label: "Untangle Value",
           defaults: { read: "level" },
-          params: [{ key: "read", kind: "select", options: ["level", "crossings", "solved", "dots", "edges", "count"] }]
+          params: [{ key: "read", kind: "select", options: ["level", "crossings", "solved", "dots", "edges", "count", "time", "best", "mode", "unlocked"] }]
         },
         {
           type: "utevent",
           label: "Untangle Event",
           defaults: { event: "solved" },
-          params: [{ key: "event", kind: "select", options: ["solved", "level"] }]
+          params: [{ key: "event", kind: "select", options: ["solved", "level", "start"] }]
         }
       ]
     });
@@ -1037,6 +1478,14 @@ var index_default = {
             return edges.length;
           case "count":
             return solvedCount;
+          case "time":
+            return Math.floor((clockMs() ?? 0) / 1e3);
+          case "best":
+            return Math.floor((bestOf(progress, mode, level) ?? 0) / 1e3);
+          case "mode":
+            return mode === "3d" ? 3 : 2;
+          case "unlocked":
+            return progress[mode]?.unlocked ?? 1;
           default:
             return level;
         }
@@ -1049,16 +1498,16 @@ var index_default = {
       else if (data.op === "move") applyMove(data.i, data.p, true);
       else if (data.op === "restart") {
         touched = true;
-        setLevel(data.level ?? 1);
+        setLevel(data.level ?? 1, false, data.mode ?? "2d");
       }
     });
     api.registerStateSync({
-      getState: () => touched ? { level, positions } : null,
+      getState: () => touched ? { level, positions, mode } : null,
       applyState: (state) => {
         if (!state) return;
         remoteApplied = true;
         touched = true;
-        setLevel(state.level ?? 1);
+        setLevel(state.level ?? 1, false, state.mode ?? "2d");
         if (Array.isArray(state.positions) && state.positions.length === positions.length) {
           positions = state.positions.map((p) => clampToBoard([p[0], p[1]]));
           refresh();
@@ -1067,7 +1516,7 @@ var index_default = {
     });
     api.registerMenu("Restart level", () => {
       touched = true;
-      api.send({ op: "restart", level });
+      api.send({ op: "restart", level, mode });
       setLevel(level);
     });
     api.onSceneClear?.(() => {
@@ -1086,11 +1535,33 @@ var index_default = {
       touched = false;
       frame = 0;
     });
+    menus = makeMenuKinds({
+      view: () => ({ mode, modes: MODES_PLAYED, level, progress, running: roundUnderway() }),
+      pickLevel: (l) => {
+        if (isUnlocked(progress, mode, l)) selectLevel(l, mode);
+      },
+      pickMode: (m) => selectLevel(continueLevel(progress, m), m),
+      continueGame: () => {
+        selectLevel(continueLevel(progress, mode), mode);
+        fire("start");
+      },
+      resetProgress: () => {
+        progress = defaultProgress();
+        saveProgress();
+        api.toast("Untangle progress reset");
+      },
+      time: () => ({ ms: clockMs(), best: bestOf(progress, mode, level), newBest: clock.newBest, solved: won })
+    });
+    if (typeof api.registerHudElement === "function") {
+      api.registerHudElement("levels", menus.levels);
+      api.registerHudElement("stats", menus.stats);
+    }
     api.registerInteractiveGroup(GROUP);
     api.registerSystemGroup?.(GROUP);
     hook = {
       state: () => ({
         level,
+        mode,
         positions,
         edges,
         board: { ...board },
@@ -1111,6 +1582,11 @@ var index_default = {
       move: (i, p) => dropAt(i, p),
       solve: () => solveNow(),
       setLevel: (lvl) => setLevel(lvl, true),
+      /** P2: the selector's replicated path */
+      select: (lvl, md) => selectLevel(lvl, md ?? mode),
+      progress: () => JSON.parse(JSON.stringify(progress)),
+      storageKind: storage.kind,
+      clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),
       /** P1: what the board is drawn with, as numbers a flight can assert */
       look: () => {
         const ws = group ? group.getWorldScale(new THREE.Vector3()).x : 1;

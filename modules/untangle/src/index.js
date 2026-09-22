@@ -21,8 +21,12 @@ import { generate, edgeCrossings, totalCrossings, clampToBoard, DEFAULT_BOARD } 
 import { createGesture } from './gesture.js';
 import { makeAim } from './aim.js';
 import { makeEdgeLayer, makeBackplate, makeHoverRing, makeBurst, COLORS } from './look.js';
+import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, isUnlocked, bestOf, makeStorage } from './progress.js';
+import { makeMenuKinds } from './menu.js';
 
 const GROUP = 'untangle-module';
+/** the modes this build plays (P3 adds the globe) */
+const MODES_PLAYED = ['2d'];
 const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defaults return
 
 export default {
@@ -36,6 +40,8 @@ export default {
 
 		// ---------- state ----------
 		let level = 1;
+		/** '2d' | '3d' — replicated with the level (the board is the same board for everyone) */
+		let mode = '2d';
 		/** @type {number[][]} board-unit coords per dot: [x, y] in [-1, 1] */
 		let positions = [];
 		/** @type {number[][]} dot index pairs */
@@ -62,8 +68,30 @@ export default {
 		let touched = false;
 		/** @type {any} the window.__untangle hook — declared up here, assigned at the end */
 		let hook = null;
+		/** @type {any} the menu kinds (menu.js), made near the end of register */
+		let menus = null;
 		/** @type {any} the pointer gesture (gesture.js), created with the interaction block */
 		let gesture = null;
+
+		// ---------- P2: progress (LOCAL per device — progress.js) + the solve clock ----------
+		const storage = makeStorage(api);
+		let progress = normalizeProgress(storage.get(PROGRESS_KEY));
+		/** did THIS peer make an authoritative move on the current board? (who banks a solve) */
+		let participated = false;
+		/** the solve clock, local performance time: running from `start`, frozen at `ms` */
+		const clock = { start: /** @type {number | null} */ (null), ms: /** @type {number | null} */ (null), newBest: false };
+		let wasUnderway = false;
+		const roundUnderway = () => !!api.game?.roundUnderway?.();
+		/** no game shell in the scene (the fallback board): the clock runs from the level load */
+		const shellUnused = () => (typeof api.game?.roundCutoff === 'function' ? api.game.roundCutoff() === null : true);
+		function saveProgress() {
+			storage.set(PROGRESS_KEY, progress);
+			menus?.refreshAll();
+		}
+		function clockMs() {
+			if (clock.ms !== null) return clock.ms;
+			return clock.start === null ? null : performance.now() - clock.start;
+		}
 
 		// ---------- the board in the world ----------
 		/** board units -> the group's local frame (metres) */
@@ -230,16 +258,30 @@ export default {
 		}
 
 		/** (re)generate level `lvl` and rebuild; `announce` pulses the level event */
-		function setLevel(lvl, announce = false) {
+		function setLevel(lvl, announce = false, md = mode) {
 			level = Math.max(1, Math.round(Number(lvl) || 1));
+			mode = MODES_PLAYED.includes(md) ? md : '2d';
 			const g = generate(level);
 			edges = g.edges;
 			positions = g.positions;
 			won = false;
 			carried = -1;
+			participated = false;
+			clock.start = roundUnderway() || shellUnused() ? performance.now() : null;
+			clock.ms = null;
+			clock.newBest = false;
 			gesture?.reset();
 			build();
+			menus?.refreshAll();
 			if (announce) fire('level');
+		}
+		/** the SELECTOR's path: change the board for everyone (level + mode), like Restart */
+		function selectLevel(lvl, md = mode) {
+			touched = true;
+			const l = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(lvl) || 1)));
+			const m = MODES_PLAYED.includes(md) ? md : '2d';
+			api.send({ op: 'restart', level: l, mode: m });
+			setLevel(l, true, m);
 		}
 
 		// ---------- generative audio (lazy — browsers gate audio on a gesture) ----------
@@ -305,6 +347,15 @@ export default {
 			if (authoritative && total === 0 && !won) {
 				won = true;
 				solvedCount++;
+				if (clock.start !== null && clock.ms === null) clock.ms = performance.now() - clock.start;
+				// fork 9: whoever solves banks it LOCALLY — every peer that moved a dot on this
+				// board (the co-op partners too), never a spectator
+				if (participated) {
+					const r = recordSolve(progress, mode, level, clock.ms);
+					progress = r.progress;
+					clock.newBest = r.newBest;
+					saveProgress();
+				}
 				winSting();
 				burst?.start(
 					positions.map((q) => local(q)),
@@ -326,6 +377,7 @@ export default {
 		/** the authoritative drop of dot i at board point p (apply locally + send) */
 		function dropAt(i, p) {
 			if (!positions[i]) return false;
+			participated = true;
 			positions[i] = clampToBoard([p[0], p[1]]);
 			api.send({ op: 'move', i, p: positions[i] });
 			applyMove(i, positions[i], true, true);
@@ -466,6 +518,15 @@ export default {
 				placeGroup();
 				refresh();
 			}
+			// P2: a round STARTING (menu/solved -> playing, replicated game state, so every peer
+			// sees the same edge) starts the clock — and on a SOLVED board it is "Next": every
+			// peer advances to the next level in lockstep, no message
+			const underway = roundUnderway();
+			if (underway && !wasUnderway && built) {
+				if (won) setLevel(Math.min(level + 1, MAX_LEVEL), false);
+				else if (clock.start === null) clock.start = performance.now();
+			}
+			wasUnderway = underway;
 			if (!group) return;
 			const t = performance.now() / 1000;
 			burst?.tick(t);
@@ -524,13 +585,13 @@ export default {
 					type: 'utvalue',
 					label: 'Untangle Value',
 					defaults: { read: 'level' },
-					params: [{ key: 'read', kind: 'select', options: ['level', 'crossings', 'solved', 'dots', 'edges', 'count'] }]
+					params: [{ key: 'read', kind: 'select', options: ['level', 'crossings', 'solved', 'dots', 'edges', 'count', 'time', 'best', 'mode', 'unlocked'] }]
 				},
 				{
 					type: 'utevent',
 					label: 'Untangle Event',
 					defaults: { event: 'solved' },
-					params: [{ key: 'event', kind: 'select', options: ['solved', 'level'] }]
+					params: [{ key: 'event', kind: 'select', options: ['solved', 'level', 'start'] }]
 				}
 			]
 		});
@@ -577,6 +638,10 @@ export default {
 					case 'dots': return positions.length;
 					case 'edges': return edges.length;
 					case 'count': return solvedCount;
+					case 'time': return Math.floor((clockMs() ?? 0) / 1000);
+					case 'best': return Math.floor((bestOf(progress, mode, level) ?? 0) / 1000);
+					case 'mode': return mode === '3d' ? 3 : 2;
+					case 'unlocked': return progress[mode]?.unlocked ?? 1;
 					default: return level;
 				}
 			},
@@ -590,16 +655,16 @@ export default {
 			else if (data.op === 'move') applyMove(data.i, data.p, true);
 			else if (data.op === 'restart') {
 				touched = true;
-				setLevel(data.level ?? 1);
+				setLevel(data.level ?? 1, false, data.mode ?? '2d');
 			}
 		});
 		api.registerStateSync({
-			getState: () => (touched ? { level, positions } : null),
+			getState: () => (touched ? { level, positions, mode } : null),
 			applyState: (state) => {
 				if (!state) return;
 				remoteApplied = true;
 				touched = true;
-				setLevel(state.level ?? 1);
+				setLevel(state.level ?? 1, false, state.mode ?? '2d');
 				if (Array.isArray(state.positions) && state.positions.length === positions.length) {
 					positions = state.positions.map((p) => clampToBoard([p[0], p[1]]));
 					refresh();
@@ -608,7 +673,7 @@ export default {
 		});
 		api.registerMenu('Restart level', () => {
 			touched = true;
-			api.send({ op: 'restart', level });
+			api.send({ op: 'restart', level, mode });
 			setLevel(level);
 		});
 		// a scene clear (applySession runs `/clear all` FIRST) resets to level 1; when a
@@ -631,6 +696,30 @@ export default {
 			frame = 0; // the fallback window opens again
 		});
 
+		// ---------- P2: the menu's module DOM (menu.js) ----------
+		/** @type {any} */
+		menus = makeMenuKinds({
+			view: () => ({ mode, modes: MODES_PLAYED, level, progress, running: roundUnderway() }),
+			pickLevel: (l) => {
+				if (isUnlocked(progress, mode, l)) selectLevel(l, mode);
+			},
+			pickMode: (m) => selectLevel(continueLevel(progress, m), m),
+			continueGame: () => {
+				selectLevel(continueLevel(progress, mode), mode);
+				fire('start'); // the template wires Untangle Event (start) -> Set Game State (playing)
+			},
+			resetProgress: () => {
+				progress = defaultProgress();
+				saveProgress();
+				api.toast('Untangle progress reset');
+			},
+			time: () => ({ ms: clockMs(), best: bestOf(progress, mode, level), newBest: clock.newBest, solved: won })
+		});
+		if (typeof api.registerHudElement === 'function') {
+			api.registerHudElement('levels', menus.levels);
+			api.registerHudElement('stats', menus.stats);
+		}
+
 		api.registerInteractiveGroup(GROUP);
 		api.registerSystemGroup?.(GROUP);
 
@@ -638,7 +727,7 @@ export default {
 		// newer copy of the module replaces it, and the old window listeners detach.
 		hook = {
 			state: () => ({
-				level, positions, edges, board: { ...board }, won, crossings, solvedCount, built, touched,
+				level, mode, positions, edges, board: { ...board }, won, crossings, solvedCount, built, touched,
 				nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite,
 				carried, carryMode: carried === -1 ? 'none' : gesture.carryMode() === 'none' ? carryHow : gesture.carryMode(),
 				lastDrop, lastUp: gesture.lastUp(), rayMode: aim.mode()
@@ -646,6 +735,11 @@ export default {
 			move: (i, p) => dropAt(i, p),
 			solve: () => solveNow(),
 			setLevel: (lvl) => setLevel(lvl, true),
+			/** P2: the selector's replicated path */
+			select: (lvl, md) => selectLevel(lvl, md ?? mode),
+			progress: () => JSON.parse(JSON.stringify(progress)),
+			storageKind: storage.kind,
+			clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),
 			/** P1: what the board is drawn with, as numbers a flight can assert */
 			look: () => {
 				const ws = group ? group.getWorldScale(new THREE.Vector3()).x : 1;

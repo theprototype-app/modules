@@ -126,6 +126,11 @@ run(async () => {
 	await connect(A, B);
 	await eventually(() => state(A.page), (s) => !!s && s.built && s.positions.length > 0, 'A: the fallback board stands');
 	await eventually(() => state(B.page), (s) => !!s && s.built && s.positions.length > 0, 'B: its own identical board');
+	const l1 = await look(A.page);
+	check(l1.dotRadius >= 3 * 0.055 - 1e-6, 'P1: on level 1 a dot is 3x the old 5.5 cm (radius ' + l1.dotRadius.toFixed(3) + ' m)');
+	// a 9-dot board: random test drops cannot solve it by accident (a 5-dot level 1 can)
+	await A.page.evaluate(() => window.__untangle.select(12));
+	await eventually(() => state(B.page), (s) => s.level === 12 && s.positions.length === 9, 'B follows A to level 12 (the selector path replicates)');
 
 	// frame the board head-on in the editor (the orbit target too, or update() reverts it)
 	await A.page.evaluate(() => {
@@ -228,7 +233,7 @@ run(async () => {
 	// ---- 5. (P1) the look, measured ------------------------------------------------------------------
 	const L = await look(A.page);
 	const S5 = await state(A.page);
-	check(L.dotRadius >= 3 * 0.055 - 1e-6, '5.1 a dot is 3x the old 5.5 cm at this level (radius ' + L.dotRadius.toFixed(3) + ' m)');
+	check(L.dotRadius >= 2 * 0.055 && L.dotRadius < 3 * 0.055, '5.1 on a 9-dot board the dots ease down but stay over 2x (radius ' + L.dotRadius.toFixed(3) + ' m)');
 	check(L.plate, '5.2 the backplate stands behind the dots');
 	const colorsRight = L.edgeColors.every((c, k) => c === (L.edgeCrossings[k] > 0 ? L.colors.RED : L.colors.GREEN));
 	check(L.edgeInstances === S5.edges.length && colorsRight, '5.3 every edge is one instance of ONE InstancedMesh (' + L.edgeInstances + '/' + S5.edges.length + '), red where it crosses, green where clear');
@@ -257,8 +262,8 @@ run(async () => {
 	const burst = await look(A.page);
 	check(burst.burstActive && burst.burstFired === fired + 1 && burst.rimWon, '5.8 a solve fires the burst and turns the rim green');
 	await eventually(() => look(A.page), (l) => !l.burstActive, '5.9 the burst ends by itself', 4000);
-	await eventually(() => state(A.page), (s) => s.level === 2 && s.crossings > 0, '5.10 (fallback autoAdvance) level 2 arrives tangled', 6000);
-	await eventually(() => state(B.page), (s) => s.level === 2, '5.11 B advanced in lockstep', 6000);
+	await eventually(() => state(A.page), (s) => s.level === 13 && s.crossings > 0, '5.10 (fallback autoAdvance) level 13 arrives tangled', 6000);
+	await eventually(() => state(B.page), (s) => s.level === 13, '5.11 B advanced in lockstep', 6000);
 
 	// ---- 4. play under a pointer lock: the carry follows the CROSSHAIR -------------------------
 	await A.page.locator('#play-button').click();

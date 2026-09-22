@@ -57,7 +57,11 @@ export function untangleGraph() {
 	N('bstart', 'hudbutton', 'Start button', 40, y, { element: 'start-btn' });
 	N('gostart', 'setgamestate', 'Start', 280, y, { state: 'playing', outcome: '', reset: false });
 	E('bstart', 'gostart', 'trigger');
-	y += 110;
+	// roadmap 30 P2: the level grid's Continue picks the next level and pulses `start` (the
+	// module cannot move the game shell itself — DEVX #19)
+	N('evstart', 'utevent', 'On Continue', 40, y + 60, { event: 'start' });
+	E('evstart', 'gostart', 'trigger');
+	y += 170;
 	N('pkey', 'keypress', 'Press P', 40, y, { code: 'KeyP', edge: 'down', pulse: 0.3 });
 	N('pausetoggle', 'hudscreen', 'Toggle pause menu', 280, y, { screen: 'pause', action: 'toggle' });
 	E('pkey', 'pausetoggle', 'trigger');
@@ -86,11 +90,13 @@ export function untangleHud() {
 					showWhile: 'menu',
 					input: 'menu',
 					elements: [
-						{ id: 'menu-panel', kind: 'panel', anchor: 'center', x: 0, y: 0, w: 440, h: 300, z: 0, label: '', style: PANEL },
-						{ id: 'title', kind: 'text', anchor: 'center', x: 0, y: -100, w: 400, h: 48, z: 1, label: 'UNTANGLE', style: { size: 36, weight: '700', color: '#fbbf24', align: 'center' } },
-						{ id: 'subtitle', kind: 'text', anchor: 'center', x: 0, y: -45, w: 400, h: 60, z: 1, label: 'Drag the dots until no edges cross. Click a dot to pick it up, click again to drop it. Every peer sees the same board.', style: { size: 13, color: '#d8dee9', align: 'center' }, wrap: true },
-						{ id: 'start-btn', kind: 'button', anchor: 'center', x: 0, y: 40, w: 220, h: 46, z: 1, label: 'Start', enabled: true, style: BUTTON('#d97706') },
-						{ id: 'menu-hint', kind: 'text', anchor: 'center', x: 0, y: 105, w: 400, h: 24, z: 1, label: 'Green edges are clear · red ones still cross · P pauses', style: { size: 12, color: '#8b97a8', align: 'center' } }
+						{ id: 'menu-panel', kind: 'panel', anchor: 'center', x: 0, y: 0, w: 540, h: 560, z: 0, label: '', style: PANEL },
+						{ id: 'title', kind: 'text', anchor: 'center', x: 0, y: -235, w: 480, h: 48, z: 1, label: 'UNTANGLE', style: { size: 36, weight: '700', color: '#fbbf24', align: 'center' } },
+						{ id: 'subtitle', kind: 'text', anchor: 'center', x: 0, y: -185, w: 480, h: 44, z: 1, label: 'Drag the dots until no edges cross. Every peer sees the same board; your unlocked levels are yours.', style: { size: 13, color: '#d8dee9', align: 'center' }, wrap: true },
+						// the module's own HUD kind: mode, the 30-level grid with locks, Continue, Reset
+						{ id: 'levels', kind: 'mod-untangle-levels', anchor: 'center', x: 0, y: 10, w: 480, h: 330, z: 1, label: '' },
+						{ id: 'start-btn', kind: 'button', anchor: 'center', x: 0, y: 212, w: 220, h: 46, z: 1, label: 'Start', enabled: true, style: BUTTON('#d97706') },
+						{ id: 'menu-hint', kind: 'text', anchor: 'center', x: 0, y: 252, w: 480, h: 20, z: 1, label: 'Pick a level (or Continue) · green edges are clear · P pauses', style: { size: 12, color: '#8b97a8', align: 'center' } }
 					]
 				},
 				{

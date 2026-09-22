@@ -250,11 +250,24 @@
 					"class": "w-[150px]"
 				},
 				{
+					"id": "evstart",
+					"type": "utevent",
+					"position": {
+						"x": 40,
+						"y": 730
+					},
+					"data": {
+						"label": "On Continue",
+						"event": "start"
+					},
+					"class": "w-[150px]"
+				},
+				{
 					"id": "pkey",
 					"type": "keypress",
 					"position": {
 						"x": 40,
-						"y": 780
+						"y": 840
 					},
 					"data": {
 						"label": "Press P",
@@ -269,7 +282,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 280,
-						"y": 780
+						"y": 840
 					},
 					"data": {
 						"label": "Toggle pause menu",
@@ -283,7 +296,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 40,
-						"y": 890
+						"y": 950
 					},
 					"data": {
 						"label": "Resume button",
@@ -296,7 +309,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 280,
-						"y": 890
+						"y": 950
 					},
 					"data": {
 						"label": "Close pause menu",
@@ -310,7 +323,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 40,
-						"y": 1000
+						"y": 1060
 					},
 					"data": {
 						"label": "Quit button",
@@ -323,7 +336,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 1000
+						"y": 1060
 					},
 					"data": {
 						"label": "Quit to menu",
@@ -338,7 +351,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 520,
-						"y": 1000
+						"y": 1060
 					},
 					"data": {
 						"label": "Close pause on quit",
@@ -391,6 +404,12 @@
 					"targetHandle": "trigger"
 				},
 				{
+					"id": "e-evstart-gostart.trigger",
+					"source": "evstart",
+					"target": "gostart",
+					"targetHandle": "trigger"
+				},
+				{
 					"id": "e-pkey-pausetoggle.trigger",
 					"source": "pkey",
 					"target": "pausetoggle",
@@ -434,8 +453,8 @@
 							"anchor": "center",
 							"x": 0,
 							"y": 0,
-							"w": 440,
-							"h": 300,
+							"w": 540,
+							"h": 560,
 							"z": 0,
 							"label": "",
 							"style": {
@@ -449,8 +468,8 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": -100,
-							"w": 400,
+							"y": -235,
+							"w": 480,
 							"h": 48,
 							"z": 1,
 							"label": "UNTANGLE",
@@ -466,11 +485,11 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": -45,
-							"w": 400,
-							"h": 60,
+							"y": -185,
+							"w": 480,
+							"h": 44,
 							"z": 1,
-							"label": "Drag the dots until no edges cross. Click a dot to pick it up, click again to drop it. Every peer sees the same board.",
+							"label": "Drag the dots until no edges cross. Every peer sees the same board; your unlocked levels are yours.",
 							"style": {
 								"size": 13,
 								"color": "#d8dee9",
@@ -479,11 +498,22 @@
 							"wrap": true
 						},
 						{
+							"id": "levels",
+							"kind": "mod-untangle-levels",
+							"anchor": "center",
+							"x": 0,
+							"y": 10,
+							"w": 480,
+							"h": 330,
+							"z": 1,
+							"label": ""
+						},
+						{
 							"id": "start-btn",
 							"kind": "button",
 							"anchor": "center",
 							"x": 0,
-							"y": 40,
+							"y": 212,
 							"w": 220,
 							"h": 46,
 							"z": 1,
@@ -502,11 +532,11 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": 105,
-							"w": 400,
-							"h": 24,
+							"y": 252,
+							"w": 480,
+							"h": 20,
 							"z": 1,
-							"label": "Green edges are clear · red ones still cross · P pauses",
+							"label": "Pick a level (or Continue) · green edges are clear · P pauses",
 							"style": {
 								"size": 12,
 								"color": "#8b97a8",
