@@ -77,6 +77,225 @@ function clampToBoard(p) {
 }
 var DEFAULT_BOARD = { level: 1, radius: 1.1, boardY: 1.6, x: 0, z: 0, yaw: 0, autoAdvance: true };
 
+// modules/untangle/src/gesture.js
+var TAP_PX = 6;
+var HOLD_MS = 500;
+function createGesture(hooks) {
+  const now = hooks.now ?? (() => performance.now());
+  let press = null;
+  let clickCarry = false;
+  let swallowUp = null;
+  let rotate = null;
+  let menuSuppressUntil = 0;
+  const touches = /* @__PURE__ */ new Map();
+  let lastUp = "none";
+  const mid = () => {
+    let x = 0;
+    let y = 0;
+    for (const t of touches.values()) {
+      x += t.x;
+      y += t.y;
+    }
+    return { x: x / Math.max(1, touches.size), y: y / Math.max(1, touches.size) };
+  };
+  function down(e) {
+    if (!hooks.active()) return;
+    if (e.pointerType === "touch") touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 2 && hooks.rotateStart && !hooks.carrying() && hooks.isViewport(e) && hooks.rotateStart(e)) {
+      const m = mid();
+      rotate = { id: -1, x: m.x, y: m.y, touch: true };
+      press = null;
+      e.stopPropagation();
+      return;
+    }
+    if (e.button === 2) {
+      if (hooks.rotateStart && !hooks.carrying() && hooks.isViewport(e) && hooks.rotateStart(e)) {
+        rotate = { id: e.pointerId, x: e.clientX, y: e.clientY, touch: false };
+        menuSuppressUntil = now() + 6e4;
+        e.stopPropagation();
+      }
+      return;
+    }
+    if (e.button !== 0) return;
+    if (hooks.carrying()) {
+      const viewport = hooks.isViewport(e);
+      press = null;
+      clickCarry = false;
+      hooks.drop(viewport ? "click" : "ui", e);
+      if (viewport) {
+        swallowUp = e.pointerId;
+        e.stopPropagation();
+      }
+      return;
+    }
+    if (!hooks.isViewport(e)) return;
+    const i = hooks.pickAt(e);
+    if (i < 0) return;
+    press = { id: e.pointerId, x: e.clientX, y: e.clientY, t: now(), travel: 0 };
+    clickCarry = false;
+    hooks.pick(i, "press");
+    e.stopPropagation();
+  }
+  function move(e) {
+    if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (rotate) {
+      if (rotate.touch && touches.size >= 2) {
+        const m = mid();
+        hooks.rotateBy?.(m.x - rotate.x, m.y - rotate.y);
+        rotate.x = m.x;
+        rotate.y = m.y;
+      } else if (!rotate.touch && e.pointerId === rotate.id) {
+        const dx = hooks.locked() ? e.movementX ?? 0 : e.clientX - rotate.x;
+        const dy = hooks.locked() ? e.movementY ?? 0 : e.clientY - rotate.y;
+        hooks.rotateBy?.(dx, dy);
+        rotate.x = e.clientX;
+        rotate.y = e.clientY;
+      }
+      return;
+    }
+    if (press && e.pointerId === press.id) {
+      if (hooks.locked()) press.travel += Math.abs(e.movementX ?? 0) + Math.abs(e.movementY ?? 0);
+      else press.travel = Math.max(press.travel, Math.hypot(e.clientX - press.x, e.clientY - press.y));
+    }
+  }
+  function up(e) {
+    touches.delete(e.pointerId);
+    if (swallowUp === e.pointerId) {
+      swallowUp = null;
+      lastUp = "swallowed";
+      e.stopPropagation();
+      return;
+    }
+    if (rotate && (rotate.touch ? touches.size < 2 : e.pointerId === rotate.id)) {
+      rotate = null;
+      menuSuppressUntil = now() + 400;
+      lastUp = "rotate";
+      e.stopPropagation();
+      return;
+    }
+    if (!press || e.pointerId !== press.id) return;
+    const held = now() - press.t;
+    const moved = press.travel > TAP_PX;
+    press = null;
+    e.stopPropagation();
+    if (!hooks.carrying()) return;
+    if (moved || held > HOLD_MS) {
+      lastUp = "release";
+      hooks.drop("release", e);
+    } else {
+      lastUp = "tap";
+      clickCarry = true;
+    }
+  }
+  function cancel(e) {
+    touches.delete(e.pointerId);
+    if (rotate && !rotate.touch && e.pointerId === rotate.id) rotate = null;
+    if (press && e.pointerId === press.id) {
+      press = null;
+      if (hooks.carrying()) hooks.drop("cancel", e);
+    }
+  }
+  function menu(e) {
+    if (rotate || now() < menuSuppressUntil) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }
+  const target = hooks.target;
+  target.addEventListener("pointerdown", down, true);
+  target.addEventListener("pointermove", move, true);
+  target.addEventListener("pointerup", up, true);
+  target.addEventListener("pointercancel", cancel, true);
+  target.addEventListener("contextmenu", menu, true);
+  return {
+    detach() {
+      target.removeEventListener("pointerdown", down, true);
+      target.removeEventListener("pointermove", move, true);
+      target.removeEventListener("pointerup", up, true);
+      target.removeEventListener("pointercancel", cancel, true);
+      target.removeEventListener("contextmenu", menu, true);
+      press = null;
+      rotate = null;
+    },
+    /** a carry that ended elsewhere (a scene clear, a level change, the VR path) */
+    reset() {
+      press = null;
+      clickCarry = false;
+    },
+    /** 'press' while held, 'click' while a tap carries, 'none' otherwise */
+    carryMode: () => press ? "press" : clickCarry ? "click" : "none",
+    rotating: () => !!rotate,
+    lastUp: () => lastUp
+  };
+}
+
+// modules/untangle/src/aim.js
+function makeAim(api, THREE) {
+  const ndc = new THREE.Vector2();
+  const forward = new THREE.Vector3();
+  const at = new THREE.Vector3();
+  const want = new THREE.Vector3();
+  let lastMode = "none";
+  const locked = () => typeof document !== "undefined" && !!document.pointerLockElement;
+  function sceneCamera() {
+    const scene = api.scene?.();
+    if (!scene) return null;
+    const pos = api.playerPosition?.();
+    if (pos) want.set(pos[0], pos[1], pos[2]);
+    let best = null;
+    let bestD = Infinity;
+    scene.traverse((o) => {
+      if (!o.isCamera) return;
+      const d = pos ? o.getWorldPosition(at).distanceToSquared(want) : 0;
+      if (d < bestD) {
+        bestD = d;
+        best = o;
+      }
+    });
+    return best;
+  }
+  function camera() {
+    const r = api.pointerRay?.();
+    return r?.camera ?? sceneCamera();
+  }
+  function fromClient(x, y, canvas) {
+    if (locked()) return crosshair();
+    const cam = camera();
+    if (!cam || !canvas?.getBoundingClientRect) return null;
+    const rect = canvas.getBoundingClientRect();
+    ndc.set((x - rect.left) / rect.width * 2 - 1, -((y - rect.top) / rect.height) * 2 + 1);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, cam);
+    lastMode = "cursor";
+    return ray;
+  }
+  function crosshair() {
+    const r = api.pointerRay?.();
+    const cam = r?.camera ?? sceneCamera();
+    if (!cam) return r ?? null;
+    cam.updateMatrixWorld?.();
+    cam.getWorldDirection(forward);
+    if (r && r.ray.direction.angleTo(forward) < 2e-3) {
+      lastMode = "api";
+      return r;
+    }
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc.set(0, 0), cam);
+    lastMode = "crosshair";
+    return ray;
+  }
+  function current() {
+    if (api.isVR?.()) {
+      lastMode = "vr";
+      return api.pointerRay?.() ?? null;
+    }
+    if (locked()) return crosshair();
+    lastMode = "cursor";
+    return api.pointerRay?.() ?? null;
+  }
+  return { current, fromClient, crosshair, camera, locked, mode: () => lastMode };
+}
+
 // modules/untangle/src/index.js
 var GROUP = "untangle-module";
 var DOT_R = 0.055;
@@ -112,6 +331,8 @@ var index_default = {
     let remoteApplied = false;
     let sceneClears = 0;
     let touched = false;
+    let hook = null;
+    let gesture = null;
     const local = (p) => new THREE.Vector3(p[0] * board.radius, p[1] * board.radius, 0);
     function placeGroup() {
       if (!group) return;
@@ -212,6 +433,7 @@ var index_default = {
       positions = g.positions;
       won = false;
       carried = -1;
+      gesture?.reset();
       build();
       if (announce) fire("level");
     }
@@ -297,25 +519,101 @@ var index_default = {
       }
       return crossings === 0;
     }
+    const aim = makeAim(api, THREE);
     const dragPlane = new THREE.Plane();
     const planeNormal = new THREE.Vector3();
     const hitPoint = new THREE.Vector3();
     const localHit = new THREE.Vector3();
-    api.registerClickHandler((object) => {
-      if (carried !== -1) {
-        const i = carried;
-        dots[i]?.material.color.set(15857145);
-        carried = -1;
-        blip(440);
-        dropAt(i, positions[i]);
-        return true;
-      }
-      if (!object?.name?.startsWith("untangle-dot-")) return false;
-      carried = +object.name.slice("untangle-dot-".length);
-      dots[carried]?.material.color.set(16498468);
-      blip(660);
+    const dotWorld = new THREE.Vector3();
+    let lastDrop = "none";
+    function dotUnder(ray) {
+      if (!ray || !group || !dots.length) return -1;
+      group.updateMatrixWorld();
+      const scale = group.getWorldScale(localHit).x || 1;
+      const reach = DOT_R * 1.8 * scale;
+      let best = -1;
+      let bestMiss = reach * reach;
+      dots.forEach((dot, i) => {
+        dot.getWorldPosition(dotWorld);
+        const miss = ray.ray.distanceSqToPoint(dotWorld);
+        if (miss > bestMiss || dotWorld.sub(ray.ray.origin).dot(ray.ray.direction) <= 0) return;
+        bestMiss = miss;
+        best = i;
+      });
+      return best;
+    }
+    function follow(ray) {
+      if (carried === -1 || !group || !ray) return false;
+      planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
+      dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
+      if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return false;
+      localHit.copy(hitPoint);
+      group.worldToLocal(localHit);
+      positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
       return true;
-    });
+    }
+    function pick(i, how) {
+      if (!positions[i]) return;
+      carried = i;
+      carryHow = how;
+      dots[i]?.material.color.set(16498468);
+      blip(660);
+    }
+    function drop(how, event) {
+      if (carried === -1) return;
+      if (event && how !== "ui" && how !== "cancel") follow(aim.fromClient(event.clientX, event.clientY, event.target));
+      const i = carried;
+      dots[i]?.material.color.set(15857145);
+      carried = -1;
+      carryHow = "none";
+      lastDrop = how;
+      gesture.reset();
+      blip(440);
+      dropAt(i, positions[i]);
+    }
+    function isViewport(event) {
+      if (aim.locked()) return true;
+      const t = event?.target;
+      if (!t || t.tagName !== "CANVAS" || t.closest?.("#hud-layer, [data-hud-module]")) return false;
+      return t.clientWidth * t.clientHeight > 0.25 * window.innerWidth * window.innerHeight;
+    }
+    gesture = typeof window !== "undefined" ? createGesture({
+      target: window,
+      locked: aim.locked,
+      isViewport,
+      // a newer copy of this module (a dev reload) owns the window now; a torn-down
+      // board (module disabled: its scene-root group was removed) is inert
+      active: () => {
+        if (window.__untangle !== hook) {
+          gesture.detach();
+          return false;
+        }
+        return !!group && !!group.parent && built && interactive();
+      },
+      carrying: () => carried !== -1,
+      pickAt: (event) => dotUnder(aim.fromClient(event.clientX, event.clientY, event.target)),
+      pick,
+      drop
+    }) : { detach() {
+    }, reset() {
+    }, carryMode: () => "none", rotating: () => false, lastUp: () => "none" };
+    let carryHow = "none";
+    function interactive() {
+      const m = typeof api.editorMode === "function" ? api.editorMode() : null;
+      return m !== "edit" || typeof api.isPlaying === "function" && api.isPlaying();
+    }
+    api.registerClickHandler(
+      (object) => {
+        if (carried !== -1) {
+          drop("click");
+          return true;
+        }
+        if (!object?.name?.startsWith("untangle-dot-")) return false;
+        pick(+object.name.slice("untangle-dot-".length), "click");
+        return true;
+      },
+      { modes: ["interact", "play"] }
+    );
     api.registerFrameTask(() => {
       frame++;
       if (!built && nodeSeen < 0 && frame > EXPIRE_FRAMES) setLevel(level);
@@ -327,14 +625,7 @@ var index_default = {
         refresh();
       }
       if (carried === -1 || !group) return;
-      const ray = api.pointerRay();
-      if (!ray) return;
-      planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
-      dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
-      if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return;
-      localHit.copy(hitPoint);
-      group.worldToLocal(localHit);
-      positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+      if (!follow(aim.current())) return;
       refresh();
       const now = performance.now();
       if (now - lastDragSent > 100) {
@@ -459,6 +750,7 @@ var index_default = {
       remoteApplied = false;
       won = false;
       carried = -1;
+      gesture?.reset();
       if (group) {
         api.scene()?.remove(group);
         group = null;
@@ -469,14 +761,35 @@ var index_default = {
     });
     api.registerInteractiveGroup(GROUP);
     api.registerSystemGroup?.(GROUP);
-    if (typeof window !== "undefined") {
-      window.__untangle = {
-        state: () => ({ level, positions, edges, board: { ...board }, won, crossings, solvedCount, built, touched, nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite }),
-        move: (i, p) => dropAt(i, p),
-        solve: () => solveNow(),
-        setLevel: (lvl) => setLevel(lvl, true)
-      };
-    }
+    hook = {
+      state: () => ({
+        level,
+        positions,
+        edges,
+        board: { ...board },
+        won,
+        crossings,
+        solvedCount,
+        built,
+        touched,
+        nodeOwned: nodeSeen >= 0,
+        sceneClears,
+        sprite: !!sprite,
+        carried,
+        carryMode: carried === -1 ? "none" : gesture.carryMode() === "none" ? carryHow : gesture.carryMode(),
+        lastDrop,
+        lastUp: gesture.lastUp(),
+        rayMode: aim.mode()
+      }),
+      move: (i, p) => dropAt(i, p),
+      solve: () => solveNow(),
+      setLevel: (lvl) => setLevel(lvl, true),
+      /** world position of dot i (for pointer tests) */
+      dotWorld: (i) => dots[i] ? dots[i].getWorldPosition(new THREE.Vector3()).toArray() : null,
+      /** world position of a BOARD point [x, y] */
+      boardWorld: (p) => group ? group.localToWorld(local(p)).toArray() : null
+    };
+    if (typeof window !== "undefined") window.__untangle = hook;
   }
 };
 export {

@@ -18,6 +18,8 @@
 // - late joiners get {level, positions} via registerStateSync
 
 import { generate, edgeCrossings, totalCrossings, clampToBoard, DEFAULT_BOARD } from './puzzle.js';
+import { createGesture } from './gesture.js';
+import { makeAim } from './aim.js';
 
 const GROUP = 'untangle-module';
 const DOT_R = 0.055;
@@ -59,6 +61,10 @@ export default {
 		// getmodulestate), so a joiner whose fallback board nobody touched must answer
 		// with NOTHING, or its fresh level-1 scramble overwrites the room's game
 		let touched = false;
+		/** @type {any} the window.__untangle hook — declared up here, assigned at the end */
+		let hook = null;
+		/** @type {any} the pointer gesture (gesture.js), created with the interaction block */
+		let gesture = null;
 
 		// ---------- the board in the world ----------
 		/** board units -> the group's local frame (metres) */
@@ -170,6 +176,7 @@ export default {
 			positions = g.positions;
 			won = false;
 			carried = -1;
+			gesture?.reset();
 			build();
 			if (announce) fire('level');
 		}
@@ -266,28 +273,119 @@ export default {
 			return crossings === 0;
 		}
 
-		// ---------- interaction: click to pick, pointerRay to carry, click to drop ----------
+		// ---------- interaction: press-drag-release AND click-click (gesture.js) ----------
+		// P0 (roadmap 30): a real drag. gesture.js owns WHEN (window capture listeners — the
+		// SDK has no pointerdown or click-miss seam), aim.js owns WHERE (the crosshair under a
+		// lock, the cursor otherwise, the hand in VR), and this block owns the board: which
+		// dot a ray picks, where a carried dot follows, and the drop. The throttled 'drag'
+		// previews and the authoritative 'move' are unchanged — lockstep stays.
+		const aim = makeAim(api, THREE);
 		const dragPlane = new THREE.Plane();
 		const planeNormal = new THREE.Vector3();
 		const hitPoint = new THREE.Vector3();
 		const localHit = new THREE.Vector3();
-		api.registerClickHandler((object) => {
-			// while carrying, ANY click drops the dot where it is (clicking the tiny dot
-			// exactly is fiddly, especially at the board-edge clamp)
-			if (carried !== -1) {
-				const i = carried;
-				dots[i]?.material.color.set(0xf1f5f9);
-				carried = -1;
-				blip(440);
-				dropAt(i, positions[i]);
-				return true;
-			}
-			if (!object?.name?.startsWith('untangle-dot-')) return false;
-			carried = +object.name.slice('untangle-dot-'.length);
-			dots[carried]?.material.color.set(0xfbbf24);
+		const dotWorld = new THREE.Vector3();
+		let lastDrop = 'none';
+
+		/** the dot a ray points at (a generous radius: a dot is small and a hand shakes) */
+		function dotUnder(ray) {
+			if (!ray || !group || !dots.length) return -1;
+			group.updateMatrixWorld();
+			const scale = group.getWorldScale(localHit).x || 1;
+			const reach = DOT_R * 1.8 * scale;
+			let best = -1;
+			let bestMiss = reach * reach;
+			dots.forEach((dot, i) => {
+				dot.getWorldPosition(dotWorld);
+				const miss = ray.ray.distanceSqToPoint(dotWorld);
+				if (miss > bestMiss || dotWorld.sub(ray.ray.origin).dot(ray.ray.direction) <= 0) return;
+				bestMiss = miss;
+				best = i;
+			});
+			return best;
+		}
+		/** move the carried dot to where `ray` meets the board plane; true when it moved */
+		function follow(ray) {
+			if (carried === -1 || !group || !ray) return false;
+			// the board plane in WORLD space: the group's +Z through its origin
+			planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
+			dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
+			if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return false;
+			localHit.copy(hitPoint);
+			group.worldToLocal(localHit);
+			positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+			return true;
+		}
+		function pick(i, how) {
+			if (!positions[i]) return;
+			carried = i;
+			carryHow = how;
+			dots[i]?.material.color.set(0xfbbf24);
 			blip(660);
-			return true; // consume — never selects the dot
-		});
+		}
+		/** drop the carried dot where it is (after one last follow of the drop's own ray) */
+		function drop(how, event) {
+			if (carried === -1) return;
+			if (event && how !== 'ui' && how !== 'cancel') follow(aim.fromClient(event.clientX, event.clientY, event.target));
+			const i = carried;
+			dots[i]?.material.color.set(0xf1f5f9);
+			carried = -1;
+			carryHow = 'none';
+			lastDrop = how;
+			gesture.reset();
+			blip(440);
+			dropAt(i, positions[i]);
+		}
+		/** the renderer's canvas (or anything while a lock holds the pointer) — never a HUD box */
+		function isViewport(event) {
+			if (aim.locked()) return true;
+			const t = event?.target;
+			if (!t || t.tagName !== 'CANVAS' || t.closest?.('#hud-layer, [data-hud-module]')) return false;
+			return t.clientWidth * t.clientHeight > 0.25 * window.innerWidth * window.innerHeight;
+		}
+		gesture =
+			typeof window !== 'undefined'
+				? createGesture({
+						target: window,
+						locked: aim.locked,
+						isViewport,
+						// a newer copy of this module (a dev reload) owns the window now; a torn-down
+						// board (module disabled: its scene-root group was removed) is inert
+						active: () => {
+							if (window.__untangle !== hook) {
+								gesture.detach();
+								return false;
+							}
+							return !!group && !!group.parent && built && interactive();
+						},
+						carrying: () => carried !== -1,
+						pickAt: (event) => dotUnder(aim.fromClient(event.clientX, event.clientY, event.target)),
+						pick,
+						drop
+					})
+				: { detach() {}, reset() {}, carryMode: () => 'none', rotating: () => false, lastUp: () => 'none' };
+		let carryHow = 'none';
+		/** 30-core-modes: an EDIT-mode editor never lets the board react (fork 1). A 1.16 core
+		 * has no editor mode, so everything the board is shown in reacts, as it always did. */
+		function interactive() {
+			const m = typeof api.editorMode === 'function' ? api.editorMode() : null;
+			return m !== 'edit' || (typeof api.isPlaying === 'function' && api.isPlaying());
+		}
+
+		// VR (and any core path that dispatches a module click): the trigger picks, the next
+		// trigger drops. Desktop presses never get here — gesture.js consumed them first.
+		api.registerClickHandler(
+			(object) => {
+				if (carried !== -1) {
+					drop('click');
+					return true;
+				}
+				if (!object?.name?.startsWith('untangle-dot-')) return false;
+				pick(+object.name.slice('untangle-dot-'.length), 'click');
+				return true; // consume — never selects the dot
+			},
+			{ modes: ['interact', 'play'] }
+		);
 		api.registerFrameTask(() => {
 			frame++;
 			// the node-or-fallback gate: no utboard node within EXPIRE_FRAMES of load (or of a
@@ -301,15 +399,7 @@ export default {
 				refresh();
 			}
 			if (carried === -1 || !group) return;
-			const ray = api.pointerRay();
-			if (!ray) return;
-			// the board plane in WORLD space: the group's +Z through its origin
-			planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
-			dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
-			if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return;
-			localHit.copy(hitPoint);
-			group.worldToLocal(localHit);
-			positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+			if (!follow(aim.current())) return;
 			refresh();
 			const now = performance.now();
 			if (now - lastDragSent > 100) {
@@ -438,6 +528,7 @@ export default {
 			remoteApplied = false;
 			won = false;
 			carried = -1;
+			gesture?.reset();
 			if (group) {
 				api.scene()?.remove(group);
 				group = null;
@@ -450,14 +541,23 @@ export default {
 		api.registerInteractiveGroup(GROUP);
 		api.registerSystemGroup?.(GROUP);
 
-		// test/debug hook (never serialized)
-		if (typeof window !== 'undefined') {
-			/** @type {any} */ (window).__untangle = {
-				state: () => ({ level, positions, edges, board: { ...board }, won, crossings, solvedCount, built, touched, nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite }),
-				move: (i, p) => dropAt(i, p),
-				solve: () => solveNow(),
-				setLevel: (lvl) => setLevel(lvl, true)
-			};
-		}
+		// test/debug hook (never serialized). It is also the gesture's ownership token: a
+		// newer copy of the module replaces it, and the old window listeners detach.
+		hook = {
+			state: () => ({
+				level, positions, edges, board: { ...board }, won, crossings, solvedCount, built, touched,
+				nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite,
+				carried, carryMode: carried === -1 ? 'none' : gesture.carryMode() === 'none' ? carryHow : gesture.carryMode(),
+				lastDrop, lastUp: gesture.lastUp(), rayMode: aim.mode()
+			}),
+			move: (i, p) => dropAt(i, p),
+			solve: () => solveNow(),
+			setLevel: (lvl) => setLevel(lvl, true),
+			/** world position of dot i (for pointer tests) */
+			dotWorld: (i) => (dots[i] ? dots[i].getWorldPosition(new THREE.Vector3()).toArray() : null),
+			/** world position of a BOARD point [x, y] */
+			boardWorld: (p) => (group ? group.localToWorld(local(p)).toArray() : null)
+		};
+		if (typeof window !== 'undefined') /** @type {any} */ (window).__untangle = hook;
 	}
 };
