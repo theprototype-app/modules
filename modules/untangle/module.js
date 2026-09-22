@@ -296,9 +296,250 @@ function makeAim(api, THREE) {
   return { current, fromClient, crosshair, camera, locked, mode: () => lastMode };
 }
 
+// modules/untangle/src/look.js
+var RED = 16731486;
+var GREEN = 4120719;
+var AMBER = 16498468;
+var COLORS = { RED, GREEN, AMBER };
+function makeEdgeLayer(THREE, capacity) {
+  const geometry = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true);
+  const coreMat = new THREE.MeshBasicMaterial({ color: 16777215, toneMapped: false });
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 16777215,
+    transparent: true,
+    opacity: 0.16,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const core = new THREE.InstancedMesh(geometry, coreMat, capacity);
+  const glow = new THREE.InstancedMesh(geometry, glowMat, capacity);
+  core.name = "untangle-edges";
+  glow.name = "untangle-edges-glow";
+  for (const mesh of [core, glow]) {
+    mesh.frustumCulled = false;
+    mesh.count = 0;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  }
+  glow.renderOrder = 1;
+  const up = new THREE.Vector3(0, 1, 0);
+  const dir = new THREE.Vector3();
+  const mid = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+  const matrix = new THREE.Matrix4();
+  const color = new THREE.Color();
+  let radius = 0.02;
+  return {
+    core,
+    glow,
+    /** @param {number} r tube radius (world units in the group frame) */
+    setRadius(r) {
+      radius = r;
+    },
+    radius: () => radius,
+    /**
+     * @param {{a: any, b: any, color: number}[]} segments endpoints as THREE.Vector3
+     */
+    set(segments) {
+      const n = Math.min(segments.length, capacity);
+      for (let i = 0; i < n; i++) {
+        const s = segments[i];
+        dir.subVectors(s.b, s.a);
+        const len = dir.length() || 1e-6;
+        mid.addVectors(s.a, s.b).multiplyScalar(0.5);
+        quat.setFromUnitVectors(up, dir.divideScalar(len));
+        color.setHex(s.color);
+        matrix.compose(mid, quat, scale.set(radius, len, radius));
+        core.setMatrixAt(i, matrix);
+        core.setColorAt(i, color);
+        matrix.compose(mid, quat, scale.set(radius * 3.2, len, radius * 3.2));
+        glow.setMatrixAt(i, matrix);
+        glow.setColorAt(i, color);
+      }
+      core.count = n;
+      glow.count = n;
+      core.instanceMatrix.needsUpdate = true;
+      glow.instanceMatrix.needsUpdate = true;
+      if (core.instanceColor) core.instanceColor.needsUpdate = true;
+      if (glow.instanceColor) glow.instanceColor.needsUpdate = true;
+    },
+    dispose() {
+      geometry.dispose();
+      coreMat.dispose();
+      glowMat.dispose();
+    }
+  };
+}
+function roundedRect(THREE, h, r) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-h + r, -h);
+  shape.lineTo(h - r, -h);
+  shape.quadraticCurveTo(h, -h, h, -h + r);
+  shape.lineTo(h, h - r);
+  shape.quadraticCurveTo(h, h, h - r, h);
+  shape.lineTo(-h + r, h);
+  shape.quadraticCurveTo(-h, h, -h, h - r);
+  shape.lineTo(-h, -h + r);
+  shape.quadraticCurveTo(-h, -h, -h + r, -h);
+  return shape;
+}
+function makeBackplate(THREE, R) {
+  const group = new THREE.Group();
+  group.name = "untangle-backplate";
+  const h = R * 1.24;
+  const plate = new THREE.Mesh(
+    new THREE.ShapeGeometry(roundedRect(THREE, h, R * 0.16), 6),
+    new THREE.MeshStandardMaterial({ color: 857120, roughness: 0.62, metalness: 0.15, transparent: true, opacity: 0.9 })
+  );
+  plate.name = "untangle-plate";
+  plate.position.z = -R * 0.06;
+  plate.receiveShadow = false;
+  plate.castShadow = false;
+  group.add(plate);
+  const lines = [];
+  for (let k = -4; k <= 4; k++) {
+    const v = k / 4 * R;
+    lines.push(-R, v, 0, R, v, 0, v, -R, 0, v, R, 0);
+  }
+  const gridGeo = new THREE.BufferGeometry();
+  gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(lines, 3));
+  const grid = new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 1976893, transparent: true, opacity: 0.8 }));
+  grid.name = "untangle-grid";
+  grid.position.z = -R * 0.055;
+  group.add(grid);
+  const path = roundedRect(THREE, h, R * 0.16);
+  const rimMat = new THREE.MeshBasicMaterial({ color: AMBER, toneMapped: false });
+  const rim = new THREE.Mesh(new THREE.TubeGeometry(path, 160, R * 0.014, 8, true), rimMat);
+  rim.name = "untangle-rim";
+  rim.position.z = -R * 0.05;
+  group.add(rim);
+  return {
+    group,
+    /** @param {boolean} won */
+    setWon(won) {
+      rimMat.color.setHex(won ? GREEN : AMBER);
+    }
+  };
+}
+function makeHoverRing(THREE) {
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(1, 0.1, 10, 48),
+    new THREE.MeshBasicMaterial({ color: AMBER, transparent: true, opacity: 0.9, toneMapped: false, depthWrite: false })
+  );
+  ring.name = "untangle-hover";
+  ring.visible = false;
+  ring.renderOrder = 2;
+  return ring;
+}
+function makeBurst(THREE) {
+  const MAX = 256;
+  const positions = new Float32Array(MAX * 3);
+  const origin = new Float32Array(MAX * 3);
+  const velocity = new Float32Array(MAX * 3);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  let map = null;
+  if (typeof document !== "undefined") {
+    const c = document.createElement("canvas");
+    c.width = c.height = 64;
+    const g = c.getContext("2d");
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.35, "rgba(255,255,255,0.7)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    map = new THREE.CanvasTexture(c);
+  }
+  const material = new THREE.PointsMaterial({
+    map,
+    color: GREEN,
+    size: 0.05,
+    transparent: true,
+    opacity: 1,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const points = new THREE.Points(geometry, material);
+  points.name = "untangle-burst";
+  points.visible = false;
+  points.frustumCulled = false;
+  const wave = new THREE.Mesh(
+    new THREE.TorusGeometry(1, 0.012, 8, 96),
+    new THREE.MeshBasicMaterial({ color: GREEN, transparent: true, opacity: 0.8, toneMapped: false, depthWrite: false })
+  );
+  wave.name = "untangle-wave";
+  wave.visible = false;
+  const DURATION = 1.4;
+  let startedAt = -1;
+  let count = 0;
+  let fired = 0;
+  return {
+    points,
+    wave,
+    DURATION,
+    fired: () => fired,
+    active: () => startedAt >= 0,
+    /**
+     * @param {any[]} centres THREE.Vector3 per dot (group frame)
+     * @param {(c: any) => any} outward the direction sparks fly from a centre (unit)
+     * @param {number} scale board radius
+     * @param {boolean} flat 2D: the wave lies in the board plane; 3D: no wave
+     */
+    start(centres, outward, scale, flat, now) {
+      count = 0;
+      const per = Math.max(6, Math.floor(MAX / Math.max(1, centres.length)));
+      centres.forEach((c, k) => {
+        const out = outward(c);
+        for (let j = 0; j < per && count < MAX; j++, count++) {
+          const angle = j / per * Math.PI * 2 + k * 0.7;
+          const sx = Math.cos(angle);
+          const sy = Math.sin(angle);
+          const px = Math.abs(out.z) > 0.9 ? 1 : 0;
+          const side1 = new THREE.Vector3(px, 1 - px, 0).cross(out).normalize();
+          const side2 = out.clone().cross(side1).normalize();
+          const v = out.clone().multiplyScalar(flat ? 0.15 : 0.6).addScaledVector(side1, sx).addScaledVector(side2, sy).normalize().multiplyScalar(scale * (0.35 + 0.25 * (j * 7 % 5) / 5));
+          origin.set([c.x, c.y, c.z], count * 3);
+          velocity.set([v.x, v.y, v.z], count * 3);
+        }
+      });
+      geometry.setDrawRange(0, count);
+      material.size = scale * 0.09;
+      points.visible = true;
+      wave.visible = flat;
+      wave.scale.setScalar(0.01);
+      startedAt = now;
+      fired++;
+    },
+    /** @param {number} now seconds (performance clock) */
+    tick(now) {
+      if (startedAt < 0) return;
+      const t = (now - startedAt) / DURATION;
+      if (t >= 1) {
+        startedAt = -1;
+        points.visible = false;
+        wave.visible = false;
+        return;
+      }
+      const ease = 1 - Math.pow(1 - t, 3);
+      for (let i = 0; i < count * 3; i++) positions[i] = origin[i] + velocity[i] * ease;
+      geometry.attributes.position.needsUpdate = true;
+      material.opacity = 1 - t;
+      wave.scale.setScalar(0.05 + ease * 1.6);
+      wave.material.opacity = 0.8 * (1 - t);
+    },
+    stop() {
+      startedAt = -1;
+      points.visible = false;
+      wave.visible = false;
+    }
+  };
+}
+
 // modules/untangle/src/index.js
 var GROUP = "untangle-module";
-var DOT_R = 0.055;
 var EXPIRE_FRAMES = 40;
 var index_default = {
   id: "untangle",
@@ -314,7 +555,6 @@ var index_default = {
     const board = { ...DEFAULT_BOARD };
     let group = null;
     let dots = [];
-    let lineMeshes = [];
     let sprite = null;
     let carried = -1;
     let won = false;
@@ -340,32 +580,59 @@ var index_default = {
       group.rotation.set(0, board.yaw, 0);
       group.updateMatrixWorld(true);
     }
+    const dotR = () => board.radius * Math.max(0.105, 0.15 - Math.max(0, positions.length - 6) * 45e-4);
+    let edgeLayer = null;
+    let backplate = null;
+    let hoverRing = null;
+    let burst = null;
+    let hovered = -1;
+    let lift = 0;
+    function disposeGroup(g) {
+      g?.traverse((o) => {
+        o.geometry?.dispose?.();
+        const m = o.material;
+        if (Array.isArray(m)) m.forEach((x) => x.dispose?.());
+        else {
+          m?.map?.dispose?.();
+          m?.dispose?.();
+        }
+      });
+    }
     function build() {
       const scene = api.scene();
       if (!scene) return;
-      if (group) scene.remove(group);
+      if (group) {
+        scene.remove(group);
+        disposeGroup(group);
+      }
       group = new THREE.Group();
       group.name = GROUP;
       dots = [];
-      lineMeshes = [];
       sprite = null;
+      hovered = -1;
+      lift = 0;
+      backplate = makeBackplate(THREE, board.radius);
+      group.add(backplate.group);
+      edgeLayer = makeEdgeLayer(THREE, Math.max(1, edges.length));
+      edgeLayer.setRadius(board.radius * 0.016);
+      group.add(edgeLayer.glow, edgeLayer.core);
+      const r = dotR();
+      const dotGeo = new THREE.SphereGeometry(r, 32, 20);
       positions.forEach((p, i) => {
         const dot = new THREE.Mesh(
-          new THREE.SphereGeometry(DOT_R, 20, 14),
-          new THREE.MeshStandardMaterial({ color: 15857145, roughness: 0.4 })
+          dotGeo,
+          new THREE.MeshStandardMaterial({ color: 15265527, emissive: 8229810, emissiveIntensity: 0.45, roughness: 0.3, metalness: 0.05 })
         );
         dot.name = "untangle-dot-" + i;
         dot.position.copy(local(p));
         group.add(dot);
         dots.push(dot);
       });
-      edges.forEach(([a, b], i) => {
-        const geometry = new THREE.BufferGeometry().setFromPoints([local(positions[a]), local(positions[b])]);
-        const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 16281969 }));
-        line.name = "untangle-edge-" + i;
-        group.add(line);
-        lineMeshes.push(line);
-      });
+      hoverRing = makeHoverRing(THREE);
+      hoverRing.scale.setScalar(r * 1.45);
+      group.add(hoverRing);
+      burst = makeBurst(THREE);
+      group.add(burst.points, burst.wave);
       scene.add(group);
       placeGroup();
       group.userData._ut = {
@@ -377,6 +644,42 @@ var index_default = {
       built = true;
       refresh();
     }
+    function drawn(i) {
+      const v = local(positions[i]);
+      if (i === carried) v.z += lift * dotR() * 0.9;
+      return v;
+    }
+    function paintDot(i) {
+      const m = dots[i]?.material;
+      if (!m) return;
+      if (i === carried) {
+        m.color.setHex(COLORS.AMBER);
+        m.emissive.setHex(COLORS.AMBER);
+        m.emissiveIntensity = 0.9;
+      } else {
+        m.color.setHex(15265527);
+        m.emissive.setHex(8229810);
+        m.emissiveIntensity = i === hovered ? 0.9 : 0.45;
+      }
+    }
+    function redraw(counts) {
+      positions.forEach((_, i) => {
+        const dot = dots[i];
+        if (!dot) return;
+        dot.position.copy(drawn(i));
+        dot.scale.setScalar(i === carried ? 1 + 0.18 * lift : 1);
+      });
+      if (edgeLayer) {
+        edgeLayer.set(
+          edges.map(([a, b], k) => ({ a: drawn(a), b: drawn(b), color: counts[k] > 0 ? COLORS.RED : COLORS.GREEN }))
+        );
+      }
+      backplate?.setWon(crossings === 0);
+    }
+    let lastCounts = (
+      /** @type {number[]} */
+      []
+    );
     function ensureSprite() {
       const wantVR = typeof api.isVR === "function" && api.isVR();
       if (!wantVR) {
@@ -412,15 +715,9 @@ var index_default = {
     }
     function refresh() {
       if (!group) return 0;
-      positions.forEach((p, i) => dots[i]?.position.copy(local(p)));
-      const counts = edgeCrossings(positions, edges);
-      edges.forEach(([a, b], i) => {
-        const line = lineMeshes[i];
-        if (!line) return;
-        line.geometry.setFromPoints([local(positions[a]), local(positions[b])]);
-        line.material.color.set(counts[i] > 0 ? 16281969 : 4906624);
-      });
-      crossings = totalCrossings(counts);
+      lastCounts = edgeCrossings(positions, edges);
+      crossings = totalCrossings(lastCounts);
+      redraw(lastCounts);
       ensureSprite();
       drawSprite("Level " + level + "  \xB7  " + (crossings === 0 ? "solved!" : crossings + " crossing" + (crossings === 1 ? "" : "s")), crossings === 0 ? "#4ade80" : "#e2e8f0");
       ambientSetTension(crossings);
@@ -494,6 +791,13 @@ var index_default = {
         won = true;
         solvedCount++;
         winSting();
+        burst?.start(
+          positions.map((q) => local(q)),
+          () => new THREE.Vector3(0, 0, 1),
+          board.radius,
+          true,
+          performance.now() / 1e3
+        );
         if (fromMe) fire("solved");
         if (board.autoAdvance) {
           api.toast("Untangled! Level " + (level + 1) + "\u2026");
@@ -530,7 +834,7 @@ var index_default = {
       if (!ray || !group || !dots.length) return -1;
       group.updateMatrixWorld();
       const scale = group.getWorldScale(localHit).x || 1;
-      const reach = DOT_R * 1.8 * scale;
+      const reach = dotR() * 1.3 * scale;
       let best = -1;
       let bestMiss = reach * reach;
       dots.forEach((dot, i) => {
@@ -556,16 +860,16 @@ var index_default = {
       if (!positions[i]) return;
       carried = i;
       carryHow = how;
-      dots[i]?.material.color.set(16498468);
+      paintDot(i);
       blip(660);
     }
     function drop(how, event) {
       if (carried === -1) return;
       if (event && how !== "ui" && how !== "cancel") follow(aim.fromClient(event.clientX, event.clientY, event.target));
       const i = carried;
-      dots[i]?.material.color.set(15857145);
       carried = -1;
       carryHow = "none";
+      paintDot(i);
       lastDrop = how;
       gesture.reset();
       blip(440);
@@ -624,8 +928,31 @@ var index_default = {
         placeGroup();
         refresh();
       }
-      if (carried === -1 || !group) return;
-      if (!follow(aim.current())) return;
+      if (!group) return;
+      const t = performance.now() / 1e3;
+      burst?.tick(t);
+      const ray = aim.current();
+      const over = carried === -1 && interactive() ? dotUnder(ray) : -1;
+      if (over !== hovered) {
+        const was = hovered;
+        hovered = over;
+        if (was >= 0) paintDot(was);
+        if (over >= 0) paintDot(over);
+      }
+      if (hoverRing) {
+        hoverRing.visible = hovered >= 0;
+        if (hovered >= 0) hoverRing.position.copy(drawn(hovered));
+      }
+      const wantLift = carried === -1 ? 0 : 1;
+      if (lift !== wantLift) {
+        lift = Math.abs(wantLift - lift) < 0.02 ? wantLift : lift + (wantLift - lift) * 0.25;
+        if (carried === -1) redraw(lastCounts);
+      }
+      if (carried === -1) return;
+      if (!follow(ray)) {
+        redraw(lastCounts);
+        return;
+      }
       refresh();
       const now = performance.now();
       if (now - lastDragSent > 100) {
@@ -784,6 +1111,29 @@ var index_default = {
       move: (i, p) => dropAt(i, p),
       solve: () => solveNow(),
       setLevel: (lvl) => setLevel(lvl, true),
+      /** P1: what the board is drawn with, as numbers a flight can assert */
+      look: () => {
+        const ws = group ? group.getWorldScale(new THREE.Vector3()).x : 1;
+        const colors = [];
+        const ic = edgeLayer?.core.instanceColor;
+        for (let k = 0; k < (edgeLayer?.core.count ?? 0); k++) colors.push(ic ? new THREE.Color().fromArray(ic.array, k * 3).getHex() : null);
+        return {
+          dotRadius: dots[0] ? dots[0].geometry.parameters.radius * ws : 0,
+          edgeRadius: (edgeLayer?.radius() ?? 0) * ws,
+          edgeInstances: edgeLayer?.core.count ?? 0,
+          edgeColors: colors,
+          edgeCrossings: [...lastCounts],
+          colors: { ...COLORS },
+          hovered,
+          hoverVisible: !!hoverRing?.visible,
+          carriedZ: carried >= 0 && dots[carried] ? dots[carried].position.z : 0,
+          carriedScale: carried >= 0 && dots[carried] ? dots[carried].scale.x : 1,
+          burstActive: !!burst?.active(),
+          burstFired: burst?.fired() ?? 0,
+          rimWon: crossings === 0,
+          plate: !!group?.getObjectByName("untangle-plate")
+        };
+      },
       /** world position of dot i (for pointer tests) */
       dotWorld: (i) => dots[i] ? dots[i].getWorldPosition(new THREE.Vector3()).toArray() : null,
       /** world position of a BOARD point [x, y] */

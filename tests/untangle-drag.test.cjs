@@ -13,6 +13,10 @@
 //     carrying click on a UI element drops as well and the element still gets its click
 //   4 play under a (stubbed) POINTER LOCK: the carry follows the CROSSHAIR, not the stale
 //     mouse ray — press, re-aim the camera, the dot tracks it, release drops it
+//   5 (P1) the look, measured: dots 3x the old 5.5 cm, every edge one instance of ONE
+//     InstancedMesh coloured red/green by its own crossing count, the edge THICKNESS on
+//     screen (a perpendicular pixel scan across a real edge), the hover ring under the
+//     cursor, the carried dot's lift, the backplate, and the solve burst + green rim
 //
 //   npm run pack -- untangle
 //   APP_URL=https://theprototype.app:5234/ node tests/untangle-drag.test.cjs
@@ -47,6 +51,56 @@ async function drag(page, from, to, { steps = 12, release = true } = {}) {
 	}
 	await page.waitForTimeout(120); // a few frames at the release point
 	if (release) await page.mouse.up();
+}
+const look = (page) => page.evaluate(() => window.__untangle.look());
+/**
+ * How many pixels THICK the edges are on screen: for every edge, scan the perpendicular
+ * through its midpoint in ONE real screenshot and take the contiguous run of the edge's own
+ * hue through it. Near-parallel neighbours merge runs, so the thinnest positive run (the
+ * most isolated edge) is the thickness.
+ * @param {{pu: any, pv: any, hue: string}[]} list
+ */
+async function edgeThickness(page, list) {
+	const png = await page.screenshot();
+	return page.evaluate(
+		async ({ b64, list }) => {
+			const blob = await (await fetch('data:image/png;base64,' + b64)).blob();
+			const bmp = await createImageBitmap(blob);
+			const c = document.createElement('canvas');
+			c.width = bmp.width;
+			c.height = bmp.height;
+			const g = c.getContext('2d');
+			g.drawImage(bmp, 0, 0);
+			const data = g.getImageData(0, 0, c.width, c.height).data;
+			const sx = bmp.width / window.innerWidth;
+			const runs = list.map(({ pu: a, pv: b, hue }) => {
+				const mx = ((a.x + b.x) / 2) * sx;
+				const my = ((a.y + b.y) / 2) * sx;
+				const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+				const nx = -(b.y - a.y) / len;
+				const ny = (b.x - a.x) / len;
+				const match = (t) => {
+					const x = Math.round(mx + nx * t);
+					const y = Math.round(my + ny * t);
+					if (x < 0 || y < 0 || x >= c.width || y >= c.height) return false;
+					const k = (y * c.width + x) * 4;
+					const [r, gg, bb] = [data[k], data[k + 1], data[k + 2]];
+					return hue === 'red' ? r > gg + 50 && r > bb + 30 : gg > r + 50 && gg > bb + 10;
+				};
+				let centre = null;
+				for (const t of [0, 1, -1, 2, -2]) if (match(t)) { centre = t; break; }
+				if (centre === null) return 0;
+				let lo = centre;
+				let hi = centre;
+				while (lo > -40 && match(lo - 1)) lo--;
+				while (hi < 40 && match(hi + 1)) hi++;
+				return hi - lo + 1;
+			});
+			const positive = runs.filter((r) => r > 0);
+			return { runs, thinnest: positive.length ? Math.min(...positive) : 0 };
+		},
+		{ b64: png.toString('base64'), list }
+	);
 }
 /** point the (play) camera at a world point — what moving the mouse under a lock does */
 const aimAt = (page, world) =>
@@ -170,6 +224,41 @@ run(async () => {
 	const clicked = await A.page.evaluate(() => document.getElementById('ut-test-ui')?.dataset.clicked === '1');
 	check(a3c.carried === -1 && a3c.lastDrop === 'ui' && clicked, '3.6 a carrying click on a UI element drops the dot AND the element still gets its click (' + a3c.lastDrop + ', clicked ' + clicked + ')');
 	await A.page.evaluate(() => document.getElementById('ut-test-ui')?.remove());
+
+	// ---- 5. (P1) the look, measured ------------------------------------------------------------------
+	const L = await look(A.page);
+	const S5 = await state(A.page);
+	check(L.dotRadius >= 3 * 0.055 - 1e-6, '5.1 a dot is 3x the old 5.5 cm at this level (radius ' + L.dotRadius.toFixed(3) + ' m)');
+	check(L.plate, '5.2 the backplate stands behind the dots');
+	const colorsRight = L.edgeColors.every((c, k) => c === (L.edgeCrossings[k] > 0 ? L.colors.RED : L.colors.GREEN));
+	check(L.edgeInstances === S5.edges.length && colorsRight, '5.3 every edge is one instance of ONE InstancedMesh (' + L.edgeInstances + '/' + S5.edges.length + '), red where it crosses, green where clear');
+	// every edge scanned across its midpoint; the thinnest clean run is the thickness
+	const scans = [];
+	for (const [k, [u, v]] of S5.edges.entries()) scans.push({ pu: await dotPx(A.page, u), pv: await dotPx(A.page, v), hue: L.edgeCrossings[k] > 0 ? 'red' : 'green' });
+	const thick = await edgeThickness(A.page, scans);
+	check(thick.thinnest >= 4 && thick.thinnest <= 40, '5.4 edges are THICK on screen: the thinnest clean run across an edge is ' + thick.thinnest + ' px (a THREE.Line is 1 px; runs ' + thick.runs.join(',') + ')');
+	const d6 = await dotPx(A.page, 0);
+	await A.page.mouse.move(d6.x, d6.y, { steps: 4 });
+	await A.page.waitForTimeout(250);
+	const hov = await look(A.page);
+	check(hov.hovered === 0 && hov.hoverVisible, '5.5 the hover ring shows on the dot under the cursor (' + hov.hovered + ')');
+	await A.page.mouse.down();
+	await A.page.mouse.move(d6.x + 30, d6.y + 10, { steps: 3 });
+	await A.page.waitForTimeout(350);
+	const lifted = await look(A.page);
+	check(lifted.carriedZ > 0.05 && lifted.carriedScale > 1.1 && !lifted.hoverVisible, '5.6 the carried dot LIFTS toward the player and grows (z ' + lifted.carriedZ.toFixed(3) + ', scale ' + lifted.carriedScale.toFixed(2) + '), the hover ring gives way');
+	await A.page.mouse.up();
+	await A.page.mouse.move(40, H / 2);
+	await A.page.waitForTimeout(250);
+	check(!(await look(A.page)).hoverVisible, '5.7 no hover ring with the cursor off every dot');
+	const fired = (await look(A.page)).burstFired;
+	await A.page.evaluate(() => window.__untangle.solve());
+	await A.page.waitForTimeout(150);
+	const burst = await look(A.page);
+	check(burst.burstActive && burst.burstFired === fired + 1 && burst.rimWon, '5.8 a solve fires the burst and turns the rim green');
+	await eventually(() => look(A.page), (l) => !l.burstActive, '5.9 the burst ends by itself', 4000);
+	await eventually(() => state(A.page), (s) => s.level === 2 && s.crossings > 0, '5.10 (fallback autoAdvance) level 2 arrives tangled', 6000);
+	await eventually(() => state(B.page), (s) => s.level === 2, '5.11 B advanced in lockstep', 6000);
 
 	// ---- 4. play under a pointer lock: the carry follows the CROSSHAIR -------------------------
 	await A.page.locator('#play-button').click();

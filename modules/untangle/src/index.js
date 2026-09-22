@@ -20,9 +20,9 @@
 import { generate, edgeCrossings, totalCrossings, clampToBoard, DEFAULT_BOARD } from './puzzle.js';
 import { createGesture } from './gesture.js';
 import { makeAim } from './aim.js';
+import { makeEdgeLayer, makeBackplate, makeHoverRing, makeBurst, COLORS } from './look.js';
 
 const GROUP = 'untangle-module';
-const DOT_R = 0.055;
 const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defaults return
 
 export default {
@@ -44,7 +44,6 @@ export default {
 		const board = { ...DEFAULT_BOARD };
 		/** @type {any} */ let group = null;
 		/** @type {any[]} */ let dots = [];
-		/** @type {any[]} */ let lineMeshes = [];
 		/** @type {any} */ let sprite = null; // the VR-only canvas HUD
 		let carried = -1;
 		let won = false;
@@ -76,33 +75,64 @@ export default {
 			group.updateMatrixWorld(true);
 		}
 
-		// ---------- render ----------
+		// ---------- render (P1: the look — look.js) ----------
+		// Dots are 3x the old 5.5 cm at the small levels and shrink toward 2.1x as the count
+		// climbs, so a 16-dot board is not a pile of marbles; the lift/hover/burst are LOCAL.
+		/** the dot radius in the group frame (metres) */
+		const dotR = () => board.radius * Math.max(0.105, 0.15 - Math.max(0, positions.length - 6) * 0.0045);
+		/** @type {any} */ let edgeLayer = null;
+		/** @type {any} */ let backplate = null;
+		/** @type {any} */ let hoverRing = null;
+		/** @type {any} */ let burst = null;
+		let hovered = -1;
+		let lift = 0; // the carried dot's eased lift, 0..1
+		/** free every geometry/material a previous build made (rebuilds are per level) */
+		function disposeGroup(g) {
+			g?.traverse((/** @type {any} */ o) => {
+				o.geometry?.dispose?.();
+				const m = o.material;
+				if (Array.isArray(m)) m.forEach((x) => x.dispose?.());
+				else {
+					m?.map?.dispose?.();
+					m?.dispose?.();
+				}
+			});
+		}
 		function build() {
 			const scene = api.scene();
 			if (!scene) return;
-			if (group) scene.remove(group);
+			if (group) {
+				scene.remove(group);
+				disposeGroup(group);
+			}
 			group = new THREE.Group();
 			group.name = GROUP;
 			dots = [];
-			lineMeshes = [];
 			sprite = null;
+			hovered = -1;
+			lift = 0;
+			backplate = makeBackplate(THREE, board.radius);
+			group.add(backplate.group);
+			edgeLayer = makeEdgeLayer(THREE, Math.max(1, edges.length));
+			edgeLayer.setRadius(board.radius * 0.016);
+			group.add(edgeLayer.glow, edgeLayer.core);
+			const r = dotR();
+			const dotGeo = new THREE.SphereGeometry(r, 32, 20);
 			positions.forEach((p, i) => {
 				const dot = new THREE.Mesh(
-					new THREE.SphereGeometry(DOT_R, 20, 14),
-					new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.4 })
+					dotGeo,
+					new THREE.MeshStandardMaterial({ color: 0xe8eef7, emissive: 0x7d93b2, emissiveIntensity: 0.45, roughness: 0.3, metalness: 0.05 })
 				);
 				dot.name = 'untangle-dot-' + i;
 				dot.position.copy(local(p));
 				group.add(dot);
 				dots.push(dot);
 			});
-			edges.forEach(([a, b], i) => {
-				const geometry = new THREE.BufferGeometry().setFromPoints([local(positions[a]), local(positions[b])]);
-				const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xf87171 }));
-				line.name = 'untangle-edge-' + i;
-				group.add(line);
-				lineMeshes.push(line);
-			});
+			hoverRing = makeHoverRing(THREE);
+			hoverRing.scale.setScalar(r * 1.45);
+			group.add(hoverRing);
+			burst = makeBurst(THREE);
+			group.add(burst.points, burst.wave);
 			scene.add(group);
 			placeGroup();
 			// the test/debug hook (scene-root local, never serialized)
@@ -115,6 +145,43 @@ export default {
 			built = true;
 			refresh();
 		}
+
+		/** where dot i is DRAWN: its board point, the carried one lifted toward the player */
+		function drawn(i) {
+			const v = local(positions[i]);
+			if (i === carried) v.z += lift * dotR() * 0.9;
+			return v;
+		}
+		/** a dot's colour: amber while carried, brighter while hovered, else pale */
+		function paintDot(i) {
+			const m = dots[i]?.material;
+			if (!m) return;
+			if (i === carried) {
+				m.color.setHex(COLORS.AMBER);
+				m.emissive.setHex(COLORS.AMBER);
+				m.emissiveIntensity = 0.9;
+			} else {
+				m.color.setHex(0xe8eef7);
+				m.emissive.setHex(0x7d93b2);
+				m.emissiveIntensity = i === hovered ? 0.9 : 0.45;
+			}
+		}
+		/** the dots + the edge segments, coloured by the per-edge crossing counts */
+		function redraw(counts) {
+			positions.forEach((_, i) => {
+				const dot = dots[i];
+				if (!dot) return;
+				dot.position.copy(drawn(i));
+				dot.scale.setScalar(i === carried ? 1 + 0.18 * lift : 1);
+			});
+			if (edgeLayer) {
+				edgeLayer.set(
+					edges.map(([a, b], k) => ({ a: drawn(a), b: drawn(b), color: counts[k] > 0 ? COLORS.RED : COLORS.GREEN }))
+				);
+			}
+			backplate?.setWon(crossings === 0);
+		}
+		let lastCounts = /** @type {number[]} */ ([]);
 
 		// ---------- the VR sprite HUD (DOM is invisible in a headset) ----------
 		function ensureSprite() {
@@ -153,15 +220,9 @@ export default {
 
 		function refresh() {
 			if (!group) return 0;
-			positions.forEach((p, i) => dots[i]?.position.copy(local(p)));
-			const counts = edgeCrossings(positions, edges);
-			edges.forEach(([a, b], i) => {
-				const line = lineMeshes[i];
-				if (!line) return;
-				line.geometry.setFromPoints([local(positions[a]), local(positions[b])]);
-				line.material.color.set(counts[i] > 0 ? 0xf87171 : 0x4ade80); // tangled warm, clear cool
-			});
-			crossings = totalCrossings(counts);
+			lastCounts = edgeCrossings(positions, edges);
+			crossings = totalCrossings(lastCounts);
+			redraw(lastCounts);
 			ensureSprite();
 			drawSprite('Level ' + level + '  ·  ' + (crossings === 0 ? 'solved!' : crossings + ' crossing' + (crossings === 1 ? '' : 's')), crossings === 0 ? '#4ade80' : '#e2e8f0');
 			ambientSetTension(crossings);
@@ -245,6 +306,13 @@ export default {
 				won = true;
 				solvedCount++;
 				winSting();
+				burst?.start(
+					positions.map((q) => local(q)),
+					() => new THREE.Vector3(0, 0, 1),
+					board.radius,
+					true,
+					performance.now() / 1000
+				);
 				if (fromMe) fire('solved');
 				if (board.autoAdvance) {
 					api.toast('Untangled! Level ' + (level + 1) + '…');
@@ -292,7 +360,7 @@ export default {
 			if (!ray || !group || !dots.length) return -1;
 			group.updateMatrixWorld();
 			const scale = group.getWorldScale(localHit).x || 1;
-			const reach = DOT_R * 1.8 * scale;
+			const reach = dotR() * 1.3 * scale;
 			let best = -1;
 			let bestMiss = reach * reach;
 			dots.forEach((dot, i) => {
@@ -320,7 +388,7 @@ export default {
 			if (!positions[i]) return;
 			carried = i;
 			carryHow = how;
-			dots[i]?.material.color.set(0xfbbf24);
+			paintDot(i);
 			blip(660);
 		}
 		/** drop the carried dot where it is (after one last follow of the drop's own ray) */
@@ -328,9 +396,9 @@ export default {
 			if (carried === -1) return;
 			if (event && how !== 'ui' && how !== 'cancel') follow(aim.fromClient(event.clientX, event.clientY, event.target));
 			const i = carried;
-			dots[i]?.material.color.set(0xf1f5f9);
 			carried = -1;
 			carryHow = 'none';
+			paintDot(i);
 			lastDrop = how;
 			gesture.reset();
 			blip(440);
@@ -398,8 +466,33 @@ export default {
 				placeGroup();
 				refresh();
 			}
-			if (carried === -1 || !group) return;
-			if (!follow(aim.current())) return;
+			if (!group) return;
+			const t = performance.now() / 1000;
+			burst?.tick(t);
+			const ray = aim.current();
+			// hover: the dot under the pointer (none while carrying, none when inert)
+			const over = carried === -1 && interactive() ? dotUnder(ray) : -1;
+			if (over !== hovered) {
+				const was = hovered;
+				hovered = over;
+				if (was >= 0) paintDot(was);
+				if (over >= 0) paintDot(over);
+			}
+			if (hoverRing) {
+				hoverRing.visible = hovered >= 0;
+				if (hovered >= 0) hoverRing.position.copy(drawn(hovered));
+			}
+			// the carried dot eases up toward the player and back down after the drop
+			const wantLift = carried === -1 ? 0 : 1;
+			if (lift !== wantLift) {
+				lift = Math.abs(wantLift - lift) < 0.02 ? wantLift : lift + (wantLift - lift) * 0.25;
+				if (carried === -1) redraw(lastCounts);
+			}
+			if (carried === -1) return;
+			if (!follow(ray)) {
+				redraw(lastCounts);
+				return;
+			}
 			refresh();
 			const now = performance.now();
 			if (now - lastDragSent > 100) {
@@ -553,6 +646,29 @@ export default {
 			move: (i, p) => dropAt(i, p),
 			solve: () => solveNow(),
 			setLevel: (lvl) => setLevel(lvl, true),
+			/** P1: what the board is drawn with, as numbers a flight can assert */
+			look: () => {
+				const ws = group ? group.getWorldScale(new THREE.Vector3()).x : 1;
+				const colors = [];
+				const ic = edgeLayer?.core.instanceColor;
+				for (let k = 0; k < (edgeLayer?.core.count ?? 0); k++) colors.push(ic ? new THREE.Color().fromArray(ic.array, k * 3).getHex() : null);
+				return {
+					dotRadius: dots[0] ? dots[0].geometry.parameters.radius * ws : 0,
+					edgeRadius: (edgeLayer?.radius() ?? 0) * ws,
+					edgeInstances: edgeLayer?.core.count ?? 0,
+					edgeColors: colors,
+					edgeCrossings: [...lastCounts],
+					colors: { ...COLORS },
+					hovered,
+					hoverVisible: !!hoverRing?.visible,
+					carriedZ: carried >= 0 && dots[carried] ? dots[carried].position.z : 0,
+					carriedScale: carried >= 0 && dots[carried] ? dots[carried].scale.x : 1,
+					burstActive: !!burst?.active(),
+					burstFired: burst?.fired() ?? 0,
+					rimWon: crossings === 0,
+					plate: !!group?.getObjectByName('untangle-plate')
+				};
+			},
 			/** world position of dot i (for pointer tests) */
 			dotWorld: (i) => (dots[i] ? dots[i].getWorldPosition(new THREE.Vector3()).toArray() : null),
 			/** world position of a BOARD point [x, y] */
