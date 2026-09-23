@@ -396,15 +396,15 @@ function makeEdgeLayer(THREE, capacity) {
       for (let i = 0; i < n; i++) {
         const s = segments[i];
         dir.subVectors(s.b, s.a);
-        const len2 = dir.length() || 1e-6;
+        const len3 = dir.length() || 1e-6;
         mid.addVectors(s.a, s.b).multiplyScalar(0.5);
-        quat.setFromUnitVectors(up, dir.divideScalar(len2));
+        quat.setFromUnitVectors(up, dir.divideScalar(len3));
         color.setHex(s.color);
-        const reach = len2 + radius * 2;
+        const reach = len3 + radius * 2;
         matrix.compose(mid, quat, scale.set(radius, reach, radius));
         core.setMatrixAt(i, matrix);
         core.setColorAt(i, color);
-        matrix.compose(mid, quat, scale.set(radius * 3.2, len2, radius * 3.2));
+        matrix.compose(mid, quat, scale.set(radius * 3.2, len3, radius * 3.2));
         glow.setMatrixAt(i, matrix);
         glow.setColorAt(i, color);
       }
@@ -1246,6 +1246,179 @@ function makeSfx(api, env = {}) {
   };
 }
 
+// modules/untangle/src/vrdrag.js
+var TIP_AHEAD = 0.02;
+var TIP_RADIUS = 0.03;
+var REACH = 1.3;
+var CONSUME_MS = 450;
+var HANDS = (
+  /** @type {const} */
+  ["right", "left"]
+);
+var sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+var add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+var mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+var dot2 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+var len2 = (a) => Math.hypot(a[0], a[1], a[2]);
+function quatRotate(q, v) {
+  const [x, y, z, w] = q;
+  const tx = 2 * (y * v[2] - z * v[1]);
+  const ty = 2 * (z * v[0] - x * v[2]);
+  const tz = 2 * (x * v[1] - y * v[0]);
+  return [v[0] + w * tx + (y * tz - z * ty), v[1] + w * ty + (z * tx - x * tz), v[2] + w * tz + (x * ty - y * tx)];
+}
+function handRay(pose) {
+  const d = quatRotate(pose.quaternion, [0, 0, -1]);
+  const l = len2(d) || 1;
+  return { origin: (
+    /** @type {V3} */
+    [...pose.position]
+  ), dir: (
+    /** @type {V3} */
+    mul(d, 1 / l)
+  ) };
+}
+function tipOf(pose) {
+  const r = handRay(pose);
+  return (
+    /** @type {V3} */
+    add(r.origin, mul(r.dir, TIP_AHEAD))
+  );
+}
+function rayPlane(origin, dir, point, normal) {
+  const denom = dot2(dir, normal);
+  if (Math.abs(denom) < 1e-6) return null;
+  const t = dot2(sub(point, origin), normal) / denom;
+  return t < 0 ? null : (
+    /** @type {V3} */
+    add(origin, mul(dir, t))
+  );
+}
+function closestOnPlane(p, point, normal) {
+  const n = mul(normal, 1 / (len2(normal) || 1));
+  return (
+    /** @type {V3} */
+    sub(p, mul(n, dot2(sub(p, point), n)))
+  );
+}
+function raySphere(origin, dir, centre, r) {
+  const oc = sub(origin, centre);
+  const b = dot2(oc, dir);
+  const c = dot2(oc, oc) - r * r;
+  const disc = b * b - c;
+  if (disc < 0) return null;
+  const s = Math.sqrt(disc);
+  const t = -b - s >= 0 ? -b - s : -b + s;
+  return t < 0 ? null : (
+    /** @type {V3} */
+    add(origin, mul(dir, t))
+  );
+}
+function sphereRim(origin, dir, centre, r) {
+  const along = dot2(sub(centre, origin), dir);
+  const nearest = add(origin, mul(dir, Math.max(0, along)));
+  const out = sub(nearest, centre);
+  const l = len2(out);
+  return (
+    /** @type {V3} */
+    l < 1e-9 ? add(centre, [0, r, 0]) : add(centre, mul(out, r / l))
+  );
+}
+function pickDot({ pose, dots, radius, frontLimit = Infinity }) {
+  const tip = tipOf(pose);
+  let best = -1;
+  let bestD = radius + TIP_RADIUS;
+  dots.forEach((d, i) => {
+    const dist = len2(sub(d, tip));
+    if (dist <= bestD) {
+      bestD = dist;
+      best = i;
+    }
+  });
+  if (best >= 0) return { i: best, how: "tip" };
+  const { origin, dir } = handRay(pose);
+  const reach = radius * REACH;
+  let bestMiss = reach * reach;
+  dots.forEach((d, i) => {
+    const rel = sub(d, origin);
+    const along = dot2(rel, dir);
+    if (along <= 0 || along > frontLimit + reach * 1.5) return;
+    const miss = dot2(rel, rel) - along * along;
+    if (miss <= bestMiss) {
+      bestMiss = miss;
+      best = i;
+    }
+  });
+  return best >= 0 ? { i: best, how: "laser" } : null;
+}
+function followPoint(how, pose, surface) {
+  if (how === "tip") {
+    const tip = tipOf(pose);
+    if (surface.kind === "plane") return closestOnPlane(tip, surface.point, surface.normal);
+    const out = sub(tip, surface.centre);
+    const l = len2(out);
+    return l < 1e-9 ? null : (
+      /** @type {V3} */
+      add(surface.centre, mul(out, surface.r / l))
+    );
+  }
+  const { origin, dir } = handRay(pose);
+  if (surface.kind === "plane") return rayPlane(origin, dir, surface.point, surface.normal);
+  return raySphere(origin, dir, surface.centre, surface.r) ?? sphereRim(origin, dir, surface.centre, surface.r);
+}
+function createVRDrag(hooks) {
+  const now = hooks.now ?? (() => performance.now());
+  const was = { left: false, right: false };
+  let carrier = null;
+  let lastEventAt = -Infinity;
+  let candidate = null;
+  return {
+    /** one frame: `hands` maps 'left'/'right' to a pose (or null when untracked) @param {Record<string, Pose | null>} hands */
+    update(hands) {
+      if (carrier && !hooks.carrying()) carrier = null;
+      if (carrier) {
+        const pose = hands[carrier.hand];
+        if (!pose) {
+          const hand = carrier.hand;
+          carrier = null;
+          lastEventAt = now();
+          hooks.drop(hand, "lost");
+        } else if (!pose.trigger) {
+          const hand = carrier.hand;
+          carrier = null;
+          lastEventAt = now();
+          hooks.drop(hand, "release");
+        } else hooks.follow(pose, carrier.hand, carrier.how);
+      }
+      candidate = null;
+      for (const hand of HANDS) {
+        const pose = hands[hand];
+        const down = !!pose?.trigger;
+        const pressed = down && !was[hand];
+        was[hand] = down;
+        if (!pose || carrier || !hooks.canPick()) continue;
+        const hit = hooks.pickAt(pose, hand);
+        if (hit && !candidate) candidate = { hand, ...hit };
+        if (pressed && hit) {
+          carrier = { hand, how: hit.how };
+          lastEventAt = now();
+          hooks.pick(hit.i, hand, hit.how);
+        }
+      }
+    },
+    /** the hand carrying, or null */
+    carrier: () => carrier ? { ...carrier } : null,
+    /** the dot a press would grab right now (the VR hover) */
+    candidate: () => candidate ? { ...candidate } : null,
+    /** did a VR pick/drop happen within CONSUME_MS? (core's trailing select is ours) */
+    recent: () => now() - lastEventAt < CONSUME_MS,
+    reset() {
+      carrier = null;
+      candidate = null;
+    }
+  };
+}
+
 // modules/untangle/src/index.js
 var GROUP = "untangle-module";
 var MODES_PLAYED = ["2d", "3d"];
@@ -1366,14 +1539,14 @@ var index_default = {
       const r = dotR() * (mode === "3d" ? 0.8 : 1);
       const dotGeo = new THREE.SphereGeometry(r, 32, 20);
       positions.forEach((p, i) => {
-        const dot2 = new THREE.Mesh(
+        const dot3 = new THREE.Mesh(
           dotGeo,
           new THREE.MeshStandardMaterial({ color: 15265527, emissive: 8229810, emissiveIntensity: 0.45, roughness: 0.3, metalness: 0.05 })
         );
-        dot2.name = "untangle-dot-" + i;
-        dot2.position.copy(local(p));
-        group.add(dot2);
-        dots.push(dot2);
+        dot3.name = "untangle-dot-" + i;
+        dot3.position.copy(local(p));
+        group.add(dot3);
+        dots.push(dot3);
       });
       hoverRing = makeHoverRing(THREE);
       hoverRing.scale.setScalar(r * 1.45);
@@ -1429,10 +1602,10 @@ var index_default = {
     }
     function redraw(counts) {
       positions.forEach((_, i) => {
-        const dot2 = dots[i];
-        if (!dot2) return;
-        dot2.position.copy(drawn(i));
-        dot2.scale.setScalar(i === carried ? 1 + 0.18 * lift : 1);
+        const dot3 = dots[i];
+        if (!dot3) return;
+        dot3.position.copy(drawn(i));
+        dot3.scale.setScalar(i === carried ? 1 + 0.18 * lift : 1);
       });
       if (edgeLayer) edgeLayer.set(segmentsOf(counts));
       backplate?.setWon(crossings === 0);
@@ -1518,6 +1691,7 @@ var index_default = {
       sfx.play("success", centre);
       if (centre && typeof api.effects?.burst === "function") api.effects.burst(centre, { kind: "sparkle", color: "#3ee08f", count: 48 });
       if (typeof api.announce === "function") api.announce("Level " + level + " solved", { sub: mode === "3d" ? "Globe" : void 0, color: "#3ee08f" });
+      if (fromMe && vrHandLast && api.isVR?.()) sfx.haptic("success", vrHandLast);
       if (unlocked) setTimeout(() => sfx.play("levelup", centre), 650);
     }
     function fire(event) {
@@ -1601,8 +1775,8 @@ var index_default = {
       let bestMiss = reach * reach;
       const front = mode === "3d" ? globeHit(ray, false) : null;
       const frontAlong = front ? front.distanceTo(ray.ray.origin) : Infinity;
-      dots.forEach((dot2, i) => {
-        dot2.getWorldPosition(dotWorld);
+      dots.forEach((dot3, i) => {
+        dot3.getWorldPosition(dotWorld);
         const miss = ray.ray.distanceSqToPoint(dotWorld);
         const along = dotWorld.sub(ray.ray.origin).dot(ray.ray.direction);
         if (miss > bestMiss || along <= 0 || along > frontAlong + reach * 1.5) return;
@@ -1708,10 +1882,67 @@ var index_default = {
       const m = typeof api.editorMode === "function" ? api.editorMode() : null;
       return m !== "edit" || typeof api.isPlaying === "function" && api.isPlaying();
     }
+    let vrSim = null;
+    let vrHandLast = (
+      /** @type {string | null} */
+      null
+    );
+    const handPose = (hand) => vrSim ? vrSim[hand] ?? null : api.vrHand?.(hand) ?? null;
+    const vrDragOn = () => !!api.isVR?.() && (!!vrSim || typeof api.vrHand === "function");
+    const worldScale = () => group ? group.getWorldScale(localHit).x || 1 : 1;
+    const wq = new THREE.Quaternion();
+    function surface() {
+      group.updateMatrixWorld();
+      const centre = group.getWorldPosition(new THREE.Vector3()).toArray();
+      if (mode === "3d") return { kind: "sphere", centre, r: globeR() * worldScale() };
+      return { kind: "plane", point: centre, normal: new THREE.Vector3(0, 0, 1).applyQuaternion(group.getWorldQuaternion(wq)).toArray() };
+    }
+    function carryToWorld(point) {
+      localHit.fromArray(point);
+      group.worldToLocal(localHit);
+      if (mode === "3d") {
+        localHit.applyQuaternion(globeQuat.clone().invert());
+        positions[carried] = normalize([localHit.x, localHit.y, localHit.z]);
+      } else positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+    }
+    let vrMoved = false;
+    const vrDrag = createVRDrag({
+      canPick: () => built && !!group?.parent && interactive() && carried === -1,
+      pickAt: (pose) => {
+        group.updateMatrixWorld();
+        const s = surface();
+        let frontLimit = Infinity;
+        if (s.kind === "sphere") {
+          const r = handRay(pose);
+          const hit = raySphere(r.origin, r.dir, s.centre, s.r);
+          if (hit) frontLimit = Math.hypot(hit[0] - r.origin[0], hit[1] - r.origin[1], hit[2] - r.origin[2]);
+        }
+        const world = dots.map((d) => d.getWorldPosition(dotWorld).toArray());
+        return pickDot({ pose, dots: world, radius: dotR() * (mode === "3d" ? 0.8 : 1) * worldScale(), frontLimit });
+      },
+      pick: (i, hand, how) => {
+        vrHandLast = hand;
+        pick(i, "vr-" + how);
+        sfx.haptic("tap", hand);
+      },
+      follow: (pose, hand, how) => {
+        const p = followPoint(how, pose, surface());
+        if (!p) return;
+        carryToWorld(p);
+        vrMoved = true;
+      },
+      drop: (hand, why) => {
+        vrHandLast = hand;
+        drop("vr-" + why);
+        sfx.haptic("bump", hand);
+      },
+      carrying: () => carried !== -1
+    });
     api.registerClickHandler(
       (object) => {
         const isDot = !!object?.name?.startsWith("untangle-dot-");
         if (!api.isVR?.() && typeof window !== "undefined") return carried !== -1 || isDot;
+        if (vrDragOn()) return isDot || carried !== -1 || vrDrag.recent();
         if (carried !== -1) {
           drop("click");
           return true;
@@ -1720,7 +1951,7 @@ var index_default = {
         pick(+object.name.slice("untangle-dot-".length), "click");
         return true;
       },
-      { modes: ["interact", "play"] }
+      { modes: ["interact", "play"], sweep: false }
     );
     api.registerFrameTask(() => {
       frame++;
@@ -1749,7 +1980,11 @@ var index_default = {
         const ry = axes?.ry ?? 0;
         if (Math.abs(rx) > 0.2 || Math.abs(ry) > 0.2) rotateBy(rx * 4, ry * 4);
       }
-      const over = carried === -1 && interactive() ? dotUnder(ray) : -1;
+      vrMoved = false;
+      const vr = vrDragOn();
+      if (vr) vrDrag.update({ left: handPose("left"), right: handPose("right") });
+      else if (vrDrag.carrier()) vrDrag.update({ left: null, right: null });
+      const over = carried === -1 && interactive() ? vr ? vrDrag.candidate()?.i ?? -1 : dotUnder(ray) : -1;
       if (over !== hovered) {
         const was = hovered;
         hovered = over;
@@ -1771,7 +2006,7 @@ var index_default = {
         if (carried === -1) redraw(lastCounts);
       }
       if (carried === -1) return;
-      if (!follow(ray)) {
+      if (vrDrag.carrier() ? !vrMoved : !follow(ray)) {
         redraw(lastCounts);
         return;
       }
@@ -1979,6 +2214,12 @@ var index_default = {
       select: (lvl, md) => selectLevel(lvl, md ?? mode),
       progress: () => JSON.parse(JSON.stringify(progress)),
       storageKind: storage.kind,
+      /** 30b: the VR drag's test seam — fake controller poses {left, right} ({position,
+       * quaternion, trigger}, world space), or null to go back to api.vrHand */
+      vrSim: (hands) => {
+        vrSim = hands ?? null;
+      },
+      vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), lastHand: vrHandLast, on: vrDragOn() }),
       /** 30b: every board sound / haptic asked for, the local voices still sounding, the music */
       sfx: () => sfx.stats(),
       clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),

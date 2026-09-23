@@ -5,6 +5,7 @@ import { run as progressTests } from './progress.test.mjs';
 import { run as sphereTests } from './sphere.test.mjs';
 import { run as defTests } from './def.test.mjs';
 import { run as sfxTests } from './sfx.test.mjs';
+import { run as vrdragTests } from './vrdrag.test.mjs';
 
 let failures = 0;
 function check(ok, label) {
@@ -19,6 +20,8 @@ console.log('\n=== sphere.test.mjs ===');
 sphereTests(check);
 console.log('\n=== sfx.test.mjs ===');
 sfxTests(check);
+console.log('\n=== vrdrag.test.mjs ===');
+vrdragTests(check);
 console.log('\n=== def.test.mjs ===');
 await defTests(check);
 console.log('\n' + (failures === 0 ? 'ALL PASS' : failures + ' FAILURES'));

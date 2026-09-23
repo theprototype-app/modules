@@ -25,6 +25,7 @@ import { generate3, edgeCrossings3, solvedSphere, arcPoints, arcSegments, normal
 import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, isUnlocked, bestOf, makeStorage } from './progress.js';
 import { makeMenuKinds } from './menu.js';
 import { makeSfx } from './sfx.js';
+import { createVRDrag, pickDot, followPoint, handRay, raySphere } from './vrdrag.js';
 
 const GROUP = 'untangle-module';
 /** the modes this build plays: the flat board and (P3) the globe */
@@ -344,6 +345,7 @@ export default {
 			sfx.play('success', centre);
 			if (centre && typeof api.effects?.burst === 'function') api.effects.burst(centre, { kind: 'sparkle', color: '#3ee08f', count: 48 });
 			if (typeof api.announce === 'function') api.announce('Level ' + level + ' solved', { sub: mode === '3d' ? 'Globe' : undefined, color: '#3ee08f' });
+			if (fromMe && vrHandLast && api.isVR?.()) sfx.haptic('success', vrHandLast);
 			if (unlocked) setTimeout(() => sfx.play('levelup', centre), 650);
 		}
 
@@ -570,15 +572,83 @@ export default {
 			return m !== 'edit' || (typeof api.isPlaying === 'function' && api.isPlaying());
 		}
 
-		// VR: the trigger picks, the next trigger drops. On a desktop gesture.js OWNS every
-		// press (a press on a dot never reaches core), so a module click core still dispatches
-		// there — play's crosshair TAP while the real cursor is elsewhere, an unlocked play —
-		// is only CONSUMED (nothing selects a dot), never acted on: acting would pick the dot
-		// under the crosshair while the player aimed the cursor at another one.
+		// ---------- VR: the controller drag (vrdrag.js) ----------
+		// 30b: a trigger PRESS grabs (the tip touching a dot, else the laser near one), the dot
+		// follows THAT hand while the trigger is held, the RELEASE drops. Poses come from
+		// `api.vrHand(hand)` (world space) — or the flight's `vrSim` seam, headless.
+		/** @type {Record<string, any> | null} the test seam: fake controller poses */
+		let vrSim = null;
+		/** the hand that last picked or dropped (the solve's haptic goes there) */
+		let vrHandLast = /** @type {string | null} */ (null);
+		const handPose = (hand) => (vrSim ? vrSim[hand] ?? null : api.vrHand?.(hand) ?? null);
+		/** the controller drag runs in VR on a core that reports hand poses (1.17 does) */
+		const vrDragOn = () => !!api.isVR?.() && (!!vrSim || typeof api.vrHand === 'function');
+		const worldScale = () => (group ? group.getWorldScale(localHit).x || 1 : 1);
+		/** the surface a carried dot lives on, in WORLD space: the board plane or the globe */
+		const wq = new THREE.Quaternion();
+		function surface() {
+			group.updateMatrixWorld();
+			const centre = group.getWorldPosition(new THREE.Vector3()).toArray();
+			if (mode === '3d') return { kind: 'sphere', centre, r: globeR() * worldScale() };
+			return { kind: 'plane', point: centre, normal: new THREE.Vector3(0, 0, 1).applyQuaternion(group.getWorldQuaternion(wq)).toArray() };
+		}
+		/** put the carried dot at a WORLD point on its surface */
+		function carryToWorld(point) {
+			localHit.fromArray(point);
+			group.worldToLocal(localHit);
+			if (mode === '3d') {
+				localHit.applyQuaternion(globeQuat.clone().invert());
+				positions[carried] = normalize([localHit.x, localHit.y, localHit.z]);
+			} else positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+		}
+		let vrMoved = false;
+		const vrDrag = createVRDrag({
+			canPick: () => built && !!group?.parent && interactive() && carried === -1,
+			pickAt: (pose) => {
+				group.updateMatrixWorld();
+				const s = surface();
+				// the globe hides its far side: a laser only reaches dots up to its front face
+				let frontLimit = Infinity;
+				if (s.kind === 'sphere') {
+					const r = handRay(pose);
+					const hit = raySphere(r.origin, r.dir, s.centre, s.r);
+					if (hit) frontLimit = Math.hypot(hit[0] - r.origin[0], hit[1] - r.origin[1], hit[2] - r.origin[2]);
+				}
+				const world = dots.map((d) => d.getWorldPosition(dotWorld).toArray());
+				return pickDot({ pose, dots: world, radius: dotR() * (mode === '3d' ? 0.8 : 1) * worldScale(), frontLimit });
+			},
+			pick: (i, hand, how) => {
+				vrHandLast = hand;
+				pick(i, 'vr-' + how);
+				sfx.haptic('tap', hand);
+			},
+			follow: (pose, hand, how) => {
+				const p = followPoint(how, pose, surface());
+				if (!p) return;
+				carryToWorld(p);
+				vrMoved = true;
+			},
+			drop: (hand, why) => {
+				vrHandLast = hand;
+				drop('vr-' + why);
+				sfx.haptic('bump', hand);
+			},
+			carrying: () => carried !== -1
+		});
+
+		// Core's click: on a desktop gesture.js OWNS every press (a press on a dot never reaches
+		// core), so a module click core still dispatches there — play's crosshair TAP while the
+		// real cursor is elsewhere, an unlocked play — is only CONSUMED (nothing selects a dot),
+		// never acted on. In VR the controller drag above owns the trigger: core's trailing
+		// `select` (it fires on RELEASE) is consumed on a dot, while carrying, and just after a
+		// VR pick/drop — never acted on. Only a core without hand poses keeps the old VR route
+		// (one trigger click picks, the next drops). The C3 sweep (a held trigger clicking
+		// whatever the tip enters) is opted out: a sweep across the board would pick dots.
 		api.registerClickHandler(
 			(object) => {
 				const isDot = !!object?.name?.startsWith('untangle-dot-');
 				if (!api.isVR?.() && typeof window !== 'undefined') return carried !== -1 || isDot;
+				if (vrDragOn()) return isDot || carried !== -1 || vrDrag.recent();
 				if (carried !== -1) {
 					drop('click');
 					return true;
@@ -587,7 +657,7 @@ export default {
 				pick(+object.name.slice('untangle-dot-'.length), 'click');
 				return true; // consume — never selects the dot
 			},
-			{ modes: ['interact', 'play'] }
+			{ modes: ['interact', 'play'], sweep: false }
 		);
 		api.registerFrameTask(() => {
 			frame++;
@@ -624,8 +694,14 @@ export default {
 				const ry = axes?.ry ?? 0;
 				if (Math.abs(rx) > 0.2 || Math.abs(ry) > 0.2) rotateBy(rx * 4, ry * 4);
 			}
-			// hover: the dot under the pointer (none while carrying, none when inert)
-			const over = carried === -1 && interactive() ? dotUnder(ray) : -1;
+			// VR: the controllers drive the drag (a carry left over from VR drops on leaving it)
+			vrMoved = false;
+			const vr = vrDragOn();
+			if (vr) vrDrag.update({ left: handPose('left'), right: handPose('right') });
+			else if (vrDrag.carrier()) vrDrag.update({ left: null, right: null });
+			// hover: the dot under the pointer — in VR the one a trigger press would grab
+			// (none while carrying, none when inert)
+			const over = carried === -1 && interactive() ? (vr ? vrDrag.candidate()?.i ?? -1 : dotUnder(ray)) : -1;
 			if (over !== hovered) {
 				const was = hovered;
 				hovered = over;
@@ -649,7 +725,7 @@ export default {
 				if (carried === -1) redraw(lastCounts);
 			}
 			if (carried === -1) return;
-			if (!follow(ray)) {
+			if (vrDrag.carrier() ? !vrMoved : !follow(ray)) {
 				redraw(lastCounts);
 				return;
 			}
@@ -852,6 +928,12 @@ export default {
 			select: (lvl, md) => selectLevel(lvl, md ?? mode),
 			progress: () => JSON.parse(JSON.stringify(progress)),
 			storageKind: storage.kind,
+			/** 30b: the VR drag's test seam — fake controller poses {left, right} ({position,
+			 * quaternion, trigger}, world space), or null to go back to api.vrHand */
+			vrSim: (hands) => {
+				vrSim = hands ?? null;
+			},
+			vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), lastHand: vrHandLast, on: vrDragOn() }),
 			/** 30b: every board sound / haptic asked for, the local voices still sounding, the music */
 			sfx: () => sfx.stats(),
 			clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),
