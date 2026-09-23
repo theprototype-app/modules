@@ -150,4 +150,43 @@ export function run(check) {
 		m.update({ left: P(true), right: P(true) });
 		check(presses.length === 1, 'mid-carry the other hand\'s press reaches nothing');
 	}
+
+	// ---- the globe HOLD: one hand holds, the other still carries a dot
+	{
+		const ev = [];
+		const dotHit = { value: /** @type {any} */ (null) };
+		let held = -1;
+		const m = createVRDrag({
+			canPick: () => true,
+			pickAt: () => dotHit.value,
+			pick: (i, h) => ((held = i), ev.push('pick:' + i + ':' + h)),
+			follow: (p, h) => ev.push('follow:' + h),
+			drop: (h) => ((held = -1), ev.push('drop:' + h)),
+			carrying: () => held !== -1,
+			onPress: () => false,
+			grabAt: (p, h) => (ev.push('grab:' + h), true),
+			hold: (p, h) => ev.push('hold:' + h),
+			release: (h, why) => ev.push('release:' + h + ':' + why)
+		});
+		m.update({ left: P(false), right: P(false) });
+		m.update({ left: P(false), right: P(true) });
+		check(m.holder()?.hand === 'right' && ev.join() === 'grab:right', 'a press on no dot and no bar HOLDS the globe (grabAt)');
+		dotHit.value = { i: 4, how: 'laser' };
+		m.update({ left: P(false), right: P(true) });
+		m.update({ left: P(true), right: P(true) });
+		check(m.carrier()?.hand === 'left' && held === 4, 'while the right hand holds the globe the LEFT hand grabs a dot');
+		const k = ev.length;
+		m.update({ left: P(true), right: P(true) });
+		check(ev.slice(k).join() === 'hold:right,follow:left', 'each frame the hold moves the globe FIRST, then the dot follows its hand');
+		dotHit.value = null;
+		m.update({ left: P(true), right: P(false) });
+		check(ev.at(-2) === 'release:right:release' && m.holder() === null && m.carrier()?.hand === 'left', 'releasing the right trigger lets the globe go; the left carry goes on');
+		m.update({ left: P(false), right: P(false) });
+		check(ev.at(-1) === 'drop:left' && held === -1, '...and the left release drops the dot');
+		m.update({ left: P(false), right: P(true) });
+		m.update({ left: P(true), right: P(true) });
+		check(m.holder()?.hand === 'right' && ev.filter((e) => e.startsWith('grab:')).length === 2, 'the second hand\'s press cannot take a globe that is already held');
+		m.update({ left: P(true), right: null });
+		check(ev.at(-1) === 'release:right:lost', 'the holding hand losing tracking lets the globe go');
+	}
 }

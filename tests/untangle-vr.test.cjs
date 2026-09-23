@@ -22,6 +22,12 @@
 //      next / previous UNLOCKED level on both peers (a locked ▶ does nothing), the mode cell
 //      flips to the globe on both peers, ↺ restarts the level; core's trailing select on
 //      the bar is consumed
+//   G  HOLD the globe with one hand's trigger (not on a dot): it rides the hand rigidly —
+//      the centre and every dot follow the controller's move AND turn; the holding hand's
+//      stick scales it and the dots scale with it; meanwhile the OTHER hand grabs a dot and
+//      carries it across the moving globe (it stays under that hand's ray), drops it, and B
+//      lands on the identical unit vector; the hold is LOCAL (B's globe did not move);
+//      left-stick walking is paused while holding; the flat board has no hold
 //
 // VR EMULATION: headless Chromium has no WebXR, so `isVRMode` is set on the store (what the
 // core vr* suites do) and the controllers' WORLD poses are fed through the module's test seam
@@ -459,6 +465,168 @@ run(async () => {
 		check(!(await bar()).visible, 'M.17 in EDIT the bar hides (the board does not react there)');
 		await A.page.evaluate(() => window.__stores.objectActions.setEditorMode('interact'));
 	}
+
+	// ---- G. hold the globe, move the dots with the other hand ---------------------------------------
+	await A.page.evaluate(() => window.__untangle.select(12, '3d'));
+	await eventually(() => state(B.page), (s) => s.mode === '3d' && s.level === 12, 'G.0 (premise) both peers on the level-12 globe');
+	await A.page.waitForTimeout(200);
+	// a spot on the globe's front face far from every dot (a press there holds, never picks)
+	const spot = await A.page.evaluate(() => {
+		const THREE = window.__stores.THREE;
+		const c = new THREE.Vector3(...window.__untangle.boardWorld([0, 0, 0]));
+		const r = c.distanceTo(new THREE.Vector3(...window.__untangle.boardWorld([0, 0, 1])));
+		const dots = window.__untangle.state().positions.map((_, i) => new THREE.Vector3(...window.__untangle.dotWorld(i)));
+		let best = null;
+		let bestD = -1;
+		for (let k = 0; k < 400; k++) {
+			const y = 1 - (2 * (k + 0.5)) / 400;
+			const rr = Math.sqrt(1 - y * y);
+			const phi = k * 2.399963;
+			const d = new THREE.Vector3(Math.cos(phi) * rr, y, Math.sin(phi) * rr);
+			if (d.z < 0.55) continue; // the face toward the player (+Z)
+			const p = c.clone().addScaledVector(d, r);
+			const miss = Math.min(...dots.map((q) => q.distanceTo(p)));
+			if (miss > bestD) {
+				bestD = miss;
+				best = p;
+			}
+		}
+		return { c: c.toArray(), r, at: best.toArray(), miss: bestD };
+	});
+	check(spot.miss > 0.2, 'G.0b (premise) a front spot ' + spot.miss.toFixed(2) + ' m from every dot');
+	const H0 = [spot.c[0] + 0.25, spot.c[1] - 0.25, spot.c[2] + spot.r + 0.6];
+	const LH = [spot.c[0] - 0.5, spot.c[1] - 0.2, spot.c[2] + spot.r + 1.2];
+	await setHands(A.page, { right: await aimPose(A.page, H0, spot.at, false), left: await aimPose(A.page, LH, [spot.c[0] - 3, spot.c[1] + 3, spot.c[2]], false) });
+	await A.page.waitForTimeout(100);
+	const q0 = (await aimPose(A.page, H0, spot.at, true)).quaternion;
+	const before = await A.page.evaluate(() => window.__untangle.state().positions.map((_, i) => window.__untangle.dotWorld(i)));
+	await setHands(A.page, { right: { position: H0, quaternion: q0, trigger: true } });
+	await A.page.waitForTimeout(120);
+	const g1v = await A.page.evaluate(() => ({ vr: window.__untangle.vr(), s: window.__untangle.state() }));
+	check(g1v.vr.holder?.hand === 'right' && g1v.s.carried === -1, 'G.1 the right trigger on the globe (not a dot) HOLDS it (holder ' + JSON.stringify(g1v.vr.holder) + ', carried ' + g1v.s.carried + ')');
+	check(await A.page.evaluate(() => { let v; window.__stores.inputRuntime.inputClaims.subscribe((x) => (v = x))(); return v.includes('locomotion'); }), 'G.2 left-stick walking is paused while the globe is held');
+	// move the hand 30 cm right and 10 up, and turn it 35 degrees about +Y
+	const H1 = [H0[0] + 0.3, H0[1] + 0.1, H0[2]];
+	const q1 = await A.page.evaluate((q0) => {
+		const THREE = window.__stores.THREE;
+		return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.61).multiply(new THREE.Quaternion().fromArray(q0)).toArray();
+	}, q0);
+	for (let k = 1; k <= 6; k++) {
+		const pos = H0.map((v, j) => v + ((H1[j] - v) * k) / 6);
+		const q = await A.page.evaluate(({ q0, q1, t }) => new window.__stores.THREE.Quaternion().fromArray(q0).slerp(new window.__stores.THREE.Quaternion().fromArray(q1), t).toArray(), { q0, q1, t: k / 6 });
+		await setHands(A.page, { right: { position: pos, quaternion: q, trigger: true } });
+		await A.page.waitForTimeout(40);
+	}
+	await A.page.waitForTimeout(100);
+	const rigid = await A.page.evaluate(({ H0, H1, q0, q1, before, c0 }) => {
+		const THREE = window.__stores.THREE;
+		const dq = new THREE.Quaternion().fromArray(q1).multiply(new THREE.Quaternion().fromArray(q0).invert());
+		const ride = (p) => new THREE.Vector3(...p).sub(new THREE.Vector3(...H0)).applyQuaternion(dq).add(new THREE.Vector3(...H1));
+		const after = window.__untangle.state().positions.map((_, i) => new THREE.Vector3(...window.__untangle.dotWorld(i)));
+		const centre = new THREE.Vector3(...window.__untangle.globeHold().centre);
+		return {
+			centreErr: centre.distanceTo(ride(c0)),
+			dotErr: Math.max(...before.map((p, i) => ride(p).distanceTo(after[i]))),
+			moved: centre.distanceTo(new THREE.Vector3(...c0))
+		};
+	}, { H0, H1, q0, q1, before, c0: spot.c });
+	check(rigid.moved > 0.25 && rigid.centreErr < 2e-3, 'G.3 the globe rides the hand: its centre moved ' + rigid.moved.toFixed(2) + ' m, exactly where the controller carried it (error ' + rigid.centreErr.toExponential(1) + ')');
+	check(rigid.dotErr < 2e-3, 'G.4 and it TURNED with the hand: every dot followed the controller\'s move + 35 deg turn (max error ' + rigid.dotErr.toExponential(1) + ' m)');
+	// the holding hand's stick scales it — the dots with it
+	const look0 = await A.page.evaluate(() => ({ s: window.__untangle.globeHold().scale, r: window.__untangle.look().dotRadius }));
+	await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, -1));
+	await A.page.waitForTimeout(500);
+	await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, 0));
+	await A.page.waitForTimeout(80);
+	const look1 = await A.page.evaluate(() => ({ s: window.__untangle.globeHold().scale, r: window.__untangle.look().dotRadius }));
+	check(look1.s > look0.s * 1.3, 'G.5 stick forward on the holding hand grows the globe (scale ' + look0.s.toFixed(2) + ' -> ' + look1.s.toFixed(2) + ')');
+	check(Math.abs(look1.r / look0.r - look1.s / look0.s) < 1e-3, 'G.6 the dots grew in proportion (dot radius x' + (look1.r / look0.r).toFixed(3) + ')');
+	// the OTHER hand grabs a dot while the globe is held, and carries it across the moving globe
+	const front = await A.page.evaluate((lh) => {
+		const THREE = window.__stores.THREE;
+		const all = window.__untangle.state().positions.map((_, i) => new THREE.Vector3(...window.__untangle.dotWorld(i)));
+		const c = new THREE.Vector3(...window.__untangle.globeHold().centre);
+		const eye = new THREE.Vector3(...lh);
+		let best = 0;
+		let bestV = -2;
+		all.forEach((p, i) => {
+			const facing = p.clone().sub(c).normalize().dot(eye.clone().sub(c).normalize());
+			if (facing > bestV) {
+				bestV = facing;
+				best = i;
+			}
+		});
+		return { i: best, at: all[best].toArray() };
+	}, LH);
+	await setHands(A.page, { left: await aimPose(A.page, LH, front.at, false) });
+	await A.page.waitForTimeout(80);
+	await setHands(A.page, { left: await aimPose(A.page, LH, front.at, true) });
+	await A.page.waitForTimeout(120);
+	const g7 = await A.page.evaluate(() => ({ vr: window.__untangle.vr(), s: window.__untangle.state() }));
+	check(g7.s.carried === front.i && g7.vr.carrier?.hand === 'left' && g7.vr.holder?.hand === 'right', 'G.7 with the right hand holding the globe, the LEFT hand grabs dot ' + front.i + ' (carried ' + g7.s.carried + ')');
+	const gp0 = g7.s.positions[front.i];
+	// the right hand moves the globe while the left laser holds still: the dot stays on the left ray
+	const leftAim = front.at;
+	for (let k = 1; k <= 5; k++) {
+		await setHands(A.page, { right: { position: [H1[0] - 0.04 * k, H1[1], H1[2]], quaternion: q1, trigger: true } });
+		await A.page.waitForTimeout(40);
+	}
+	await A.page.waitForTimeout(100);
+	const onRay = await A.page.evaluate(({ LH, leftAim, i }) => {
+		const THREE = window.__stores.THREE;
+		const o = new THREE.Vector3(...LH);
+		const d = new THREE.Vector3(...leftAim).sub(o).normalize();
+		// the dot's point ON the globe (a carried dot is DRAWN lifted off it, toward the player)
+		const p = new THREE.Vector3(...window.__untangle.boardWorld(window.__untangle.state().positions[i]));
+		return new THREE.Ray(o, d).distanceSqToPoint(p) ** 0.5;
+	}, { LH, leftAim, i: front.i });
+	check(onRay < 0.03, 'G.8 as the right hand carries the globe away, the carried dot stays under the LEFT laser (its globe point ' + (onRay * 100).toFixed(1) + ' cm off the ray)');
+	await setHands(A.page, { left: await aimPose(A.page, LH, leftAim, false) });
+	await A.page.waitForTimeout(150);
+	const g9 = await state(A.page);
+	const gq = g9.positions[front.i];
+	check(g9.carried === -1 && Math.abs(Math.hypot(...gq) - 1) < 1e-6 && Math.hypot(gq[0] - gp0[0], gq[1] - gp0[1], gq[2] - gp0[2]) > 0.02, 'G.9 the left release drops it at a new spot on the sphere (a unit vector)');
+	await eventually(() => state(B.page), (s) => JSON.stringify(s.positions[front.i]) === JSON.stringify(gq), 'G.10 B lands on the identical unit vector');
+	check((await A.page.evaluate(() => window.__untangle.vr().holder?.hand)) === 'right', 'G.11 the right hand still holds the globe');
+	await setHands(A.page, { right: { position: [H1[0] - 0.2, H1[1], H1[2]], quaternion: q1, trigger: false } });
+	await A.page.waitForTimeout(120);
+	const g12 = await A.page.evaluate(() => {
+		let claims;
+		window.__stores.inputRuntime.inputClaims.subscribe((x) => (claims = x))();
+		return { holder: window.__untangle.vr().holder, hold: window.__untangle.globeHold(), walk: !claims.includes('locomotion') };
+	});
+	check(g12.holder === null && g12.hold.scale > 1.3 && g12.walk, 'G.12 the release lets it go where it is (scale ' + g12.hold.scale.toFixed(2) + ' kept) and walking is back');
+	const bHold = await B.page.evaluate(() => window.__untangle.globeHold());
+	check(bHold.scale === 1 && bHold.offset.every((v) => v === 0), 'G.13 the hold is LOCAL: B\'s globe did not move or grow');
+	// the flat board has no hold
+	await A.page.evaluate(() => window.__untangle.select(12, '2d'));
+	await A.page.waitForTimeout(200);
+	const fb = await boardFrame(A.page);
+	const hFlat = fb.c.map((v, k) => v + fb.n[k] * 1.3);
+	await setHands(A.page, { right: await aimPose(A.page, hFlat, fb.away, false) });
+	const edge = await A.page.evaluate(() => window.__untangle.boardWorld([0.02, 0.98]));
+	const spotFlat = await A.page.evaluate(() => {
+		const s = window.__untangle.state();
+		let best = [0, 0];
+		let bestD = -1;
+		for (let x = -0.9; x <= 0.9; x += 0.1)
+			for (let y = -0.9; y <= 0.9; y += 0.1) {
+				const d = Math.min(...s.positions.map((p) => Math.hypot(p[0] - x, p[1] - y)));
+				if (d > bestD) {
+					bestD = d;
+					best = [x, y];
+				}
+			}
+		return window.__untangle.boardWorld(best);
+	});
+	await setHands(A.page, { right: await aimPose(A.page, hFlat, spotFlat, false) });
+	await A.page.waitForTimeout(80);
+	await setHands(A.page, { right: await aimPose(A.page, hFlat, spotFlat, true) });
+	await A.page.waitForTimeout(120);
+	const g14 = await A.page.evaluate(() => ({ vr: window.__untangle.vr(), hold: window.__untangle.globeHold(), carried: window.__untangle.state().carried }));
+	check(g14.vr.holder === null && g14.carried === -1 && g14.hold.scale === 1, 'G.14 the flat board has no hold (a press on an empty spot holds nothing; the globe hold was forgotten with the mode)');
+	await setHands(A.page, { right: await aimPose(A.page, hFlat, spotFlat, false) });
+	void edge;
 	await A.page.evaluate(() => window.__untangle.vrSim(null));
 	await A.page.evaluate(() => window.__stores.isVRMode.set(false));
 

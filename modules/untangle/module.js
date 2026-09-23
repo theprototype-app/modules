@@ -1370,12 +1370,22 @@ function createVRDrag(hooks) {
   const now = hooks.now ?? (() => performance.now());
   const was = { left: false, right: false };
   let carrier = null;
+  let holder = null;
   let lastEventAt = -Infinity;
   let candidate = null;
   return {
     /** one frame: `hands` maps 'left'/'right' to a pose (or null when untracked) @param {Record<string, Pose | null>} hands */
     update(hands) {
       if (carrier && !hooks.carrying()) carrier = null;
+      if (holder) {
+        const pose = hands[holder.hand];
+        if (!pose || !pose.trigger) {
+          const hand = holder.hand;
+          holder = null;
+          lastEventAt = now();
+          hooks.release?.(hand, pose ? "release" : "lost");
+        } else hooks.hold?.(pose, holder.hand);
+      }
       if (carrier) {
         const pose = hands[carrier.hand];
         if (!pose) {
@@ -1396,24 +1406,33 @@ function createVRDrag(hooks) {
         const down = !!pose?.trigger;
         const pressed = down && !was[hand];
         was[hand] = down;
-        if (!pose || carrier || !hooks.canPick()) continue;
-        const hit = hooks.pickAt(pose, hand);
+        if (!pose || !hooks.canPick()) continue;
+        if (carrier?.hand === hand || holder?.hand === hand) continue;
+        const hit = carrier ? null : hooks.pickAt(pose, hand);
         if (hit && !candidate) candidate = { hand, ...hit };
-        if (pressed && hit) {
+        if (!pressed) continue;
+        if (hit) {
           carrier = { hand, how: hit.how };
           lastEventAt = now();
           hooks.pick(hit.i, hand, hit.how);
-        } else if (pressed && hooks.onPress?.(pose, hand)) lastEventAt = now();
+        } else if (!carrier && !holder && hooks.onPress?.(pose, hand)) lastEventAt = now();
+        else if (!holder && hooks.grabAt?.(pose, hand)) {
+          holder = { hand };
+          lastEventAt = now();
+        }
       }
     },
     /** the hand carrying, or null */
     carrier: () => carrier ? { ...carrier } : null,
+    /** the hand holding the globe, or null */
+    holder: () => holder ? { ...holder } : null,
     /** the dot a press would grab right now (the VR hover) */
     candidate: () => candidate ? { ...candidate } : null,
     /** did a VR pick/drop happen within CONSUME_MS? (core's trailing select is ours) */
     recent: () => now() - lastEventAt < CONSUME_MS,
     reset() {
       carrier = null;
+      holder = null;
       candidate = null;
     }
   };
@@ -1584,9 +1603,16 @@ var index_default = {
     const local = (p) => mode === "3d" ? new THREE.Vector3(p[0], p[1], p[2]).applyQuaternion(globeQuat).multiplyScalar(globeR()) : new THREE.Vector3(p[0] * board.radius, p[1] * board.radius, 0);
     const clampPos = (p) => mode === "3d" ? normalize([+p[0] || 0, +p[1] || 0, +p[2] || 0]) : clampToBoard([p[0], p[1]]);
     const fits = (p) => Array.isArray(p) && p.length === (mode === "3d" ? 3 : 2) && p.every((v) => Number.isFinite(+v));
+    const hold = { offset: new THREE.Vector3(), scale: 1 };
+    function resetHold() {
+      hold.offset.set(0, 0, 0);
+      hold.scale = 1;
+    }
     function placeGroup() {
       if (!group) return;
       group.position.set(board.x, board.boardY, board.z);
+      if (mode === "3d") group.position.add(hold.offset);
+      group.scale.setScalar(mode === "3d" ? hold.scale : 1);
       group.rotation.set(0, board.yaw, 0);
       group.updateMatrixWorld(true);
     }
@@ -1771,7 +1797,9 @@ var index_default = {
     }
     function setLevel(lvl, announce = false, md = mode) {
       level = Math.max(1, Math.round(Number(lvl) || 1));
-      mode = MODES_PLAYED.includes(md) ? md : "2d";
+      const nextMode = MODES_PLAYED.includes(md) ? md : "2d";
+      if (nextMode !== mode) resetHold();
+      mode = nextMode;
       const g = mode === "3d" ? generate3(level) : generate(level);
       edges = g.edges;
       positions = g.positions;
@@ -2012,6 +2040,52 @@ var index_default = {
       } else positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
     }
     let vrMoved = false;
+    let holdStart = null;
+    const HOLD_SCALE = [0.35, 4];
+    function globeUnder(pose) {
+      if (mode !== "3d" || !group) return false;
+      const s = surface();
+      const r = handRay(pose);
+      if (raySphere(r.origin, r.dir, s.centre, s.r * 1.06)) return true;
+      const tip = tipOf(pose);
+      return Math.hypot(tip[0] - s.centre[0], tip[1] - s.centre[1], tip[2] - s.centre[2]) <= s.r * 1.06 + TIP_RADIUS;
+    }
+    function startHold(pose, hand) {
+      group.updateMatrixWorld();
+      holdStart = {
+        p0: new THREE.Vector3().fromArray(pose.position),
+        q0inv: new THREE.Quaternion().fromArray(pose.quaternion).invert(),
+        c0: group.getWorldPosition(new THREE.Vector3()),
+        g0: globeQuat.clone(),
+        // the group's world turn WITHOUT the view (the hold moves and scales, never turns, it)
+        w: group.getWorldQuaternion(new THREE.Quaternion())
+      };
+      api.claimInput?.("locomotion");
+      sfx.play("pop", holdStart.c0.toArray());
+      sfx.haptic("tap", hand);
+    }
+    const dq = new THREE.Quaternion();
+    const newC = new THREE.Vector3();
+    const handP = new THREE.Vector3();
+    function holdTo(pose, hand) {
+      if (!holdStart || !group) return;
+      const axes = api.input?.()?.axes;
+      const y = (hand === "left" ? axes?.ly : axes?.ry) ?? 0;
+      if (Math.abs(y) > 0.15) hold.scale = Math.min(HOLD_SCALE[1], Math.max(HOLD_SCALE[0], hold.scale * (1 - y * 0.025)));
+      dq.fromArray(pose.quaternion).multiply(holdStart.q0inv);
+      newC.copy(holdStart.c0).sub(holdStart.p0).applyQuaternion(dq).add(handP.fromArray(pose.position));
+      globeQuat.copy(holdStart.w).invert().multiply(dq).multiply(holdStart.w).multiply(holdStart.g0).normalize();
+      const at = group.parent ? group.parent.worldToLocal(newC.clone()) : newC.clone();
+      hold.offset.set(at.x - board.x, at.y - board.boardY, at.z - board.z);
+      placeGroup();
+      redraw(lastCounts);
+    }
+    function endHold(hand) {
+      holdStart = null;
+      api.releaseInput?.("locomotion");
+      sfx.play("click", group ? group.getWorldPosition(new THREE.Vector3()).toArray() : void 0);
+      sfx.haptic("bump", hand);
+    }
     const vrDrag = createVRDrag({
       canPick: () => built && !!group?.parent && interactive() && carried === -1,
       pickAt: (pose) => {
@@ -2048,7 +2122,14 @@ var index_default = {
         if (k < 0) return false;
         barAct(CELLS[k], hand);
         return true;
-      }
+      },
+      grabAt: (pose, hand) => {
+        if (!globeUnder(pose)) return false;
+        startHold(pose, hand);
+        return true;
+      },
+      hold: (pose, hand) => holdTo(pose, hand),
+      release: (hand) => endHold(hand)
     });
     const poseRay = (pose) => {
       const r = handRay(pose);
@@ -2110,7 +2191,7 @@ var index_default = {
       const t = performance.now() / 1e3;
       burst?.tick(t);
       const ray = aim.current();
-      if (mode === "3d" && api.isVR?.() && carried === -1 && globeHit(ray, false)) {
+      if (mode === "3d" && api.isVR?.() && carried === -1 && !vrDrag.holder() && globeHit(ray, false)) {
         const axes = api.input?.()?.axes;
         const rx = axes?.rx ?? 0;
         const ry = axes?.ry ?? 0;
@@ -2292,6 +2373,7 @@ var index_default = {
     api.registerMenu("Restart level", restartLevel);
     api.onSceneClear?.(() => {
       sceneClears++;
+      resetHold();
       level = 1;
       nodeLevel = null;
       remoteApplied = false;
@@ -2367,7 +2449,9 @@ var index_default = {
       vrSim: (hands) => {
         vrSim = hands ?? null;
       },
-      vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), lastHand: vrHandLast, on: vrDragOn() }),
+      vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), holder: vrDrag.holder(), lastHand: vrHandLast, on: vrDragOn() }),
+      /** 30b: the LOCAL globe hold — offset (parent frame), scale, and the view quaternion */
+      globeHold: () => ({ offset: hold.offset.toArray(), scale: hold.scale, quat: globeQuat.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
       /** 30b: the VR level bar — shown?, the hovered cell, the cells, the last action */
       vrBar: () => ({ visible: !!vrBar?.mesh.visible, hover: barHover, cells: barCells(barView()), last: lastBar }),
       /** world position of bar cell k (for the flights' aim) */

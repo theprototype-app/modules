@@ -25,7 +25,7 @@ import { generate3, edgeCrossings3, solvedSphere, arcPoints, arcSegments, normal
 import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, isUnlocked, bestOf, makeStorage } from './progress.js';
 import { makeMenuKinds } from './menu.js';
 import { makeSfx } from './sfx.js';
-import { createVRDrag, pickDot, followPoint, handRay, raySphere } from './vrdrag.js';
+import { createVRDrag, pickDot, followPoint, handRay, raySphere, tipOf, TIP_RADIUS } from './vrdrag.js';
 import { makeVRBar, barCells, CELLS, BAR_H } from './vrbar.js';
 
 const GROUP = 'untangle-module';
@@ -117,9 +117,19 @@ export default {
 		const clampPos = (p) => (mode === '3d' ? normalize([+p[0] || 0, +p[1] || 0, +p[2] || 0]) : clampToBoard([p[0], p[1]]));
 		/** does a replicated position have this mode's shape? (an older peer sends [x, y]) */
 		const fits = (p) => Array.isArray(p) && p.length === (mode === '3d' ? 3 : 2) && p.every((v) => Number.isFinite(+v));
+		/** 30b: the player's LOCAL hold of the globe (VR): where it was carried to (an offset in
+		 * the board's parent frame) and how big it is; its turn goes into globeQuat. Never
+		 * replicated — like the view rotation, the dots replicate as unit vectors. */
+		const hold = { offset: new THREE.Vector3(), scale: 1 };
+		function resetHold() {
+			hold.offset.set(0, 0, 0);
+			hold.scale = 1;
+		}
 		function placeGroup() {
 			if (!group) return;
 			group.position.set(board.x, board.boardY, board.z);
+			if (mode === '3d') group.position.add(hold.offset);
+			group.scale.setScalar(mode === '3d' ? hold.scale : 1);
 			group.rotation.set(0, board.yaw, 0);
 			group.updateMatrixWorld(true);
 		}
@@ -326,7 +336,9 @@ export default {
 		/** (re)generate level `lvl` and rebuild; `announce` pulses the level event */
 		function setLevel(lvl, announce = false, md = mode) {
 			level = Math.max(1, Math.round(Number(lvl) || 1));
-			mode = MODES_PLAYED.includes(md) ? md : '2d';
+			const nextMode = MODES_PLAYED.includes(md) ? md : '2d';
+			if (nextMode !== mode) resetHold();
+			mode = nextMode;
 			const g = mode === '3d' ? generate3(level) : generate(level);
 			edges = g.edges;
 			positions = g.positions;
@@ -618,6 +630,60 @@ export default {
 			} else positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
 		}
 		let vrMoved = false;
+		// ---------- VR: HOLD the globe (one hand's trigger; the other hand keeps the dots) ----------
+		/** @type {any} the hold's start: the hand pose, the globe centre, the view, the frame */
+		let holdStart = null;
+		const HOLD_SCALE = [0.35, 4];
+		/** does this hand's laser (or tip) touch the globe? */
+		function globeUnder(pose) {
+			if (mode !== '3d' || !group) return false;
+			const s = surface();
+			const r = handRay(pose);
+			if (raySphere(r.origin, r.dir, s.centre, s.r * 1.06)) return true;
+			const tip = tipOf(pose);
+			return Math.hypot(tip[0] - s.centre[0], tip[1] - s.centre[1], tip[2] - s.centre[2]) <= s.r * 1.06 + TIP_RADIUS;
+		}
+		function startHold(pose, hand) {
+			group.updateMatrixWorld();
+			holdStart = {
+				p0: new THREE.Vector3().fromArray(pose.position),
+				q0inv: new THREE.Quaternion().fromArray(pose.quaternion).invert(),
+				c0: group.getWorldPosition(new THREE.Vector3()),
+				g0: globeQuat.clone(),
+				// the group's world turn WITHOUT the view (the hold moves and scales, never turns, it)
+				w: group.getWorldQuaternion(new THREE.Quaternion())
+			};
+			api.claimInput?.('locomotion'); // the holding hand's stick scales, it must not walk
+			sfx.play('pop', holdStart.c0.toArray());
+			sfx.haptic('tap', hand);
+		}
+		const dq = new THREE.Quaternion();
+		const newC = new THREE.Vector3();
+		const handP = new THREE.Vector3();
+		/** the globe rides the hand rigidly (the edit-mode object grab): its centre keeps its
+		 * offset from the controller, its turn follows the controller's; the stick scales it */
+		function holdTo(pose, hand) {
+			if (!holdStart || !group) return;
+			const axes = api.input?.()?.axes;
+			const y = (hand === 'left' ? axes?.ly : axes?.ry) ?? 0;
+			// forward (y < 0 in xr-standard) grows, back shrinks — the Y axis, because the right
+			// stick's X is core's snap turn and a module cannot pause it
+			if (Math.abs(y) > 0.15) hold.scale = Math.min(HOLD_SCALE[1], Math.max(HOLD_SCALE[0], hold.scale * (1 - y * 0.025)));
+			dq.fromArray(pose.quaternion).multiply(holdStart.q0inv);
+			newC.copy(holdStart.c0).sub(holdStart.p0).applyQuaternion(dq).add(handP.fromArray(pose.position));
+			// the view: W^-1 dq W G0 — the controller's world turn, expressed in the group frame
+			globeQuat.copy(holdStart.w).invert().multiply(dq).multiply(holdStart.w).multiply(holdStart.g0).normalize();
+			const at = group.parent ? group.parent.worldToLocal(newC.clone()) : newC.clone();
+			hold.offset.set(at.x - board.x, at.y - board.boardY, at.z - board.z);
+			placeGroup();
+			redraw(lastCounts);
+		}
+		function endHold(hand) {
+			holdStart = null;
+			api.releaseInput?.('locomotion');
+			sfx.play('click', group ? group.getWorldPosition(new THREE.Vector3()).toArray() : undefined);
+			sfx.haptic('bump', hand);
+		}
 		const vrDrag = createVRDrag({
 			canPick: () => built && !!group?.parent && interactive() && carried === -1,
 			pickAt: (pose) => {
@@ -655,7 +721,14 @@ export default {
 				if (k < 0) return false;
 				barAct(CELLS[k], hand);
 				return true;
-			}
+			},
+			grabAt: (pose, hand) => {
+				if (!globeUnder(pose)) return false;
+				startHold(pose, hand);
+				return true;
+			},
+			hold: (pose, hand) => holdTo(pose, hand),
+			release: (hand) => endHold(hand)
 		});
 
 		// ---------- VR: the level bar (vrbar.js) ----------
@@ -739,7 +812,7 @@ export default {
 			burst?.tick(t);
 			const ray = aim.current();
 			// P3: in VR the thumbstick turns the globe while the hand points at it
-			if (mode === '3d' && api.isVR?.() && carried === -1 && globeHit(ray, false)) {
+			if (mode === '3d' && api.isVR?.() && carried === -1 && !vrDrag.holder() && globeHit(ray, false)) {
 				const axes = api.input?.()?.axes;
 				const rx = axes?.rx ?? 0;
 				const ry = axes?.ry ?? 0;
@@ -931,6 +1004,7 @@ export default {
 		// forgotten so the node's value is applied again even when it did not change)
 		api.onSceneClear?.(() => {
 			sceneClears++;
+			resetHold();
 			level = 1;
 			nodeLevel = null;
 			remoteApplied = false;
@@ -997,7 +1071,9 @@ export default {
 			vrSim: (hands) => {
 				vrSim = hands ?? null;
 			},
-			vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), lastHand: vrHandLast, on: vrDragOn() }),
+			vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), holder: vrDrag.holder(), lastHand: vrHandLast, on: vrDragOn() }),
+			/** 30b: the LOCAL globe hold — offset (parent frame), scale, and the view quaternion */
+			globeHold: () => ({ offset: hold.offset.toArray(), scale: hold.scale, quat: globeQuat.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
 			/** 30b: the VR level bar — shown?, the hovered cell, the cells, the last action */
 			vrBar: () => ({ visible: !!vrBar?.mesh.visible, hover: barHover, cells: barCells(barView()), last: lastBar }),
 			/** world position of bar cell k (for the flights' aim) */

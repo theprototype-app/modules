@@ -15,7 +15,11 @@
 // - the RELEASE drops it (an untracked hand drops too). The other hand is ignored.
 // Core's trailing `select` still reaches the click handler; index.js consumes it (a board
 // hit, or one within CONSUME_MS of a VR pick/drop) and never acts on it. A press that grabs
-// no dot is offered to `onPress` (the VR level bar, vrbar.js).
+// no dot is offered to `onPress` (the VR level bar, vrbar.js), then to `grabAt` — the GLOBE
+// HOLD: one hand's trigger on the globe holds it (index.js moves and turns it with that hand,
+// its stick scales it) while the OTHER hand can still grab and carry a dot. The hold is
+// updated before the carry each frame, so a dot carried across a moving globe stays under
+// its hand.
 
 export const TIP_AHEAD = 0.02; // the tip sphere's centre, metres ahead of the ray origin
 export const TIP_RADIUS = 0.03; // ~6 cm sphere (contract C3's tip)
@@ -149,6 +153,9 @@ export function followPoint(how, pose, surface) {
  *   drop: (hand: string, why: string) => void,
  *   carrying: () => boolean,
  *   onPress?: (pose: Pose, hand: string) => boolean,
+ *   grabAt?: (pose: Pose, hand: string) => boolean,
+ *   hold?: (pose: Pose, hand: string) => void,
+ *   release?: (hand: string, why: string) => void,
  *   now?: () => number
  * }} hooks
  */
@@ -156,8 +163,10 @@ export function createVRDrag(hooks) {
 	const now = hooks.now ?? (() => performance.now());
 	/** trigger state last frame, per hand */
 	const was = { left: false, right: false };
-	/** @type {{hand: string, how: string} | null} */
+	/** @type {{hand: string, how: string} | null} the hand carrying a dot */
 	let carrier = null;
+	/** @type {{hand: string} | null} the hand holding the globe */
+	let holder = null;
 	let lastEventAt = -Infinity;
 	/** @type {{hand: string, i: number, how: string} | null} what a press would grab now */
 	let candidate = null;
@@ -167,6 +176,16 @@ export function createVRDrag(hooks) {
 		update(hands) {
 			// a carry that ended elsewhere (a drop by another path, a level change) is forgotten
 			if (carrier && !hooks.carrying()) carrier = null;
+			// the hold first: the globe moves, then a carried dot follows its hand on it
+			if (holder) {
+				const pose = hands[holder.hand];
+				if (!pose || !pose.trigger) {
+					const hand = holder.hand;
+					holder = null;
+					lastEventAt = now();
+					hooks.release?.(hand, pose ? 'release' : 'lost');
+				} else hooks.hold?.(pose, holder.hand);
+			}
 			if (carrier) {
 				const pose = hands[carrier.hand];
 				if (!pose) {
@@ -187,24 +206,34 @@ export function createVRDrag(hooks) {
 				const down = !!pose?.trigger;
 				const pressed = down && !was[hand];
 				was[hand] = down;
-				if (!pose || carrier || !hooks.canPick()) continue;
-				const hit = hooks.pickAt(pose, hand);
+				if (!pose || !hooks.canPick()) continue;
+				if (carrier?.hand === hand || holder?.hand === hand) continue; // this hand is busy
+				// one dot at a time: while one is carried the other hand can only hold the globe
+				const hit = carrier ? null : hooks.pickAt(pose, hand);
 				if (hit && !candidate) candidate = { hand, ...hit };
-				if (pressed && hit) {
+				if (!pressed) continue;
+				if (hit) {
 					carrier = { hand, how: hit.how };
 					lastEventAt = now();
 					hooks.pick(hit.i, hand, hit.how);
-				} else if (pressed && hooks.onPress?.(pose, hand)) lastEventAt = now(); // a press on something else of ours (the level bar)
+				} else if (!carrier && !holder && hooks.onPress?.(pose, hand)) lastEventAt = now(); // the level bar
+				else if (!holder && hooks.grabAt?.(pose, hand)) {
+					holder = { hand };
+					lastEventAt = now();
+				}
 			}
 		},
 		/** the hand carrying, or null */
 		carrier: () => (carrier ? { ...carrier } : null),
+		/** the hand holding the globe, or null */
+		holder: () => (holder ? { ...holder } : null),
 		/** the dot a press would grab right now (the VR hover) */
 		candidate: () => (candidate ? { ...candidate } : null),
 		/** did a VR pick/drop happen within CONSUME_MS? (core's trailing select is ours) */
 		recent: () => now() - lastEventAt < CONSUME_MS,
 		reset() {
 			carrier = null;
+			holder = null;
 			candidate = null;
 		}
 	};
