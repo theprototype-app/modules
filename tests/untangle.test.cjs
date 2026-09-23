@@ -124,7 +124,10 @@ run(async () => {
 	const bBefore = await snap(B.page);
 	await B.page.evaluate((stale) => window.__stores.moduleSDK.applyModuleStates({ untangle: stale }), { level: 3, mode: '3d', positions: g0.positions, rev: 0 });
 	const bStale = await snap(B.page);
-	check(JSON.stringify(bStale.positions) === JSON.stringify(bBefore.positions) && bStale.syncs.stale === bBefore.syncs.stale + 1, 'P3.4b a STALE snapshot of the same board (rev 0) is ignored — B keeps the move');
+	// AT LEAST one more stale: the mesh's own exchange (another peer's connection) can land a
+	// genuinely stale snapshot of this board in the same window — measured 0 -> 2, positions
+	// kept — and it is ignored too; the positions are what prove the guard
+	check(JSON.stringify(bStale.positions) === JSON.stringify(bBefore.positions) && bStale.syncs.stale >= bBefore.syncs.stale + 1, 'P3.4b a STALE snapshot of the same board (rev 0) is ignored — B keeps the move');
 	const newer = g1.positions.map((p, i) => (i === 5 ? [0, 0, 1] : p));
 	await B.page.evaluate((st) => window.__stores.moduleSDK.applyModuleStates({ untangle: st }), { level: 3, mode: '3d', positions: newer, rev: bBefore.rev + 5 });
 	check(JSON.stringify((await snap(B.page)).positions[5]) === '[0,0,1]', 'P3.4c ...and a NEWER one (higher rev) is applied');
