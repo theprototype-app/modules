@@ -24,6 +24,9 @@ import { makeEdgeLayer, makeBackplate, makeHoverRing, makeBurst, makeGlobe, COLO
 import { generate3, edgeCrossings3, solvedSphere, arcPoints, arcSegments, normalize } from './sphere.js';
 import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, isUnlocked, bestOf, makeStorage } from './progress.js';
 import { makeMenuKinds } from './menu.js';
+import { makeSfx } from './sfx.js';
+import { createVRDrag, pickDot, followPoint, handRay, raySphere, tipOf, TIP_RADIUS } from './vrdrag.js';
+import { makeVRBar, barCells, CELLS, BAR_H } from './vrbar.js';
 
 const GROUP = 'untangle-module';
 /** the modes this build plays: the flat board and (P3) the globe */
@@ -35,8 +38,8 @@ const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defa
 export default {
 	id: 'untangle',
 	name: 'Untangle',
-	version: '2.1.0',
-	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device); replicated, board pose, level and readouts as flow nodes.',
+	version: '2.2.0',
+	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device). In VR: grab dots with the trigger, hold/turn/scale the globe with one hand while the other moves dots, a level bar under the board. Replicated; board pose, level and readouts as flow nodes.',
 	/** @param {any} api */
 	register(api) {
 		const THREE = api.THREE;
@@ -114,9 +117,19 @@ export default {
 		const clampPos = (p) => (mode === '3d' ? normalize([+p[0] || 0, +p[1] || 0, +p[2] || 0]) : clampToBoard([p[0], p[1]]));
 		/** does a replicated position have this mode's shape? (an older peer sends [x, y]) */
 		const fits = (p) => Array.isArray(p) && p.length === (mode === '3d' ? 3 : 2) && p.every((v) => Number.isFinite(+v));
+		/** 30b: the player's LOCAL hold of the globe (VR): where it was carried to (an offset in
+		 * the board's parent frame) and how big it is; its turn goes into globeQuat. Never
+		 * replicated — like the view rotation, the dots replicate as unit vectors. */
+		const hold = { offset: new THREE.Vector3(), scale: 1 };
+		function resetHold() {
+			hold.offset.set(0, 0, 0);
+			hold.scale = 1;
+		}
 		function placeGroup() {
 			if (!group) return;
 			group.position.set(board.x, board.boardY, board.z);
+			if (mode === '3d') group.position.add(hold.offset);
+			group.scale.setScalar(mode === '3d' ? hold.scale : 1);
 			group.rotation.set(0, board.yaw, 0);
 			group.updateMatrixWorld(true);
 		}
@@ -131,6 +144,9 @@ export default {
 		/** @type {any} */ let globe = null;
 		/** @type {any} */ let hoverRing = null;
 		/** @type {any} */ let burst = null;
+		/** @type {any} 30b: the VR level bar (vrbar.js), rebuilt with the board */
+		let vrBar = null;
+		let barHover = -1;
 		let hovered = -1;
 		let lift = 0; // the carried dot's eased lift, 0..1
 		/** free every geometry/material a previous build made (rebuilds are per level) */
@@ -145,11 +161,21 @@ export default {
 				}
 			});
 		}
+		/** is `o` in the scene graph under `scene`? */
+		const attached = (o, scene) => {
+			for (let p = o; p; p = p.parent) if (p === scene) return true;
+			return false;
+		};
 		function build() {
 			const scene = api.scene();
 			if (!scene) return;
+			// 30b: the board must follow the VR world (grab, spin, scale). A core may hang module
+			// content under its world root (30b-vr-modes P5) — so a rebuild goes back where the
+			// old board WAS (never the scene root by habit) and leaves no orphan behind there
+			let parent = scene;
 			if (group) {
-				scene.remove(group);
+				if (group.parent && attached(group, scene)) parent = group.parent;
+				group.removeFromParent();
 				disposeGroup(group);
 			}
 			group = new THREE.Group();
@@ -188,7 +214,13 @@ export default {
 			group.add(hoverRing);
 			burst = makeBurst(THREE);
 			group.add(burst.points, burst.wave);
-			scene.add(group);
+			// 30b: the level bar under the board / the globe, facing the player (VR only)
+			vrBar = makeVRBar(THREE, board.radius);
+			const below = mode === '3d' ? globeR() : board.radius;
+			vrBar.mesh.position.set(0, -below - BAR_H * board.radius * 0.5 - 0.22, mode === '3d' ? globeR() * 0.35 : 0.03);
+			vrBar.mesh.visible = false;
+			group.add(vrBar.mesh);
+			parent.add(group);
 			placeGroup();
 			// the test/debug hook (scene-root local, never serialized)
 			group.userData._ut = {
@@ -298,14 +330,15 @@ export default {
 			redraw(lastCounts);
 			ensureSprite();
 			drawSprite('Level ' + level + '  ·  ' + (crossings === 0 ? 'solved!' : crossings + ' crossing' + (crossings === 1 ? '' : 's')), crossings === 0 ? '#4ade80' : '#e2e8f0');
-			ambientSetTension(crossings);
 			return crossings;
 		}
 
 		/** (re)generate level `lvl` and rebuild; `announce` pulses the level event */
 		function setLevel(lvl, announce = false, md = mode) {
 			level = Math.max(1, Math.round(Number(lvl) || 1));
-			mode = MODES_PLAYED.includes(md) ? md : '2d';
+			const nextMode = MODES_PLAYED.includes(md) ? md : '2d';
+			if (nextMode !== mode) resetHold();
+			mode = nextMode;
 			const g = mode === '3d' ? generate3(level) : generate(level);
 			edges = g.edges;
 			positions = g.positions;
@@ -331,51 +364,24 @@ export default {
 			setLevel(l, true, m);
 		}
 
-		// ---------- generative audio (lazy — browsers gate audio on a gesture) ----------
-		let ac = null;
-		let padGain = null;
-		let padFilter = null;
-		function audio() {
-			if (ac) return ac;
-			ac = new (window.AudioContext || window.webkitAudioContext)();
-			padGain = ac.createGain();
-			padGain.gain.value = 0.03;
-			padFilter = ac.createBiquadFilter();
-			padFilter.type = 'lowpass';
-			padFilter.frequency.value = 400;
-			const lfo = ac.createOscillator();
-			const lfoGain = ac.createGain();
-			lfo.frequency.value = 0.13;
-			lfoGain.gain.value = 0.012;
-			lfo.connect(lfoGain).connect(padGain.gain);
-			for (const [type, freq] of [['triangle', 110], ['triangle', 110.7], ['sine', 220.3]]) {
-				const osc = ac.createOscillator();
-				osc.type = type;
-				osc.frequency.value = freq;
-				osc.connect(padFilter);
-				osc.start();
+		// ---------- sound, music, haptics (sfx.js) ----------
+		// 30b: ONE short sound per event and nothing per frame. The old generative pad (three
+		// never-stopped oscillators whose filter was re-ramped by every refresh — i.e. every
+		// frame of a drag) was the "weird sound while moving the dots"; it is gone.
+		const sfx = makeSfx(api);
+		/** a board point's WORLD position, for a spatial sound or an effect */
+		const worldOf = (v) => (group ? group.localToWorld(v.clone()).toArray() : undefined);
+		/** the solve: a chime, a sparkle, a banner (and on the unlock a level-up after it) */
+		function celebrate(unlocked, fromMe) {
+			const centre = worldOf(new THREE.Vector3(0, 0, 0));
+			sfx.play('success', centre);
+			if (centre && typeof api.effects?.burst === 'function' && api.effects.burst(centre, { kind: 'sparkle', color: '#3ee08f', count: 48 })) sfx.note('burst:sparkle');
+			if (typeof api.announce === 'function') {
+				api.announce('Level ' + level + ' solved', { sub: mode === '3d' ? 'Globe' : undefined, color: '#3ee08f' });
+				sfx.note('announce:Level ' + level + ' solved');
 			}
-			padFilter.connect(padGain).connect(ac.destination);
-			lfo.start();
-			return ac;
-		}
-		function ambientSetTension(count) {
-			if (!ac) return; // starts on the first interaction
-			padFilter.frequency.linearRampToValueAtTime(320 + Math.max(0, 24 - count) * 60, ac.currentTime + 0.6);
-		}
-		function blip(freq, duration = 0.07, gain = 0.12) {
-			const ctx = audio();
-			const osc = ctx.createOscillator();
-			const g = ctx.createGain();
-			osc.frequency.value = freq;
-			g.gain.setValueAtTime(gain, ctx.currentTime);
-			g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-			osc.connect(g).connect(ctx.destination);
-			osc.start();
-			osc.stop(ctx.currentTime + duration);
-		}
-		function winSting() {
-			[523.25, 659.25, 783.99, 1046.5].forEach((f, i) => setTimeout(() => blip(f, 0.22, 0.14), i * 110));
+			if (fromMe && vrHandLast && api.isVR?.()) sfx.haptic('success', vrHandLast);
+			if (unlocked) setTimeout(() => sfx.play('levelup', centre), 650);
 		}
 
 		// ---------- events out (fireNodeTrigger replicates: pulse where it HAPPENED) ----------
@@ -400,13 +406,15 @@ export default {
 				if (clock.start !== null && clock.ms === null) clock.ms = performance.now() - clock.start;
 				// fork 9: whoever solves banks it LOCALLY — every peer that moved a dot on this
 				// board (the co-op partners too), never a spectator
+				let unlocked = false;
 				if (participated) {
 					const r = recordSolve(progress, mode, level, clock.ms);
 					progress = r.progress;
 					clock.newBest = r.newBest;
+					unlocked = r.unlockedNew;
 					saveProgress();
 				}
-				winSting();
+				celebrate(unlocked, fromMe);
 				burst?.start(
 					positions.map((q) => local(q)),
 					(c) => (mode === '3d' ? c.clone().normalize() : new THREE.Vector3(0, 0, 1)),
@@ -421,7 +429,7 @@ export default {
 						if (!won) return; // a restart got there first
 						setLevel(level + 1, fromMe);
 					}, 1200);
-				} else api.toast('Untangled!');
+				} else if (typeof api.announce !== 'function') api.toast('Untangled!'); // the banner says it on a 30b core
 			}
 		}
 		/** the authoritative drop of dot i at board point p (apply locally + send) */
@@ -510,19 +518,15 @@ export default {
 			if (mode === '3d') {
 				const hit = globeHit(ray, true);
 				if (!hit) return false;
-				localHit.copy(hit);
-				group.worldToLocal(localHit);
-				localHit.applyQuaternion(globeQuat.clone().invert());
-				positions[carried] = normalize([localHit.x, localHit.y, localHit.z]);
+				carryToWorld(hit.toArray());
 				return true;
 			}
-			// the board plane in WORLD space: the group's +Z through its origin
-			planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
-			dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
+			// the board plane in WORLD space (30b: the group's own pose is LOCAL to whatever it
+			// hangs under — the VR world root turns, moves and scales it)
+			const s = surface();
+			dragPlane.setFromNormalAndCoplanarPoint(planeNormal.fromArray(s.normal), hitPoint.fromArray(s.point));
 			if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return false;
-			localHit.copy(hitPoint);
-			group.worldToLocal(localHit);
-			positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+			carryToWorld(hitPoint.toArray());
 			return true;
 		}
 		function pick(i, how) {
@@ -530,7 +534,7 @@ export default {
 			carried = i;
 			carryHow = how;
 			paintDot(i);
-			blip(660);
+			sfx.play('pop', worldOf(local(positions[i])));
 		}
 		/** drop the carried dot where it is (after one last follow of the drop's own ray) */
 		function drop(how, event) {
@@ -542,7 +546,7 @@ export default {
 			paintDot(i);
 			lastDrop = how;
 			gesture.reset();
-			blip(440);
+			sfx.play('click', worldOf(local(positions[i])));
 			dropAt(i, positions[i]);
 		}
 		/** the renderer's canvas (or anything while a lock holds the pointer) — never a HUD box */
@@ -599,15 +603,205 @@ export default {
 			return m !== 'edit' || (typeof api.isPlaying === 'function' && api.isPlaying());
 		}
 
-		// VR: the trigger picks, the next trigger drops. On a desktop gesture.js OWNS every
-		// press (a press on a dot never reaches core), so a module click core still dispatches
-		// there — play's crosshair TAP while the real cursor is elsewhere, an unlocked play —
-		// is only CONSUMED (nothing selects a dot), never acted on: acting would pick the dot
-		// under the crosshair while the player aimed the cursor at another one.
+		// ---------- VR: the controller drag (vrdrag.js) ----------
+		// 30b: a trigger PRESS grabs (the tip touching a dot, else the laser near one), the dot
+		// follows THAT hand while the trigger is held, the RELEASE drops. Poses come from
+		// `api.vrHand(hand)` (world space) — or the flight's `vrSim` seam, headless.
+		/** @type {Record<string, any> | null} the test seam: fake controller poses */
+		let vrSim = null;
+		/** the hand that last picked or dropped (the solve's haptic goes there) */
+		let vrHandLast = /** @type {string | null} */ (null);
+		const handPose = (hand) => (vrSim ? vrSim[hand] ?? null : api.vrHand?.(hand) ?? null);
+		/** the controller drag runs in VR on a core that reports hand poses (1.17 does) */
+		const vrDragOn = () => !!api.isVR?.() && (!!vrSim || typeof api.vrHand === 'function');
+		const worldScale = () => (group ? group.getWorldScale(localHit).x || 1 : 1);
+		/** the surface a carried dot lives on, in WORLD space: the board plane or the globe */
+		const wq = new THREE.Quaternion();
+		function surface() {
+			group.updateMatrixWorld();
+			const centre = group.getWorldPosition(new THREE.Vector3()).toArray();
+			if (mode === '3d') return { kind: 'sphere', centre, r: globeR() * worldScale() };
+			return { kind: 'plane', point: centre, normal: new THREE.Vector3(0, 0, 1).applyQuaternion(group.getWorldQuaternion(wq)).toArray() };
+		}
+		/** put the carried dot at a WORLD point on its surface */
+		function carryToWorld(point) {
+			localHit.fromArray(point);
+			group.worldToLocal(localHit);
+			if (mode === '3d') {
+				localHit.applyQuaternion(globeQuat.clone().invert());
+				positions[carried] = normalize([localHit.x, localHit.y, localHit.z]);
+			} else positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+		}
+		let vrMoved = false;
+		// ---------- VR: HOLD the globe (one hand's trigger; the other hand keeps the dots) ----------
+		/** @type {any} the hold's start: the hand pose, the globe centre, the view, the frame */
+		let holdStart = null;
+		const HOLD_SCALE = [0.35, 4];
+		/** does this hand's laser (or tip) touch the globe? */
+		function globeUnder(pose) {
+			if (mode !== '3d' || !group) return false;
+			const s = surface();
+			const r = handRay(pose);
+			if (raySphere(r.origin, r.dir, s.centre, s.r * 1.06)) return true;
+			const tip = tipOf(pose);
+			return Math.hypot(tip[0] - s.centre[0], tip[1] - s.centre[1], tip[2] - s.centre[2]) <= s.r * 1.06 + TIP_RADIUS;
+		}
+		function startHold(pose, hand) {
+			group.updateMatrixWorld();
+			holdStart = {
+				p0: new THREE.Vector3().fromArray(pose.position),
+				q0inv: new THREE.Quaternion().fromArray(pose.quaternion).invert(),
+				c0: group.getWorldPosition(new THREE.Vector3()),
+				g0: globeQuat.clone(),
+				// the group's world turn WITHOUT the view (the hold moves and scales, never turns, it)
+				w: group.getWorldQuaternion(new THREE.Quaternion())
+			};
+			api.claimInput?.('locomotion'); // the holding hand's stick scales, it must not walk
+			sfx.play('pop', holdStart.c0.toArray());
+			sfx.haptic('tap', hand);
+		}
+		const dq = new THREE.Quaternion();
+		const newC = new THREE.Vector3();
+		const handP = new THREE.Vector3();
+		/** the globe rides the hand rigidly (the edit-mode object grab): its centre keeps its
+		 * offset from the controller, its turn follows the controller's; the stick scales it */
+		function holdTo(pose, hand) {
+			if (!holdStart || !group) return;
+			const axes = api.input?.()?.axes;
+			const y = (hand === 'left' ? axes?.ly : axes?.ry) ?? 0;
+			// forward (y < 0 in xr-standard) grows, back shrinks — the Y axis, because the right
+			// stick's X is core's snap turn and a module cannot pause it
+			if (Math.abs(y) > 0.15) hold.scale = Math.min(HOLD_SCALE[1], Math.max(HOLD_SCALE[0], hold.scale * (1 - y * 0.025)));
+			dq.fromArray(pose.quaternion).multiply(holdStart.q0inv);
+			newC.copy(holdStart.c0).sub(holdStart.p0).applyQuaternion(dq).add(handP.fromArray(pose.position));
+			// the view: W^-1 dq W G0 — the controller's world turn, expressed in the group frame
+			globeQuat.copy(holdStart.w).invert().multiply(dq).multiply(holdStart.w).multiply(holdStart.g0).normalize();
+			const at = group.parent ? group.parent.worldToLocal(newC.clone()) : newC.clone();
+			hold.offset.set(at.x - board.x, at.y - board.boardY, at.z - board.z);
+			placeGroup();
+			redraw(lastCounts);
+		}
+		function endHold(hand) {
+			holdStart = null;
+			api.releaseInput?.('locomotion');
+			sfx.play('click', group ? group.getWorldPosition(new THREE.Vector3()).toArray() : undefined);
+			sfx.haptic('bump', hand);
+		}
+		/** the dot a hand's tip or laser would grab */
+		function pickFor(pose) {
+			group.updateMatrixWorld();
+			const s = surface();
+			// the globe hides its far side: a laser only reaches dots up to its front face
+			let frontLimit = Infinity;
+			if (s.kind === 'sphere') {
+				const r = handRay(pose);
+				const hit = raySphere(r.origin, r.dir, s.centre, s.r);
+				if (hit) frontLimit = Math.hypot(hit[0] - r.origin[0], hit[1] - r.origin[1], hit[2] - r.origin[2]);
+			}
+			const world = dots.map((d) => d.getWorldPosition(dotWorld).toArray());
+			return pickDot({ pose, dots: world, radius: dotR() * (mode === '3d' ? 0.8 : 1) * worldScale(), frontLimit });
+		}
+		/** 30b: the core's VR game UI (C2: the menu board, the wrist card) takes the laser where
+		 * it is — it is drawn on top of the world and consumes its own presses, but this module
+		 * reads the raw trigger, so a press on a panel button must not ALSO grab a dot, hold the
+		 * globe or press the level bar behind it. Found by name at the scene root. */
+		const CORE_VR_UI = ['vr-game-panel', 'vr-game-wrist'];
+		function coreUiOn(pose) {
+			const scene = api.scene?.();
+			if (!scene) return false;
+			const panels = scene.children.filter((o) => o.visible && CORE_VR_UI.includes(o.name));
+			return panels.length > 0 && poseRay(pose).intersectObjects(panels, false).length > 0;
+		}
+		const vrDrag = createVRDrag({
+			canPick: () => built && !!group?.parent && interactive() && carried === -1,
+			pickAt: (pose) => {
+				// a laser that crosses the core's VR panel belongs to the panel (a tip touch does not)
+				const hit = pickFor(pose);
+				return hit?.how === 'laser' && coreUiOn(pose) ? null : hit;
+			},
+			pick: (i, hand, how) => {
+				vrHandLast = hand;
+				pick(i, 'vr-' + how);
+				sfx.haptic('tap', hand);
+			},
+			follow: (pose, hand, how) => {
+				const p = followPoint(how, pose, surface());
+				if (!p) return;
+				carryToWorld(p);
+				vrMoved = true;
+			},
+			drop: (hand, why) => {
+				vrHandLast = hand;
+				drop('vr-' + why);
+				sfx.haptic('bump', hand);
+			},
+			carrying: () => carried !== -1,
+			onPress: (pose, hand) => {
+				if (coreUiOn(pose)) return false;
+				const k = barUnder(pose);
+				if (k < 0) return false;
+				barAct(CELLS[k], hand);
+				return true;
+			},
+			grabAt: (pose, hand) => {
+				if (coreUiOn(pose) || !globeUnder(pose)) return false;
+				startHold(pose, hand);
+				return true;
+			},
+			hold: (pose, hand) => holdTo(pose, hand),
+			release: (hand) => endHold(hand)
+		});
+
+		// ---------- VR: the level bar (vrbar.js) ----------
+		/** a THREE ray from a hand pose */
+		const poseRay = (pose) => {
+			const r = handRay(pose);
+			const ray = new THREE.Raycaster();
+			ray.ray.origin.fromArray(r.origin);
+			ray.ray.direction.fromArray(r.dir);
+			return ray;
+		};
+		const barView = () => ({ level, mode, progress, running: roundUnderway(), shell: !shellUnused() });
+		/** a press on a bar cell: the same replicated paths as the DOM menu */
+		function barAct(id, hand) {
+			const cell = barCells(barView()).find((c) => c.id === id);
+			if (!cell?.enabled) return;
+			if (id === 'prev') selectLevel(level - 1, mode);
+			else if (id === 'next') selectLevel(level + 1, mode);
+			else if (id === 'mode') {
+				const other = mode === '3d' ? '2d' : '3d';
+				selectLevel(continueLevel(progress, other), other);
+			} else if (id === 'restart') restartLevel();
+			else if (id === 'level') fire('start'); // the template: Untangle Event (start) -> playing
+			lastBar = id;
+			sfx.play('click', worldOf(new THREE.Vector3(0, 0, 0)));
+			sfx.haptic('bump', hand);
+		}
+		let lastBar = 'none';
+		/** the bar cell under a hand's laser, or -1 */
+		const barUnder = (pose) => (vrBar?.mesh.visible && pose && !coreUiOn(pose) ? vrBar.hit(poseRay(pose)) : -1);
+
+		/** is this mesh part of the board (under the module's group)? */
+		const ofBoard = (o) => {
+			for (let p = o; p; p = p.parent) if (p === group) return true;
+			return false;
+		};
+
+		// Core's click: on a desktop gesture.js OWNS every press (a press on a dot never reaches
+		// core), so a module click core still dispatches there — play's crosshair TAP while the
+		// real cursor is elsewhere, an unlocked play — is only CONSUMED (nothing selects a dot),
+		// never acted on. In VR the controller drag above owns the trigger: core's trailing
+		// `select` (it fires on RELEASE) is consumed on a dot, while carrying, and just after a
+		// VR pick/drop — never acted on. Only a core without hand poses keeps the old VR route
+		// (one trigger click picks, the next drops). The C3 sweep (a held trigger clicking
+		// whatever the tip enters) is opted out: a sweep across the board would pick dots.
 		api.registerClickHandler(
 			(object) => {
 				const isDot = !!object?.name?.startsWith('untangle-dot-');
 				if (!api.isVR?.() && typeof window !== 'undefined') return carried !== -1 || isDot;
+				// anything of the board's (a dot, the bar, the plate, the globe): core's press ('trigger',
+				// a 30b core) or release can reach here before or after the frame task saw the edge
+				if (vrDragOn()) return isDot || ofBoard(object) || carried !== -1 || vrDrag.recent();
 				if (carried !== -1) {
 					drop('click');
 					return true;
@@ -616,7 +810,7 @@ export default {
 				pick(+object.name.slice('untangle-dot-'.length), 'click');
 				return true; // consume — never selects the dot
 			},
-			{ modes: ['interact', 'play'] }
+			{ modes: ['interact', 'play'], sweep: false }
 		);
 		api.registerFrameTask(() => {
 			frame++;
@@ -639,19 +833,40 @@ export default {
 				else if (clock.start === null) clock.start = performance.now();
 			}
 			wasUnderway = underway;
+			// 30b: the quiet puzzle music while the board is PLAYED (Play, or Interact — VR's
+			// play) and stands in the scene; sfx.music acts on the change only
+			sfx.music(!!group?.parent && built && (!!api.isPlaying?.() || api.editorMode?.() === 'interact'));
 			if (!group) return;
 			const t = performance.now() / 1000;
 			burst?.tick(t);
 			const ray = aim.current();
 			// P3: in VR the thumbstick turns the globe while the hand points at it
-			if (mode === '3d' && api.isVR?.() && carried === -1 && globeHit(ray, false)) {
+			if (mode === '3d' && api.isVR?.() && carried === -1 && !vrDrag.holder() && globeHit(ray, false)) {
 				const axes = api.input?.()?.axes;
 				const rx = axes?.rx ?? 0;
 				const ry = axes?.ry ?? 0;
 				if (Math.abs(rx) > 0.2 || Math.abs(ry) > 0.2) rotateBy(rx * 4, ry * 4);
 			}
-			// hover: the dot under the pointer (none while carrying, none when inert)
-			const over = carried === -1 && interactive() ? dotUnder(ray) : -1;
+			// VR: the controllers drive the drag (a carry left over from VR drops on leaving it)
+			vrMoved = false;
+			const vr = vrDragOn();
+			if (vr) vrDrag.update({ left: handPose('left'), right: handPose('right') });
+			else if (vrDrag.carrier()) vrDrag.update({ left: null, right: null });
+			// the level bar: shown in VR while the board reacts; the laser's hover lights a cell
+			if (vrBar) {
+				vrBar.mesh.visible = vr && interactive();
+				barHover = -1;
+				if (vrBar.mesh.visible && carried === -1) {
+					for (const hand of ['right', 'left']) {
+						barHover = barUnder(handPose(hand));
+						if (barHover >= 0) break;
+					}
+				}
+				if (vrBar.mesh.visible) vrBar.draw(barCells(barView()), barHover);
+			}
+			// hover: the dot under the pointer — in VR the one a trigger press would grab
+			// (none while carrying, none when inert)
+			const over = carried === -1 && interactive() ? (vr ? vrDrag.candidate()?.i ?? -1 : dotUnder(ray)) : -1;
 			if (over !== hovered) {
 				const was = hovered;
 				hovered = over;
@@ -675,7 +890,7 @@ export default {
 				if (carried === -1) redraw(lastCounts);
 			}
 			if (carried === -1) return;
-			if (!follow(ray)) {
+			if (vrDrag.carrier() ? !vrMoved : !follow(ray)) {
 				redraw(lastCounts);
 				return;
 			}
@@ -807,16 +1022,18 @@ export default {
 				}
 			}
 		});
-		api.registerMenu('Restart level', () => {
+		function restartLevel() {
 			touched = true;
 			api.send({ op: 'restart', level, mode });
 			setLevel(level);
-		});
+		}
+		api.registerMenu('Restart level', restartLevel);
 		// a scene clear (applySession runs `/clear all` FIRST) resets to level 1; when a
 		// board node owns the level it applies on the next flowRuntime tick (nodeLevel is
 		// forgotten so the node's value is applied again even when it did not change)
 		api.onSceneClear?.(() => {
 			sceneClears++;
+			resetHold();
 			level = 1;
 			nodeLevel = null;
 			remoteApplied = false;
@@ -824,7 +1041,7 @@ export default {
 			carried = -1;
 			gesture?.reset();
 			if (group) {
-				api.scene()?.remove(group);
+				group.removeFromParent();
 				group = null;
 			}
 			built = false;
@@ -878,6 +1095,22 @@ export default {
 			select: (lvl, md) => selectLevel(lvl, md ?? mode),
 			progress: () => JSON.parse(JSON.stringify(progress)),
 			storageKind: storage.kind,
+			/** 30b: the VR drag's test seam — fake controller poses {left, right} ({position,
+			 * quaternion, trigger}, world space), or null to go back to api.vrHand */
+			vrSim: (hands) => {
+				vrSim = hands ?? null;
+			},
+			vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), holder: vrDrag.holder(), lastHand: vrHandLast, on: vrDragOn() }),
+			/** 30b: the LOCAL globe hold — offset (parent frame), scale, and the view quaternion */
+			globeHold: () => ({ offset: hold.offset.toArray(), scale: hold.scale, quat: globeQuat.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
+			/** 30b: the VR level bar — shown?, the hovered cell, the cells, the last action */
+			vrBar: () => ({ visible: !!vrBar?.mesh.visible, hover: barHover, cells: barCells(barView()), last: lastBar }),
+			/** world position of bar cell k (for the flights' aim) */
+			vrBarCell: (k) => (vrBar ? vrBar.mesh.localToWorld(vrBar.cellLocal(k)).toArray() : null),
+			/** 30b: every board sound / haptic asked for, the local voices still sounding, the music */
+			sfx: () => sfx.stats(),
+			/** 30b: which of the Quest round's core seams this core has (feature-detected) */
+			caps: () => ({ sounds: typeof api.music?.play === 'function', announce: typeof api.announce === 'function', effects: typeof api.effects?.burst === 'function', hapticPattern: typeof api.hapticPattern === 'function', vrHand: typeof api.vrHand === 'function' }),
 			clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),
 			/** P1: what the board is drawn with, as numbers a flight can assert */
 			look: () => {

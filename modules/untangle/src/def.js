@@ -199,7 +199,7 @@ export function untangleDef() {
 		license: 'CC0-1.0',
 		author: 'theprototype',
 		tags: ['puzzle', 'co-op', 'procedural', '3d'],
-		modules: [{ id: 'untangle', version: '2.1.0' }],
+		modules: [{ id: 'untangle', version: '2.2.0' }],
 		installModules: ['untangle'],
 		env: ENV,
 		// play.cursor 'free' (30-core-flow): no pointer lock — the real cursor drags; a core

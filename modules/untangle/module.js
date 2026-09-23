@@ -396,15 +396,15 @@ function makeEdgeLayer(THREE, capacity) {
       for (let i = 0; i < n; i++) {
         const s = segments[i];
         dir.subVectors(s.b, s.a);
-        const len2 = dir.length() || 1e-6;
+        const len3 = dir.length() || 1e-6;
         mid.addVectors(s.a, s.b).multiplyScalar(0.5);
-        quat.setFromUnitVectors(up, dir.divideScalar(len2));
+        quat.setFromUnitVectors(up, dir.divideScalar(len3));
         color.setHex(s.color);
-        const reach = len2 + radius * 2;
+        const reach = len3 + radius * 2;
         matrix.compose(mid, quat, scale.set(radius, reach, radius));
         core.setMatrixAt(i, matrix);
         core.setColorAt(i, color);
-        matrix.compose(mid, quat, scale.set(radius * 3.2, len2, radius * 3.2));
+        matrix.compose(mid, quat, scale.set(radius * 3.2, len3, radius * 3.2));
         glow.setMatrixAt(i, matrix);
         glow.setColorAt(i, color);
       }
@@ -1139,6 +1139,407 @@ function makeMenuKinds(ctx) {
   };
 }
 
+// modules/untangle/src/sfx.js
+var FALLBACK = {
+  pop: [[720, 1100, 0.07, 0.07, "sine"]],
+  click: [[1500, 1400, 0.03, 0.035, "triangle"]],
+  success: [
+    [523.25, 523.25, 0.18, 0.06, "triangle", 0],
+    [659.25, 659.25, 0.18, 0.06, "triangle", 0.09],
+    [783.99, 783.99, 0.26, 0.06, "triangle", 0.18],
+    [1046.5, 1046.5, 0.4, 0.05, "sine", 0.27]
+  ],
+  levelup: [
+    [587.33, 587.33, 0.12, 0.05, "sine", 0],
+    [880, 880, 0.24, 0.05, "sine", 0.1]
+  ]
+};
+var HAPTIC_FALLBACK = {
+  tap: [[0.25, 15]],
+  bump: [[0.5, 35]],
+  success: [[0.4, 40], [0.6, 40], [0.9, 80]]
+};
+var MUSIC_VOLUME = 0.35;
+var hasCoreSfx = (api) => typeof api?.music?.play === "function";
+function makeSfx(api, env = {}) {
+  const log = [];
+  let ac = null;
+  let live = 0;
+  let musicOn = false;
+  const later = env.setTimeout ?? ((fn, ms) => setTimeout(fn, ms));
+  function context() {
+    if (ac) return ac;
+    const make = env.audioContext ?? (() => {
+      const AC = typeof window !== "undefined" ? window.AudioContext || /** @type {any} */
+      window.webkitAudioContext : null;
+      return AC ? new AC() : null;
+    });
+    ac = make();
+    return ac;
+  }
+  function fallback(name) {
+    const voices = FALLBACK[name];
+    if (!voices) return;
+    let ctx;
+    try {
+      ctx = context();
+    } catch {
+      return;
+    }
+    if (!ctx) return;
+    if (ctx.state === "suspended") ctx.resume?.().catch?.(() => {
+    });
+    for (const [f0, f1, dur, gain, type, delay = 0] of voices) {
+      const t = ctx.currentTime + delay;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f0, t);
+      if (f1 !== f0) osc.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(gain, t + 8e-3);
+      g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+      osc.connect(g).connect(ctx.destination);
+      live++;
+      osc.onended = () => {
+        live--;
+        osc.disconnect();
+        g.disconnect();
+      };
+      osc.start(t);
+      osc.stop(t + dur + 0.02);
+    }
+  }
+  return {
+    /** one board sound (LOCAL, like every playSound) @param {string} name @param {number[]} [position] */
+    play(name, position) {
+      log.push(name);
+      if (hasCoreSfx(api)) api.playSound?.(name, position);
+      else fallback(name);
+    },
+    /** a haptic preset on one hand (or both) @param {'tap'|'bump'|'success'} name @param {'left'|'right'} [hand] */
+    haptic(name, hand) {
+      log.push("haptic:" + name + (hand ? ":" + hand : ""));
+      if (typeof api.hapticPattern === "function") {
+        api.hapticPattern(name, hand);
+        return;
+      }
+      if (typeof api.haptic !== "function") return;
+      let at = 0;
+      for (const [intensity, ms] of HAPTIC_FALLBACK[name] ?? []) {
+        if (at === 0) api.haptic(intensity, ms, hand);
+        else later(() => api.haptic(intensity, ms, hand), at);
+        at += ms + 60;
+      }
+    },
+    /** the puzzle music follows `on` — called every frame, acts only on a change @param {boolean} on */
+    music(on) {
+      if (on === musicOn) return;
+      musicOn = on;
+      if (typeof api.music?.play !== "function") return;
+      log.push(on ? "music:puzzle" : "music:stop");
+      if (on) api.music.play("puzzle", { volume: MUSIC_VOLUME });
+      else api.music.stop?.();
+    },
+    /** record a non-sound moment (the solve's burst / banner) in the same log @param {string} entry */
+    note(entry) {
+      log.push(entry);
+    },
+    /** what the flights read: the log, the fallback voices sounding, whether music is on */
+    stats: () => ({ log: [...log], live, contexts: ac ? 1 : 0, music: musicOn, core: hasCoreSfx(api) })
+  };
+}
+
+// modules/untangle/src/vrdrag.js
+var TIP_AHEAD = 0.02;
+var TIP_RADIUS = 0.03;
+var REACH = 1.3;
+var CONSUME_MS = 450;
+var HANDS = (
+  /** @type {const} */
+  ["right", "left"]
+);
+var sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+var add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+var mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+var dot2 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+var len2 = (a) => Math.hypot(a[0], a[1], a[2]);
+function quatRotate(q, v) {
+  const [x, y, z, w] = q;
+  const tx = 2 * (y * v[2] - z * v[1]);
+  const ty = 2 * (z * v[0] - x * v[2]);
+  const tz = 2 * (x * v[1] - y * v[0]);
+  return [v[0] + w * tx + (y * tz - z * ty), v[1] + w * ty + (z * tx - x * tz), v[2] + w * tz + (x * ty - y * tx)];
+}
+function handRay(pose) {
+  const d = quatRotate(pose.quaternion, [0, 0, -1]);
+  const l = len2(d) || 1;
+  return { origin: (
+    /** @type {V3} */
+    [...pose.position]
+  ), dir: (
+    /** @type {V3} */
+    mul(d, 1 / l)
+  ) };
+}
+function tipOf(pose) {
+  const r = handRay(pose);
+  return (
+    /** @type {V3} */
+    add(r.origin, mul(r.dir, TIP_AHEAD))
+  );
+}
+function rayPlane(origin, dir, point, normal) {
+  const denom = dot2(dir, normal);
+  if (Math.abs(denom) < 1e-6) return null;
+  const t = dot2(sub(point, origin), normal) / denom;
+  return t < 0 ? null : (
+    /** @type {V3} */
+    add(origin, mul(dir, t))
+  );
+}
+function closestOnPlane(p, point, normal) {
+  const n = mul(normal, 1 / (len2(normal) || 1));
+  return (
+    /** @type {V3} */
+    sub(p, mul(n, dot2(sub(p, point), n)))
+  );
+}
+function raySphere(origin, dir, centre, r) {
+  const oc = sub(origin, centre);
+  const b = dot2(oc, dir);
+  const c = dot2(oc, oc) - r * r;
+  const disc = b * b - c;
+  if (disc < 0) return null;
+  const s = Math.sqrt(disc);
+  const t = -b - s >= 0 ? -b - s : -b + s;
+  return t < 0 ? null : (
+    /** @type {V3} */
+    add(origin, mul(dir, t))
+  );
+}
+function sphereRim(origin, dir, centre, r) {
+  const along = dot2(sub(centre, origin), dir);
+  const nearest = add(origin, mul(dir, Math.max(0, along)));
+  const out = sub(nearest, centre);
+  const l = len2(out);
+  return (
+    /** @type {V3} */
+    l < 1e-9 ? add(centre, [0, r, 0]) : add(centre, mul(out, r / l))
+  );
+}
+function pickDot({ pose, dots, radius, frontLimit = Infinity }) {
+  const tip = tipOf(pose);
+  let best = -1;
+  let bestD = radius + TIP_RADIUS;
+  dots.forEach((d, i) => {
+    const dist = len2(sub(d, tip));
+    if (dist <= bestD) {
+      bestD = dist;
+      best = i;
+    }
+  });
+  if (best >= 0) return { i: best, how: "tip" };
+  const { origin, dir } = handRay(pose);
+  const reach = radius * REACH;
+  let bestMiss = reach * reach;
+  dots.forEach((d, i) => {
+    const rel = sub(d, origin);
+    const along = dot2(rel, dir);
+    if (along <= 0 || along > frontLimit + reach * 1.5) return;
+    const miss = dot2(rel, rel) - along * along;
+    if (miss <= bestMiss) {
+      bestMiss = miss;
+      best = i;
+    }
+  });
+  return best >= 0 ? { i: best, how: "laser" } : null;
+}
+function followPoint(how, pose, surface) {
+  if (how === "tip") {
+    const tip = tipOf(pose);
+    if (surface.kind === "plane") return closestOnPlane(tip, surface.point, surface.normal);
+    const out = sub(tip, surface.centre);
+    const l = len2(out);
+    return l < 1e-9 ? null : (
+      /** @type {V3} */
+      add(surface.centre, mul(out, surface.r / l))
+    );
+  }
+  const { origin, dir } = handRay(pose);
+  if (surface.kind === "plane") return rayPlane(origin, dir, surface.point, surface.normal);
+  return raySphere(origin, dir, surface.centre, surface.r) ?? sphereRim(origin, dir, surface.centre, surface.r);
+}
+function createVRDrag(hooks) {
+  const now = hooks.now ?? (() => performance.now());
+  const was = { left: false, right: false };
+  let carrier = null;
+  let holder = null;
+  let lastEventAt = -Infinity;
+  let candidate = null;
+  return {
+    /** one frame: `hands` maps 'left'/'right' to a pose (or null when untracked) @param {Record<string, Pose | null>} hands */
+    update(hands) {
+      if (carrier && !hooks.carrying()) carrier = null;
+      if (holder) {
+        const pose = hands[holder.hand];
+        if (!pose || !pose.trigger) {
+          const hand = holder.hand;
+          holder = null;
+          lastEventAt = now();
+          hooks.release?.(hand, pose ? "release" : "lost");
+        } else hooks.hold?.(pose, holder.hand);
+      }
+      if (carrier) {
+        const pose = hands[carrier.hand];
+        if (!pose) {
+          const hand = carrier.hand;
+          carrier = null;
+          lastEventAt = now();
+          hooks.drop(hand, "lost");
+        } else if (!pose.trigger) {
+          const hand = carrier.hand;
+          carrier = null;
+          lastEventAt = now();
+          hooks.drop(hand, "release");
+        } else hooks.follow(pose, carrier.hand, carrier.how);
+      }
+      candidate = null;
+      for (const hand of HANDS) {
+        const pose = hands[hand];
+        const down = !!pose?.trigger;
+        const pressed = down && !was[hand];
+        was[hand] = down;
+        if (!pose || !hooks.canPick()) continue;
+        if (carrier?.hand === hand || holder?.hand === hand) continue;
+        const hit = carrier ? null : hooks.pickAt(pose, hand);
+        if (hit && !candidate) candidate = { hand, ...hit };
+        if (!pressed) continue;
+        if (hit) {
+          carrier = { hand, how: hit.how };
+          lastEventAt = now();
+          hooks.pick(hit.i, hand, hit.how);
+        } else if (!carrier && !holder && hooks.onPress?.(pose, hand)) lastEventAt = now();
+        else if (!holder && hooks.grabAt?.(pose, hand)) {
+          holder = { hand };
+          lastEventAt = now();
+        }
+      }
+    },
+    /** the hand carrying, or null */
+    carrier: () => carrier ? { ...carrier } : null,
+    /** the hand holding the globe, or null */
+    holder: () => holder ? { ...holder } : null,
+    /** the dot a press would grab right now (the VR hover) */
+    candidate: () => candidate ? { ...candidate } : null,
+    /** did a VR pick/drop happen within CONSUME_MS? (core's trailing select is ours) */
+    recent: () => now() - lastEventAt < CONSUME_MS,
+    reset() {
+      carrier = null;
+      holder = null;
+      candidate = null;
+    }
+  };
+}
+
+// modules/untangle/src/vrbar.js
+var CELLS = (
+  /** @type {const} */
+  ["prev", "level", "next", "mode", "restart"]
+);
+var WIDTHS = [0.14, 0.38, 0.14, 0.18, 0.16];
+var BAR_W = 1.8;
+var BAR_H = 0.24;
+function cellAt(u) {
+  if (!(u >= 0 && u <= 1)) return -1;
+  let edge = 0;
+  for (let k = 0; k < WIDTHS.length; k++) {
+    edge += WIDTHS[k];
+    if (u <= edge + 1e-9) return k;
+  }
+  return -1;
+}
+function cellCentre(k) {
+  let edge = 0;
+  for (let j = 0; j < k; j++) edge += WIDTHS[j];
+  return edge + WIDTHS[k] / 2;
+}
+function barCells(v) {
+  const next = v.level < MAX_LEVEL && isUnlocked(v.progress, v.mode, v.level + 1);
+  const startable = v.shell && !v.running;
+  return [
+    { id: "prev", label: "\u25C0", enabled: v.level > 1 },
+    { id: "level", label: "Level " + v.level + (startable ? "  \xB7  Start" : ""), enabled: startable },
+    { id: "next", label: "\u25B6", enabled: next },
+    { id: "mode", label: v.mode === "3d" ? "Flat" : "Globe", enabled: true },
+    { id: "restart", label: "\u21BA", enabled: true }
+  ];
+}
+function makeVRBar(THREE, radius) {
+  const w = BAR_W * radius;
+  const h = BAR_H * radius;
+  let canvas = null;
+  let texture = null;
+  if (typeof document !== "undefined") {
+    canvas = document.createElement("canvas");
+    canvas.width = 1024;
+    canvas.height = Math.round(1024 * BAR_H / BAR_W);
+    texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace ?? texture.colorSpace;
+  }
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false })
+  );
+  mesh.name = "untangle-vrbar";
+  mesh.renderOrder = 2;
+  let lastKey = "";
+  function draw(cells, hover) {
+    const key = JSON.stringify(cells) + hover;
+    if (!canvas || key === lastKey) return;
+    lastKey = key;
+    const g = canvas.getContext("2d");
+    const W = canvas.width;
+    const H = canvas.height;
+    g.clearRect(0, 0, W, H);
+    let x = 0;
+    cells.forEach((c, k) => {
+      const cw = WIDTHS[k] * W;
+      const pad = 6;
+      g.fillStyle = k === hover && c.enabled ? "rgba(251,191,36,0.92)" : c.enabled ? "rgba(30,41,59,0.9)" : "rgba(30,41,59,0.45)";
+      g.beginPath();
+      g.roundRect?.(x + pad, pad, cw - 2 * pad, H - 2 * pad, 18);
+      if (!g.roundRect) g.rect(x + pad, pad, cw - 2 * pad, H - 2 * pad);
+      g.fill();
+      g.fillStyle = k === hover && c.enabled ? "#0f172a" : c.enabled || c.id === "level" ? "#e5e9f0" : "rgba(229,233,240,0.35)";
+      g.font = "bold " + (c.id === "level" ? 44 : 52) + "px system-ui, sans-serif";
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillText(c.label, x + cw / 2, H / 2 + 2);
+      x += cw;
+    });
+    texture.needsUpdate = true;
+  }
+  return {
+    mesh,
+    draw,
+    /** the cell a world ray (THREE.Raycaster) hits, or -1 */
+    hit(raycaster) {
+      if (!mesh.visible) return -1;
+      const hits = raycaster.intersectObject(mesh, false);
+      const uv = hits[0]?.uv;
+      return uv ? cellAt(uv.x) : -1;
+    },
+    /** a cell's centre in the mesh's local frame (the flights aim at it) */
+    cellLocal: (k) => new THREE.Vector3((cellCentre(k) - 0.5) * w, 0, 0),
+    dispose() {
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      texture?.dispose();
+    }
+  };
+}
+
 // modules/untangle/src/index.js
 var GROUP = "untangle-module";
 var MODES_PLAYED = ["2d", "3d"];
@@ -1147,8 +1548,8 @@ var EXPIRE_FRAMES = 40;
 var index_default = {
   id: "untangle",
   name: "Untangle",
-  version: "2.1.0",
-  description: "Drag the dots until no edges cross \u2014 on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device); replicated, board pose, level and readouts as flow nodes.",
+  version: "2.2.0",
+  description: "Drag the dots until no edges cross \u2014 on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device). In VR: grab dots with the trigger, hold/turn/scale the globe with one hand while the other moves dots, a level bar under the board. Replicated; board pose, level and readouts as flow nodes.",
   /** @param {any} api */
   register(api) {
     const THREE = api.THREE;
@@ -1206,9 +1607,16 @@ var index_default = {
     const local = (p) => mode === "3d" ? new THREE.Vector3(p[0], p[1], p[2]).applyQuaternion(globeQuat).multiplyScalar(globeR()) : new THREE.Vector3(p[0] * board.radius, p[1] * board.radius, 0);
     const clampPos = (p) => mode === "3d" ? normalize([+p[0] || 0, +p[1] || 0, +p[2] || 0]) : clampToBoard([p[0], p[1]]);
     const fits = (p) => Array.isArray(p) && p.length === (mode === "3d" ? 3 : 2) && p.every((v) => Number.isFinite(+v));
+    const hold = { offset: new THREE.Vector3(), scale: 1 };
+    function resetHold() {
+      hold.offset.set(0, 0, 0);
+      hold.scale = 1;
+    }
     function placeGroup() {
       if (!group) return;
       group.position.set(board.x, board.boardY, board.z);
+      if (mode === "3d") group.position.add(hold.offset);
+      group.scale.setScalar(mode === "3d" ? hold.scale : 1);
       group.rotation.set(0, board.yaw, 0);
       group.updateMatrixWorld(true);
     }
@@ -1218,6 +1626,8 @@ var index_default = {
     let globe = null;
     let hoverRing = null;
     let burst = null;
+    let vrBar = null;
+    let barHover = -1;
     let hovered = -1;
     let lift = 0;
     function disposeGroup(g) {
@@ -1231,11 +1641,17 @@ var index_default = {
         }
       });
     }
+    const attached = (o, scene) => {
+      for (let p = o; p; p = p.parent) if (p === scene) return true;
+      return false;
+    };
     function build() {
       const scene = api.scene();
       if (!scene) return;
+      let parent = scene;
       if (group) {
-        scene.remove(group);
+        if (group.parent && attached(group, scene)) parent = group.parent;
+        group.removeFromParent();
         disposeGroup(group);
       }
       group = new THREE.Group();
@@ -1259,21 +1675,26 @@ var index_default = {
       const r = dotR() * (mode === "3d" ? 0.8 : 1);
       const dotGeo = new THREE.SphereGeometry(r, 32, 20);
       positions.forEach((p, i) => {
-        const dot2 = new THREE.Mesh(
+        const dot3 = new THREE.Mesh(
           dotGeo,
           new THREE.MeshStandardMaterial({ color: 15265527, emissive: 8229810, emissiveIntensity: 0.45, roughness: 0.3, metalness: 0.05 })
         );
-        dot2.name = "untangle-dot-" + i;
-        dot2.position.copy(local(p));
-        group.add(dot2);
-        dots.push(dot2);
+        dot3.name = "untangle-dot-" + i;
+        dot3.position.copy(local(p));
+        group.add(dot3);
+        dots.push(dot3);
       });
       hoverRing = makeHoverRing(THREE);
       hoverRing.scale.setScalar(r * 1.45);
       group.add(hoverRing);
       burst = makeBurst(THREE);
       group.add(burst.points, burst.wave);
-      scene.add(group);
+      vrBar = makeVRBar(THREE, board.radius);
+      const below = mode === "3d" ? globeR() : board.radius;
+      vrBar.mesh.position.set(0, -below - BAR_H * board.radius * 0.5 - 0.22, mode === "3d" ? globeR() * 0.35 : 0.03);
+      vrBar.mesh.visible = false;
+      group.add(vrBar.mesh);
+      parent.add(group);
       placeGroup();
       group.userData._ut = {
         state: () => ({ level, positions, edges, board: { ...board }, won, crossings, solvedCount, carried, sprite: !!sprite }),
@@ -1322,10 +1743,10 @@ var index_default = {
     }
     function redraw(counts) {
       positions.forEach((_, i) => {
-        const dot2 = dots[i];
-        if (!dot2) return;
-        dot2.position.copy(drawn(i));
-        dot2.scale.setScalar(i === carried ? 1 + 0.18 * lift : 1);
+        const dot3 = dots[i];
+        if (!dot3) return;
+        dot3.position.copy(drawn(i));
+        dot3.scale.setScalar(i === carried ? 1 + 0.18 * lift : 1);
       });
       if (edgeLayer) edgeLayer.set(segmentsOf(counts));
       backplate?.setWon(crossings === 0);
@@ -1376,12 +1797,13 @@ var index_default = {
       redraw(lastCounts);
       ensureSprite();
       drawSprite("Level " + level + "  \xB7  " + (crossings === 0 ? "solved!" : crossings + " crossing" + (crossings === 1 ? "" : "s")), crossings === 0 ? "#4ade80" : "#e2e8f0");
-      ambientSetTension(crossings);
       return crossings;
     }
     function setLevel(lvl, announce = false, md = mode) {
       level = Math.max(1, Math.round(Number(lvl) || 1));
-      mode = MODES_PLAYED.includes(md) ? md : "2d";
+      const nextMode = MODES_PLAYED.includes(md) ? md : "2d";
+      if (nextMode !== mode) resetHold();
+      mode = nextMode;
       const g = mode === "3d" ? generate3(level) : generate(level);
       edges = g.edges;
       positions = g.positions;
@@ -1405,50 +1827,18 @@ var index_default = {
       api.send({ op: "restart", level: l, mode: m });
       setLevel(l, true, m);
     }
-    let ac = null;
-    let padGain = null;
-    let padFilter = null;
-    function audio() {
-      if (ac) return ac;
-      ac = new (window.AudioContext || window.webkitAudioContext)();
-      padGain = ac.createGain();
-      padGain.gain.value = 0.03;
-      padFilter = ac.createBiquadFilter();
-      padFilter.type = "lowpass";
-      padFilter.frequency.value = 400;
-      const lfo = ac.createOscillator();
-      const lfoGain = ac.createGain();
-      lfo.frequency.value = 0.13;
-      lfoGain.gain.value = 0.012;
-      lfo.connect(lfoGain).connect(padGain.gain);
-      for (const [type, freq] of [["triangle", 110], ["triangle", 110.7], ["sine", 220.3]]) {
-        const osc = ac.createOscillator();
-        osc.type = type;
-        osc.frequency.value = freq;
-        osc.connect(padFilter);
-        osc.start();
+    const sfx = makeSfx(api);
+    const worldOf = (v) => group ? group.localToWorld(v.clone()).toArray() : void 0;
+    function celebrate(unlocked, fromMe) {
+      const centre = worldOf(new THREE.Vector3(0, 0, 0));
+      sfx.play("success", centre);
+      if (centre && typeof api.effects?.burst === "function" && api.effects.burst(centre, { kind: "sparkle", color: "#3ee08f", count: 48 })) sfx.note("burst:sparkle");
+      if (typeof api.announce === "function") {
+        api.announce("Level " + level + " solved", { sub: mode === "3d" ? "Globe" : void 0, color: "#3ee08f" });
+        sfx.note("announce:Level " + level + " solved");
       }
-      padFilter.connect(padGain).connect(ac.destination);
-      lfo.start();
-      return ac;
-    }
-    function ambientSetTension(count) {
-      if (!ac) return;
-      padFilter.frequency.linearRampToValueAtTime(320 + Math.max(0, 24 - count) * 60, ac.currentTime + 0.6);
-    }
-    function blip(freq, duration = 0.07, gain = 0.12) {
-      const ctx = audio();
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.frequency.value = freq;
-      g.gain.setValueAtTime(gain, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(1e-3, ctx.currentTime + duration);
-      osc.connect(g).connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + duration);
-    }
-    function winSting() {
-      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => setTimeout(() => blip(f, 0.22, 0.14), i * 110));
+      if (fromMe && vrHandLast && api.isVR?.()) sfx.haptic("success", vrHandLast);
+      if (unlocked) setTimeout(() => sfx.play("levelup", centre), 650);
     }
     function fire(event) {
       if (typeof api.fireNodeTrigger === "function") api.fireNodeTrigger("utevent", (data) => (data?.event ?? "solved") === event);
@@ -1465,13 +1855,15 @@ var index_default = {
         won = true;
         solvedCount++;
         if (clock.start !== null && clock.ms === null) clock.ms = performance.now() - clock.start;
+        let unlocked = false;
         if (participated) {
           const r = recordSolve(progress, mode, level, clock.ms);
           progress = r.progress;
           clock.newBest = r.newBest;
+          unlocked = r.unlockedNew;
           saveProgress();
         }
-        winSting();
+        celebrate(unlocked, fromMe);
         burst?.start(
           positions.map((q) => local(q)),
           (c) => mode === "3d" ? c.clone().normalize() : new THREE.Vector3(0, 0, 1),
@@ -1486,7 +1878,7 @@ var index_default = {
             if (!won) return;
             setLevel(level + 1, fromMe);
           }, 1200);
-        } else api.toast("Untangled!");
+        } else if (typeof api.announce !== "function") api.toast("Untangled!");
       }
     }
     function dropAt(i, p) {
@@ -1529,8 +1921,8 @@ var index_default = {
       let bestMiss = reach * reach;
       const front = mode === "3d" ? globeHit(ray, false) : null;
       const frontAlong = front ? front.distanceTo(ray.ray.origin) : Infinity;
-      dots.forEach((dot2, i) => {
-        dot2.getWorldPosition(dotWorld);
+      dots.forEach((dot3, i) => {
+        dot3.getWorldPosition(dotWorld);
         const miss = ray.ray.distanceSqToPoint(dotWorld);
         const along = dotWorld.sub(ray.ray.origin).dot(ray.ray.direction);
         if (miss > bestMiss || along <= 0 || along > frontAlong + reach * 1.5) return;
@@ -1556,18 +1948,13 @@ var index_default = {
       if (mode === "3d") {
         const hit = globeHit(ray, true);
         if (!hit) return false;
-        localHit.copy(hit);
-        group.worldToLocal(localHit);
-        localHit.applyQuaternion(globeQuat.clone().invert());
-        positions[carried] = normalize([localHit.x, localHit.y, localHit.z]);
+        carryToWorld(hit.toArray());
         return true;
       }
-      planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
-      dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
+      const s = surface();
+      dragPlane.setFromNormalAndCoplanarPoint(planeNormal.fromArray(s.normal), hitPoint.fromArray(s.point));
       if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return false;
-      localHit.copy(hitPoint);
-      group.worldToLocal(localHit);
-      positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+      carryToWorld(hitPoint.toArray());
       return true;
     }
     function pick(i, how) {
@@ -1575,7 +1962,7 @@ var index_default = {
       carried = i;
       carryHow = how;
       paintDot(i);
-      blip(660);
+      sfx.play("pop", worldOf(local(positions[i])));
     }
     function drop(how, event) {
       if (carried === -1) return;
@@ -1586,7 +1973,7 @@ var index_default = {
       paintDot(i);
       lastDrop = how;
       gesture.reset();
-      blip(440);
+      sfx.play("click", worldOf(local(positions[i])));
       dropAt(i, positions[i]);
     }
     function isViewport(event) {
@@ -1636,10 +2023,166 @@ var index_default = {
       const m = typeof api.editorMode === "function" ? api.editorMode() : null;
       return m !== "edit" || typeof api.isPlaying === "function" && api.isPlaying();
     }
+    let vrSim = null;
+    let vrHandLast = (
+      /** @type {string | null} */
+      null
+    );
+    const handPose = (hand) => vrSim ? vrSim[hand] ?? null : api.vrHand?.(hand) ?? null;
+    const vrDragOn = () => !!api.isVR?.() && (!!vrSim || typeof api.vrHand === "function");
+    const worldScale = () => group ? group.getWorldScale(localHit).x || 1 : 1;
+    const wq = new THREE.Quaternion();
+    function surface() {
+      group.updateMatrixWorld();
+      const centre = group.getWorldPosition(new THREE.Vector3()).toArray();
+      if (mode === "3d") return { kind: "sphere", centre, r: globeR() * worldScale() };
+      return { kind: "plane", point: centre, normal: new THREE.Vector3(0, 0, 1).applyQuaternion(group.getWorldQuaternion(wq)).toArray() };
+    }
+    function carryToWorld(point) {
+      localHit.fromArray(point);
+      group.worldToLocal(localHit);
+      if (mode === "3d") {
+        localHit.applyQuaternion(globeQuat.clone().invert());
+        positions[carried] = normalize([localHit.x, localHit.y, localHit.z]);
+      } else positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+    }
+    let vrMoved = false;
+    let holdStart = null;
+    const HOLD_SCALE = [0.35, 4];
+    function globeUnder(pose) {
+      if (mode !== "3d" || !group) return false;
+      const s = surface();
+      const r = handRay(pose);
+      if (raySphere(r.origin, r.dir, s.centre, s.r * 1.06)) return true;
+      const tip = tipOf(pose);
+      return Math.hypot(tip[0] - s.centre[0], tip[1] - s.centre[1], tip[2] - s.centre[2]) <= s.r * 1.06 + TIP_RADIUS;
+    }
+    function startHold(pose, hand) {
+      group.updateMatrixWorld();
+      holdStart = {
+        p0: new THREE.Vector3().fromArray(pose.position),
+        q0inv: new THREE.Quaternion().fromArray(pose.quaternion).invert(),
+        c0: group.getWorldPosition(new THREE.Vector3()),
+        g0: globeQuat.clone(),
+        // the group's world turn WITHOUT the view (the hold moves and scales, never turns, it)
+        w: group.getWorldQuaternion(new THREE.Quaternion())
+      };
+      api.claimInput?.("locomotion");
+      sfx.play("pop", holdStart.c0.toArray());
+      sfx.haptic("tap", hand);
+    }
+    const dq = new THREE.Quaternion();
+    const newC = new THREE.Vector3();
+    const handP = new THREE.Vector3();
+    function holdTo(pose, hand) {
+      if (!holdStart || !group) return;
+      const axes = api.input?.()?.axes;
+      const y = (hand === "left" ? axes?.ly : axes?.ry) ?? 0;
+      if (Math.abs(y) > 0.15) hold.scale = Math.min(HOLD_SCALE[1], Math.max(HOLD_SCALE[0], hold.scale * (1 - y * 0.025)));
+      dq.fromArray(pose.quaternion).multiply(holdStart.q0inv);
+      newC.copy(holdStart.c0).sub(holdStart.p0).applyQuaternion(dq).add(handP.fromArray(pose.position));
+      globeQuat.copy(holdStart.w).invert().multiply(dq).multiply(holdStart.w).multiply(holdStart.g0).normalize();
+      const at = group.parent ? group.parent.worldToLocal(newC.clone()) : newC.clone();
+      hold.offset.set(at.x - board.x, at.y - board.boardY, at.z - board.z);
+      placeGroup();
+      redraw(lastCounts);
+    }
+    function endHold(hand) {
+      holdStart = null;
+      api.releaseInput?.("locomotion");
+      sfx.play("click", group ? group.getWorldPosition(new THREE.Vector3()).toArray() : void 0);
+      sfx.haptic("bump", hand);
+    }
+    function pickFor(pose) {
+      group.updateMatrixWorld();
+      const s = surface();
+      let frontLimit = Infinity;
+      if (s.kind === "sphere") {
+        const r = handRay(pose);
+        const hit = raySphere(r.origin, r.dir, s.centre, s.r);
+        if (hit) frontLimit = Math.hypot(hit[0] - r.origin[0], hit[1] - r.origin[1], hit[2] - r.origin[2]);
+      }
+      const world = dots.map((d) => d.getWorldPosition(dotWorld).toArray());
+      return pickDot({ pose, dots: world, radius: dotR() * (mode === "3d" ? 0.8 : 1) * worldScale(), frontLimit });
+    }
+    const CORE_VR_UI = ["vr-game-panel", "vr-game-wrist"];
+    function coreUiOn(pose) {
+      const scene = api.scene?.();
+      if (!scene) return false;
+      const panels = scene.children.filter((o) => o.visible && CORE_VR_UI.includes(o.name));
+      return panels.length > 0 && poseRay(pose).intersectObjects(panels, false).length > 0;
+    }
+    const vrDrag = createVRDrag({
+      canPick: () => built && !!group?.parent && interactive() && carried === -1,
+      pickAt: (pose) => {
+        const hit = pickFor(pose);
+        return hit?.how === "laser" && coreUiOn(pose) ? null : hit;
+      },
+      pick: (i, hand, how) => {
+        vrHandLast = hand;
+        pick(i, "vr-" + how);
+        sfx.haptic("tap", hand);
+      },
+      follow: (pose, hand, how) => {
+        const p = followPoint(how, pose, surface());
+        if (!p) return;
+        carryToWorld(p);
+        vrMoved = true;
+      },
+      drop: (hand, why) => {
+        vrHandLast = hand;
+        drop("vr-" + why);
+        sfx.haptic("bump", hand);
+      },
+      carrying: () => carried !== -1,
+      onPress: (pose, hand) => {
+        if (coreUiOn(pose)) return false;
+        const k = barUnder(pose);
+        if (k < 0) return false;
+        barAct(CELLS[k], hand);
+        return true;
+      },
+      grabAt: (pose, hand) => {
+        if (coreUiOn(pose) || !globeUnder(pose)) return false;
+        startHold(pose, hand);
+        return true;
+      },
+      hold: (pose, hand) => holdTo(pose, hand),
+      release: (hand) => endHold(hand)
+    });
+    const poseRay = (pose) => {
+      const r = handRay(pose);
+      const ray = new THREE.Raycaster();
+      ray.ray.origin.fromArray(r.origin);
+      ray.ray.direction.fromArray(r.dir);
+      return ray;
+    };
+    const barView = () => ({ level, mode, progress, running: roundUnderway(), shell: !shellUnused() });
+    function barAct(id, hand) {
+      const cell = barCells(barView()).find((c) => c.id === id);
+      if (!cell?.enabled) return;
+      if (id === "prev") selectLevel(level - 1, mode);
+      else if (id === "next") selectLevel(level + 1, mode);
+      else if (id === "mode") {
+        const other = mode === "3d" ? "2d" : "3d";
+        selectLevel(continueLevel(progress, other), other);
+      } else if (id === "restart") restartLevel();
+      else if (id === "level") fire("start");
+      lastBar = id;
+      sfx.play("click", worldOf(new THREE.Vector3(0, 0, 0)));
+      sfx.haptic("bump", hand);
+    }
+    let lastBar = "none";
+    const barUnder = (pose) => vrBar?.mesh.visible && pose && !coreUiOn(pose) ? vrBar.hit(poseRay(pose)) : -1;
+    const ofBoard = (o) => {
+      for (let p = o; p; p = p.parent) if (p === group) return true;
+      return false;
+    };
     api.registerClickHandler(
       (object) => {
         const isDot = !!object?.name?.startsWith("untangle-dot-");
         if (!api.isVR?.() && typeof window !== "undefined") return carried !== -1 || isDot;
+        if (vrDragOn()) return isDot || ofBoard(object) || carried !== -1 || vrDrag.recent();
         if (carried !== -1) {
           drop("click");
           return true;
@@ -1648,7 +2191,7 @@ var index_default = {
         pick(+object.name.slice("untangle-dot-".length), "click");
         return true;
       },
-      { modes: ["interact", "play"] }
+      { modes: ["interact", "play"], sweep: false }
     );
     api.registerFrameTask(() => {
       frame++;
@@ -1666,17 +2209,33 @@ var index_default = {
         else if (clock.start === null) clock.start = performance.now();
       }
       wasUnderway = underway;
+      sfx.music(!!group?.parent && built && (!!api.isPlaying?.() || api.editorMode?.() === "interact"));
       if (!group) return;
       const t = performance.now() / 1e3;
       burst?.tick(t);
       const ray = aim.current();
-      if (mode === "3d" && api.isVR?.() && carried === -1 && globeHit(ray, false)) {
+      if (mode === "3d" && api.isVR?.() && carried === -1 && !vrDrag.holder() && globeHit(ray, false)) {
         const axes = api.input?.()?.axes;
         const rx = axes?.rx ?? 0;
         const ry = axes?.ry ?? 0;
         if (Math.abs(rx) > 0.2 || Math.abs(ry) > 0.2) rotateBy(rx * 4, ry * 4);
       }
-      const over = carried === -1 && interactive() ? dotUnder(ray) : -1;
+      vrMoved = false;
+      const vr = vrDragOn();
+      if (vr) vrDrag.update({ left: handPose("left"), right: handPose("right") });
+      else if (vrDrag.carrier()) vrDrag.update({ left: null, right: null });
+      if (vrBar) {
+        vrBar.mesh.visible = vr && interactive();
+        barHover = -1;
+        if (vrBar.mesh.visible && carried === -1) {
+          for (const hand of ["right", "left"]) {
+            barHover = barUnder(handPose(hand));
+            if (barHover >= 0) break;
+          }
+        }
+        if (vrBar.mesh.visible) vrBar.draw(barCells(barView()), barHover);
+      }
+      const over = carried === -1 && interactive() ? vr ? vrDrag.candidate()?.i ?? -1 : dotUnder(ray) : -1;
       if (over !== hovered) {
         const was = hovered;
         hovered = over;
@@ -1698,7 +2257,7 @@ var index_default = {
         if (carried === -1) redraw(lastCounts);
       }
       if (carried === -1) return;
-      if (!follow(ray)) {
+      if (vrDrag.carrier() ? !vrMoved : !follow(ray)) {
         redraw(lastCounts);
         return;
       }
@@ -1829,13 +2388,15 @@ var index_default = {
         }
       }
     });
-    api.registerMenu("Restart level", () => {
+    function restartLevel() {
       touched = true;
       api.send({ op: "restart", level, mode });
       setLevel(level);
-    });
+    }
+    api.registerMenu("Restart level", restartLevel);
     api.onSceneClear?.(() => {
       sceneClears++;
+      resetHold();
       level = 1;
       nodeLevel = null;
       remoteApplied = false;
@@ -1843,7 +2404,7 @@ var index_default = {
       carried = -1;
       gesture?.reset();
       if (group) {
-        api.scene()?.remove(group);
+        group.removeFromParent();
         group = null;
       }
       built = false;
@@ -1906,6 +2467,22 @@ var index_default = {
       select: (lvl, md) => selectLevel(lvl, md ?? mode),
       progress: () => JSON.parse(JSON.stringify(progress)),
       storageKind: storage.kind,
+      /** 30b: the VR drag's test seam — fake controller poses {left, right} ({position,
+       * quaternion, trigger}, world space), or null to go back to api.vrHand */
+      vrSim: (hands) => {
+        vrSim = hands ?? null;
+      },
+      vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), holder: vrDrag.holder(), lastHand: vrHandLast, on: vrDragOn() }),
+      /** 30b: the LOCAL globe hold — offset (parent frame), scale, and the view quaternion */
+      globeHold: () => ({ offset: hold.offset.toArray(), scale: hold.scale, quat: globeQuat.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
+      /** 30b: the VR level bar — shown?, the hovered cell, the cells, the last action */
+      vrBar: () => ({ visible: !!vrBar?.mesh.visible, hover: barHover, cells: barCells(barView()), last: lastBar }),
+      /** world position of bar cell k (for the flights' aim) */
+      vrBarCell: (k) => vrBar ? vrBar.mesh.localToWorld(vrBar.cellLocal(k)).toArray() : null,
+      /** 30b: every board sound / haptic asked for, the local voices still sounding, the music */
+      sfx: () => sfx.stats(),
+      /** 30b: which of the Quest round's core seams this core has (feature-detected) */
+      caps: () => ({ sounds: typeof api.music?.play === "function", announce: typeof api.announce === "function", effects: typeof api.effects?.burst === "function", hapticPattern: typeof api.hapticPattern === "function", vrHand: typeof api.vrHand === "function" }),
       clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),
       /** P1: what the board is drawn with, as numbers a flight can assert */
       look: () => {
