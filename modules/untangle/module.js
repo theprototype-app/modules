@@ -2093,19 +2093,30 @@ var index_default = {
       sfx.play("click", group ? group.getWorldPosition(new THREE.Vector3()).toArray() : void 0);
       sfx.haptic("bump", hand);
     }
+    function pickFor(pose) {
+      group.updateMatrixWorld();
+      const s = surface();
+      let frontLimit = Infinity;
+      if (s.kind === "sphere") {
+        const r = handRay(pose);
+        const hit = raySphere(r.origin, r.dir, s.centre, s.r);
+        if (hit) frontLimit = Math.hypot(hit[0] - r.origin[0], hit[1] - r.origin[1], hit[2] - r.origin[2]);
+      }
+      const world = dots.map((d) => d.getWorldPosition(dotWorld).toArray());
+      return pickDot({ pose, dots: world, radius: dotR() * (mode === "3d" ? 0.8 : 1) * worldScale(), frontLimit });
+    }
+    const CORE_VR_UI = ["vr-game-panel", "vr-game-wrist"];
+    function coreUiOn(pose) {
+      const scene = api.scene?.();
+      if (!scene) return false;
+      const panels = scene.children.filter((o) => o.visible && CORE_VR_UI.includes(o.name));
+      return panels.length > 0 && poseRay(pose).intersectObjects(panels, false).length > 0;
+    }
     const vrDrag = createVRDrag({
       canPick: () => built && !!group?.parent && interactive() && carried === -1,
       pickAt: (pose) => {
-        group.updateMatrixWorld();
-        const s = surface();
-        let frontLimit = Infinity;
-        if (s.kind === "sphere") {
-          const r = handRay(pose);
-          const hit = raySphere(r.origin, r.dir, s.centre, s.r);
-          if (hit) frontLimit = Math.hypot(hit[0] - r.origin[0], hit[1] - r.origin[1], hit[2] - r.origin[2]);
-        }
-        const world = dots.map((d) => d.getWorldPosition(dotWorld).toArray());
-        return pickDot({ pose, dots: world, radius: dotR() * (mode === "3d" ? 0.8 : 1) * worldScale(), frontLimit });
+        const hit = pickFor(pose);
+        return hit?.how === "laser" && coreUiOn(pose) ? null : hit;
       },
       pick: (i, hand, how) => {
         vrHandLast = hand;
@@ -2125,13 +2136,14 @@ var index_default = {
       },
       carrying: () => carried !== -1,
       onPress: (pose, hand) => {
+        if (coreUiOn(pose)) return false;
         const k = barUnder(pose);
         if (k < 0) return false;
         barAct(CELLS[k], hand);
         return true;
       },
       grabAt: (pose, hand) => {
-        if (!globeUnder(pose)) return false;
+        if (coreUiOn(pose) || !globeUnder(pose)) return false;
         startHold(pose, hand);
         return true;
       },
@@ -2161,12 +2173,16 @@ var index_default = {
       sfx.haptic("bump", hand);
     }
     let lastBar = "none";
-    const barUnder = (pose) => vrBar?.mesh.visible && pose ? vrBar.hit(poseRay(pose)) : -1;
+    const barUnder = (pose) => vrBar?.mesh.visible && pose && !coreUiOn(pose) ? vrBar.hit(poseRay(pose)) : -1;
+    const ofBoard = (o) => {
+      for (let p = o; p; p = p.parent) if (p === group) return true;
+      return false;
+    };
     api.registerClickHandler(
       (object) => {
         const isDot = !!object?.name?.startsWith("untangle-dot-");
         if (!api.isVR?.() && typeof window !== "undefined") return carried !== -1 || isDot;
-        if (vrDragOn()) return isDot || carried !== -1 || vrDrag.recent();
+        if (vrDragOn()) return isDot || ofBoard(object) || carried !== -1 || vrDrag.recent();
         if (carried !== -1) {
           drop("click");
           return true;

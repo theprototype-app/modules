@@ -28,6 +28,12 @@
 //      carries it across the moving globe (it stays under that hand's ray), drops it, and B
 //      lands on the identical unit vector; the hold is LOCAL (B's globe did not move);
 //      left-stick walking is paused while holding; the flat board has no hold
+//   Y  the core's VR panel (C2 draws 'vr-game-panel' / 'vr-game-wrist' on top of the world and
+//      presses its own buttons) takes the laser: with one on the hand's ray the board neither
+//      hovers, grabs a dot, presses the level bar nor holds the globe behind it; a TIP touch
+//      still grabs; a hidden panel blocks nothing; a VR click core dispatches on any mesh of
+//      the board (the plate) is consumed. (A stand-in mesh with the core's name —
+//      the real one draws only while presenting.)
 //
 // VR EMULATION: headless Chromium has no WebXR, so `isVRMode` is set on the store (what the
 // core vr* suites do) and the controllers' WORLD poses are fed through the module's test seam
@@ -641,6 +647,87 @@ run(async () => {
 	check(g14.vr.holder === null && g14.carried === -1 && g14.hold.scale === 1, 'G.14 the flat board has no hold (a press on an empty spot holds nothing; the globe hold was forgotten with the mode)');
 	await setHands(A.page, { right: await aimPose(A.page, hFlat, spotFlat, false) });
 	void edge;
+
+	// ---- Y. the core's VR panel owns the laser where it is ------------------------------------------
+	await A.page.waitForTimeout(150);
+	const yb = await boardFrame(A.page);
+	const YR = yb.c.map((v, k) => v + yb.n[k] * 1.4 + [0.3, -0.2, 0][k]);
+	const yd0 = await A.page.evaluate(() => window.__untangle.dotWorld(0));
+	/** a stand-in for the core panel: a plane at `at`, facing `face`, named like the core's */
+	const panel = (name, at, face) =>
+		A.page.evaluate(({ name, at, face }) => {
+			const THREE = window.__stores.THREE;
+			let scene;
+			window.__stores.globalScene.subscribe((v) => (scene = v))();
+			let m = window.__ytest;
+			if (!m) {
+				m = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+				scene.add(m);
+				window.__ytest = m;
+			}
+			m.name = name;
+			m.visible = true;
+			m.position.set(...at);
+			m.lookAt(...face);
+			m.updateMatrixWorld(true);
+		}, { name, at, face });
+	const between = (a, b, t) => a.map((v, k) => v + (b[k] - v) * t);
+	await panel('vr-game-panel', between(YR, yd0, 0.4), YR);
+	await setHands(A.page, { right: await aimPose(A.page, YR, yd0, false), left: await aimPose(A.page, yb.away, [yb.away[0], yb.away[1] + 5, yb.away[2]], false) });
+	await A.page.waitForTimeout(150);
+	const y1 = await A.page.evaluate(() => ({ c: window.__untangle.vr().candidate, h: window.__untangle.look().hovered }));
+	check(y1.c === null && y1.h === -1, 'Y.1 with the core panel on the ray, dot 0 behind it shows no hover (' + JSON.stringify(y1.c) + ')');
+	await setHands(A.page, { right: await aimPose(A.page, YR, yd0, true) });
+	await A.page.waitForTimeout(120);
+	check((await state(A.page)).carried === -1, 'Y.2 ...and a trigger press there grabs nothing (the press is the panel\'s)');
+	await setHands(A.page, { right: await aimPose(A.page, YR, yd0, false) });
+	const yLevel = (await state(A.page)).level;
+	const yCell = await A.page.evaluate(() => window.__untangle.vrBarCell(4));
+	await panel('vr-game-wrist', between(YR, yCell, 0.4), YR);
+	await setHands(A.page, { right: await aimPose(A.page, YR, yCell, false) });
+	await A.page.waitForTimeout(100);
+	const yb3 = await A.page.evaluate(() => window.__untangle.vrBar());
+	await setHands(A.page, { right: await aimPose(A.page, YR, yCell, true) });
+	await A.page.waitForTimeout(120);
+	await setHands(A.page, { right: await aimPose(A.page, YR, yCell, false) });
+	await A.page.waitForTimeout(100);
+	const yb4 = await A.page.evaluate(() => window.__untangle.vrBar());
+	check(yb3.hover === -1 && yb4.last === yb3.last && (await state(A.page)).level === yLevel, 'Y.3 a wrist card on the ray: the level bar behind it neither lights nor presses (last ' + yb4.last + ')');
+	// a TIP touch is contact, not a laser: it still grabs with a panel on that hand's ray
+	const yd1 = await A.page.evaluate(() => window.__untangle.dotWorld(1));
+	await panel('vr-game-panel', yd1.map((v, k) => v - yb.n[k] * 0.3), yd1);
+	const tipAt = yd1.map((v, k) => v + yb.n[k] * 0.02);
+	await setHands(A.page, { left: { position: tipAt, quaternion: yb.faceQ, trigger: false } });
+	await A.page.waitForTimeout(80);
+	await setHands(A.page, { left: { position: tipAt, quaternion: yb.faceQ, trigger: true } });
+	await A.page.waitForTimeout(120);
+	const y4 = await state(A.page);
+	check(y4.carried === 1 && y4.carryMode === 'vr-tip', 'Y.4 a TIP touch still grabs dot 1 with a panel on that hand\'s ray (' + y4.carryMode + ')');
+	await setHands(A.page, { left: { position: tipAt, quaternion: yb.faceQ, trigger: false } });
+	await A.page.waitForTimeout(120);
+	// a HIDDEN panel blocks nothing
+	await panel('vr-game-panel', between(YR, yd0, 0.4), YR);
+	await A.page.evaluate(() => (window.__ytest.visible = false));
+	await setHands(A.page, { right: await aimPose(A.page, YR, yd0, false), left: await aimPose(A.page, yb.away, [yb.away[0], yb.away[1] + 5, yb.away[2]], false) });
+	await A.page.waitForTimeout(80);
+	await setHands(A.page, { right: await aimPose(A.page, YR, yd0, true) });
+	await A.page.waitForTimeout(120);
+	check((await state(A.page)).carried === 0, 'Y.5 a hidden panel blocks nothing: the same press grabs dot 0');
+	await setHands(A.page, { right: await aimPose(A.page, YR, yd0, false) });
+	await A.page.waitForTimeout(120);
+	// core's own press on the board (a 30b core dispatches the click on the trigger PRESS, maybe
+	// before the frame task saw the edge): any mesh of the board is consumed, not just a dot
+	await A.page.waitForTimeout(600); // past CONSUME_MS: nothing "recent" to lean on
+	const y6 = await A.page.evaluate(() => {
+		let scene;
+		window.__stores.globalScene.subscribe((v) => (scene = v))();
+		const plate = scene.getObjectByName('untangle-module')?.getObjectByName('untangle-plate');
+		let mesh = null;
+		plate?.traverse((o) => { if (!mesh && o.isMesh) mesh = o; });
+		return { found: !!mesh, consumed: mesh ? window.__stores.moduleSDK.runClickHandlers(mesh, null) : false, carried: window.__untangle.state().carried };
+	});
+	check(y6.found && y6.consumed && y6.carried === -1, 'Y.6 a VR click core dispatches on the board\'s backplate is consumed (never selects the board) and grabs nothing');
+	await A.page.evaluate(() => window.__ytest.removeFromParent());
 	await A.page.evaluate(() => window.__untangle.vrSim(null));
 	await A.page.evaluate(() => window.__stores.isVRMode.set(false));
 
