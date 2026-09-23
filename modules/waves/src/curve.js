@@ -30,6 +30,30 @@ export function clamp(n, lo, hi, fallback = lo) {
 
 /** @typedef {{waves: number, sizeStart: number, sizeStep: number, enemies: number}} Curve */
 
+/**
+ * 30b: LEVELS — every `perLevel` waves make a level (0 = no levels: the whole run is level 1,
+ * the pre-30b behaviour). A level walks its enemies faster by `levelSpeed` per level.
+ * @param {number} wave @param {any} perLevel
+ */
+export function levelOf(wave, perLevel) {
+	const p = Math.round(clamp(perLevel, 0, 50, 0));
+	if (!p) return 1;
+	return Math.max(1, Math.ceil(Math.max(1, wave) / p));
+}
+/** the walk's multiplier on a level @param {number} level @param {any} step */
+export function levelSpeed(level, step) {
+	return 1 + clamp(step, 0, 2, 0) * Math.max(0, level - 1);
+}
+/** is `wave` the first of its level (and not the first of the run)? @param {number} wave @param {any} perLevel */
+export function opensLevel(wave, perLevel) {
+	const p = Math.round(clamp(perLevel, 0, 50, 0));
+	return p > 0 && wave > 1 && (wave - 1) % p === 0;
+}
+/** what a kill scores: the kind's points times the level @param {number} points @param {number} level */
+export function killScore(points, level) {
+	return Math.round(points * Math.max(1, level));
+}
+
 /** the curve's numbers, clamped @param {any} data @param {number} enemies @returns {Curve} */
 export function curveOf(data, enemies) {
 	return {

@@ -280,8 +280,8 @@
 	{
 		"id": "waves",
 		"name": "Waves",
-		"version": "1.1.0",
-		"description": "Wave survival in a sunset arena: enemies march out of glowing portals toward your crystal tower, and its core dims as your health falls. Knock them down - each hit flashes - clear every wave to win; kills on each player's own row, the run log in the saved scene, derived on every peer. Needs the health module.",
+		"version": "2.0.0",
+		"description": "A VR wave shooter in a sunset arena: a gun in your hand (Blaster, Scatter or Beam) and an ability on your grip (Shield, Slow-mo or Pulse); five levels of grunts, runners and tanks march out of the portals toward your crystal - shoot them down before they breach it. Menu, how to play, loadout and options reachable in VR; best run saved; derived on every peer. Needs the health module.",
 		"author": "theprototype-app",
 		"source": "modules/waves",
 		"zip": "waves.zip",
@@ -289,6 +289,8 @@
 		"template": "games/waves",
 		"tags": [
 			"game",
+			"shooter",
+			"vr",
 			"survival",
 			"co-op"
 		]

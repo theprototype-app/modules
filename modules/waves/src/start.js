@@ -24,6 +24,10 @@ export function registerStart(api, root) {
 	const edges = createEdges();
 	let pressedAt = -Infinity;
 	let placed = false;
+	/** 30b P3: a banner shown on the board in a headset when core has no `api.announce` */
+	let transient = /** @type {{card: any, until: number} | null} */ (null);
+	/** the last run's result card (the board's "again" face) @type {() => any} */
+	let resultCard = () => null;
 	/** the headset's hands, as the SDK reports them (null when untracked) */
 	const hands = () => ['right', 'left'].map((hand) => ({ hand, snap: api.vrHand?.(hand) ?? null }));
 
@@ -43,7 +47,8 @@ export function registerStart(api, root) {
 
 	/** stand the board ahead of the player, facing them: the way the hands point (or the head
 	 * toward the arena when no hand is tracked) */
-	function place() {
+	/** @param {number} [lift] metres above the eye @param {number} [distance] */
+	function place(lift = 0.15, distance = DISTANCE) {
 		const head = api.playerPosition?.() ?? [0, 1.6, 0];
 		const tracked = hands().filter((h) => h.snap?.position && h.snap?.quaternion);
 		let yaw = 0;
@@ -51,7 +56,7 @@ export function registerStart(api, root) {
 			const d = aimRay(/** @type {any} */ (tracked[0].snap)).dir;
 			yaw = yawOf([d[0], 0, d[2]]);
 		}
-		const at = [head[0] - Math.sin(yaw) * DISTANCE, head[1] + 0.15, head[2] - Math.cos(yaw) * DISTANCE];
+		const at = [head[0] - Math.sin(yaw) * distance, head[1] + lift, head[2] - Math.cos(yaw) * distance];
 		board.placeFacing(at, yaw);
 		placed = true;
 	}
@@ -63,15 +68,33 @@ export function registerStart(api, root) {
 		return typeof cutoff === 'number' && Number.isFinite(cutoff) && api.game.roundUnderway();
 	};
 
+	let mode = '';
 	function frame() {
-		const want = !!api.isVR?.() && inGame(api) && !running() && hasStart();
+		const vrGame = !!api.isVR?.() && inGame(api);
+		// a banner first: high over the arena, out of the line of fire, never pressable
+		if (transient && performance.now() / 1000 < transient.until && vrGame) {
+			board.draw(transient.card);
+			if (mode !== 'card') {
+				place(0.9, 3.4);
+				mode = 'card';
+			}
+			board.show(true);
+			return;
+		}
+		transient = null;
+		if (mode === 'card') {
+			placed = false;
+			mode = '';
+		}
+		const want = vrGame && !running() && hasStart();
 		if (!want) {
 			if (board.visible()) board.show(false);
 			placed = false;
 			edges.clear();
 			return;
 		}
-		board.draw({ title: 'WAVES', lines: ['Hold the crystal against the waves.', 'Aim a controller here and pull the trigger.'], button: 'SHOOT TO START' });
+		const result = resultCard();
+		board.draw(result ? { title: result.title, lines: result.lines, button: 'SHOOT TO PLAY AGAIN', color: result.color } : { title: 'WAVES', lines: ['Hold the crystal against the waves.', 'Aim a controller here and pull the trigger.'], button: 'SHOOT TO START' });
 		if (!placed) place();
 		board.show(true);
 		const rect = board.rect();
@@ -90,5 +113,19 @@ export function registerStart(api, root) {
 		}
 	});
 
-	return { board, press, hasStart, visible: () => board.visible() };
+	return {
+		board,
+		press,
+		hasStart,
+		visible: () => board.visible(),
+		/** a banner on the board for `ms` (the headset's announce fallback) @param {any} card @param {number} ms */
+		card(card, ms) {
+			transient = { card, until: performance.now() / 1000 + ms / 1000 };
+			mode = '';
+		},
+		/** @param {() => any} fn */
+		setResult(fn) {
+			resultCard = fn;
+		}
+	};
 }

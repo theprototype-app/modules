@@ -12,7 +12,7 @@
 // waves node fires no `wave`/`over` event and appends no log entry here — those moments
 // were somebody else's to witness.
 
-import { curveOf, sizeOf, killsOf, waveOf, aliveIn, usedIn, healsBefore, enemyPosition, spawnFor, runEntry, appendRun, clamp, DEFAULTS, KINDS, kindOf, setbackOf, pushedBy, appendFx, fxOf } from './curve.js';
+import { curveOf, sizeOf, killsOf, waveOf, aliveIn, usedIn, healsBefore, enemyPosition, spawnFor, runEntry, appendRun, clamp, DEFAULTS, KINDS, kindOf, setbackOf, pushedBy, appendFx, fxOf, levelOf, levelSpeed, opensLevel, killScore, groundDistance } from './curve.js';
 
 const SWEEP = 0.1;
 const LOG_PREFIX = 'waves:';
@@ -22,6 +22,8 @@ const FX_PREFIX = 'waves:fx:';
  * api.now() are seconds of day — one conversion, here @param {number} ms */
 const toSeconds = (ms) => (ms / 1000) % 86400;
 const KILLS_ROW = 'kills';
+/** 30b: the per-player score, on the scorer's own row (the kills row's rule) */
+const SCORE_ROW = 'score';
 /** 30b: where an enemy waits while its wave does not use it, or once it is dead — under the
  * ground, out of sight AND out of reach (a hidden body still collides) */
 const STASH_DEPTH = -30;
@@ -56,6 +58,17 @@ export function createWavesEngine(api) {
 	const announcedKills = new Map();
 	/** 30b: the enemies THIS module hid (unused by the wave), so it restores exactly those */
 	const stashed = new Set();
+	/** 30b: waves node id -> the round it last saw RUNNING (a Restart changes it mid-run) */
+	const roundRun = new Map();
+	/** 30b: enemy uuid -> the life (its kills count) it already breached in */
+	const breached = new Map();
+	/** 30b: waves node id -> when this peer first saw it (seconds, performance clock) */
+	const firstSeen = new Map();
+	/** 30b: run listeners (start / wave / level / over / breach), LOCAL edges
+	 * @type {Set<(e: {kind: string, s: any, enemy?: any, pos?: number[]}) => void>} */
+	const runListeners = new Set();
+	/** 30b: a local rule a breach asks before it hurts THIS player (the Shield) */
+	let guard = () => false;
 	/** 30b: hurt/death listeners @type {Set<(e: {kind: 'hurt' | 'death', uuid: string, pos: number[], enemy: any, mine: boolean}) => void>} */
 	const enemyListeners = new Set();
 
@@ -193,8 +206,17 @@ export function createWavesEngine(api) {
 		const goalObject = objectOf(goalUuid);
 		// 30b: the abilities' events of THIS round (a joiner reads the same variable)
 		const fx = running ? fxOf(api.game.getVar(FX_PREFIX + name, null), round) : [];
+		// 30b: levels (0 waves per level = none, the old behaviour)
+		const perLevel = clamp(d.perLevel, 0, 50, 0);
+		const level = levelOf(wave, perLevel);
 		return {
 			fx,
+			perLevel,
+			level,
+			levelSpeed: levelSpeed(level, d.levelSpeed),
+			// 30b: an enemy that reaches the goal BREACHES it (explodes, hurts the players) — only
+			// when the node asks; a pre-30b arena keeps its enemies standing at the goal
+			breach: d.breach === true,
 			slows: fx.filter((/** @type {any} */ e) => e?.k === 'slow'),
 			id: node.id,
 			name,
@@ -275,13 +297,14 @@ export function createWavesEngine(api) {
 						waveStart: s.waveStart,
 						index,
 						now: now(),
-						speed: s.speed * kind.speed,
+						speed: s.speed * kind.speed * (s.levelSpeed ?? 1),
 						stagger: s.stagger,
 						setback: setbackOf(hitsOf(e), e.heals, e.max, kind.knock) + pushedBy(e.uuid, s.fx, s.waveStart, now()),
 						slows: s.slows
 					})
 				);
 				e.pos = object.position.toArray();
+				if (s.breach && groundDistance(e.pos, /** @type {number[]} */ (s.goal)) <= s.reach) breachBy(s, e, object);
 			} else if (!s.running) {
 				// no run: everyone stands where the scene put them
 				object.position.fromArray(home);
@@ -317,6 +340,42 @@ export function createWavesEngine(api) {
 		}
 	}
 
+	/**
+	 * 30b: THE BREACH. An enemy that walks into the goal's reach explodes against it: it dies
+	 * (LOCAL pulses for what it had left — every peer derives the same arrival from the same
+	 * clock and counters, the heal sweep's rule) and every player takes the breach's damage
+	 * through the run's `breach` event (LOCAL too: each peer hurts its own row) — unless THIS
+	 * player's guard (the Shield) holds. No kill credit, no score. Once per enemy per life, and
+	 * never in the first second this peer sees the run (a joiner's first frames are history).
+	 * @param {ReturnType<typeof derive>} s @param {any} e @param {any} object
+	 */
+	function breachBy(s, e, object) {
+		const life = killsOf(hitsOf(e), e.max);
+		if (breached.get(e.uuid) === life) return;
+		if (performance.now() / 1000 - (firstSeen.get(s.id) ?? Infinity) < 1) return;
+		const left = e.max - Math.max(0, hitsOf(e) - e.heals);
+		if (left <= 0 || !e.damageId) return;
+		breached.set(e.uuid, life);
+		for (let i = 0; i < left; i++) api.fireNodeTrigger('damage', (/** @type {any} */ _d, /** @type {string} */ id) => id === e.damageId, { replicate: false });
+		hitExpected.set(e.healthId, hitsOf(e) + left);
+		announcedKills.set(e.uuid, killsOf(hitsOf(e), e.max));
+		const pos = object.getWorldPosition(new api.THREE.Vector3()).toArray();
+		const blocked = guard();
+		if (!blocked) emit(s.name, 'breach');
+		emitRun({ kind: 'breach', s, enemy: e, pos, blocked });
+	}
+
+	/** @param {{kind: string, s: any, enemy?: any, pos?: number[], blocked?: boolean}} ev */
+	function emitRun(ev) {
+		for (const fn of runListeners) {
+			try {
+				fn(ev);
+			} catch (error) {
+				console.warn('[waves] run listener failed', error);
+			}
+		}
+	}
+
 	// ---- 30b: shots -----------------------------------------------------------------------
 	/** the enemies a shot may hit right now: in a running, started wave, used by it, alive
 	 * (as this peer knows it) — never a parked or stashed one @returns {any[]} */
@@ -331,7 +390,7 @@ export function createWavesEngine(api) {
 				if (!e?.damageId || !e.uuid) continue;
 				const hp = e.max - Math.max(0, hitsOf(e) - e.heals);
 				if (hp <= 0) continue;
-				out.push({ ...e, hp, runId: s.id, walking: s.started });
+				out.push({ ...e, hp, runId: s.id, walking: s.started, level: s.level });
 			}
 		}
 		return out;
@@ -357,6 +416,9 @@ export function createWavesEngine(api) {
 		const pos = objectOf(uuid)?.getWorldPosition(new api.THREE.Vector3()).toArray() ?? e.pos ?? [0, 0, 0];
 		if (killed) {
 			api.peerVars.setMine(KILLS_ROW, api.peerVars.mine(KILLS_ROW, 0) + 1);
+			// 30b: the kill scores its kind's points times the level, on this player's own row
+			const points = killScore((KINDS[e.kind] ?? KINDS.grunt).points, e.level ?? 1);
+			api.peerVars.setMine(SCORE_ROW, api.peerVars.mine(SCORE_ROW, 0) + points);
 			const kills = killsOf(hitsOf(e), e.max);
 			announcedKills.set(uuid, kills);
 			emitEnemy({ kind: 'death', uuid, pos, enemy: e, mine: true });
@@ -425,16 +487,30 @@ export function createWavesEngine(api) {
 		const prevWave = waveSeen.get(s.id);
 		const prevDone = doneSeen.get(s.id);
 		const prevRun = runSeen.get(s.id);
+		// 30b: a Restart leaves one round for a NEW one without ever stopping: that is a start too
+		const prevRound = roundRun.get(s.id);
+		roundRun.set(s.id, s.running ? s.round : null);
 		waveSeen.set(s.id, s.wave);
 		doneSeen.set(s.id, s.done);
 		runSeen.set(s.id, s.running);
 		if (firstSight) return;
-		if (s.running && prevRun === false) emit(s.name, 'start');
-		if (typeof prevWave === 'number' && s.wave > prevWave && !s.done) emit(s.name, 'wave');
+		if (s.running && (prevRun === false || (typeof prevRound === 'number' && prevRound !== s.round))) {
+			emit(s.name, 'start');
+			emitRun({ kind: 'start', s });
+		}
+		if (typeof prevWave === 'number' && s.wave > prevWave && !s.done) {
+			emit(s.name, 'wave');
+			// 30b: the first wave of a new level also opens the level
+			if (opensLevel(s.wave, s.perLevel)) {
+				emit(s.name, 'level');
+				emitRun({ kind: 'level', s });
+			} else emitRun({ kind: 'wave', s });
+		}
 		if (s.done && prevDone === false) {
 			emit(s.name, 'over');
 			logRun(s);
-		}
+			emitRun({ kind: 'over', s, won: true });
+		} else if (!s.running && prevRun === true && !s.done) emitRun({ kind: 'over', s, won: false });
 	}
 
 	/** the run into gameState.vars — the same entry from every peer (deterministic inputs),
@@ -464,6 +540,7 @@ export function createWavesEngine(api) {
 			if (node.type !== 'waves') continue;
 			live.add(node.id);
 			const firstSight = !state.has(node.id);
+			if (firstSight) firstSeen.set(node.id, performance.now() / 1000);
 			const s = derive(node, g);
 			state.set(node.id, s);
 			edges(s, firstSight);
@@ -474,6 +551,7 @@ export function createWavesEngine(api) {
 			if (!live.has(id)) {
 				state.delete(id);
 				waveSeen.delete(id);
+				roundRun.delete(id);
 				doneSeen.delete(id);
 				runSeen.delete(id);
 			}
@@ -528,6 +606,9 @@ export function createWavesEngine(api) {
 		seenHits.clear();
 		announcedKills.clear();
 		stashed.clear();
+		breached.clear();
+		firstSeen.clear();
+		roundRun.clear();
 	}
 
 	return {
@@ -541,6 +622,15 @@ export function createWavesEngine(api) {
 		targets,
 		hit,
 		addFx,
+		/** @param {(e: {kind: string, s: any, enemy?: any, pos?: number[]}) => void} fn */
+		onRun: (fn) => {
+			runListeners.add(fn);
+			return () => runListeners.delete(fn);
+		},
+		/** @param {() => boolean} fn the local rule a breach asks before it hurts this player */
+		setGuard: (fn) => {
+			guard = fn;
+		},
 		/** @param {(e: {kind: 'hurt' | 'death', uuid: string, pos: number[], enemy: any, mine: boolean}) => void} fn */
 		onEnemy: (fn) => {
 			enemyListeners.add(fn);

@@ -12,10 +12,10 @@
 
 import { DEFAULTS } from './curve.js';
 
-export const READS = ['wave', 'left', 'size', 'waves', 'done'];
-export const EVENTS = ['wave', 'over', 'start'];
+export const READS = ['wave', 'left', 'size', 'waves', 'done', 'level'];
+export const EVENTS = ['wave', 'over', 'start', 'level', 'breach'];
 /** 30b: what THIS player's own state reads — LOCAL values (each peer shows its own) */
-export const PLAYER_READS = ['ability', 'heat'];
+export const PLAYER_READS = ['ability', 'heat', 'score', 'best'];
 
 /**
  * @param {any} api @param {ReturnType<import('./engine.js').createWavesEngine>} engine
@@ -39,7 +39,11 @@ export function registerNodes(api, engine, player = {}) {
 					{ key: 'speed', kind: 'range', min: 0.1, max: 20, step: 0.1 },
 					{ key: 'stagger', kind: 'range', min: 0, max: 10, step: 0.1 },
 					{ key: 'reach', kind: 'range', min: 0.5, max: 10, step: 0.5 },
-					{ key: 'spawnPrefix', kind: 'text', placeholder: 'Spawn', maxLength: 40 }
+					{ key: 'spawnPrefix', kind: 'text', placeholder: 'Spawn', maxLength: 40 },
+					// 30b: levels (every N waves; 0 = none), their speed-up, and the breach
+					{ key: 'perLevel', kind: 'range', min: 0, max: 10, step: 1 },
+					{ key: 'levelSpeed', kind: 'range', min: 0, max: 0.5, step: 0.01 },
+					{ key: 'breach', kind: 'toggle' }
 				]
 			},
 			{
@@ -100,7 +104,8 @@ export function registerNodes(api, engine, player = {}) {
 					return s.curve.waves;
 				case 'done':
 					return s.done ? 1 : 0;
-
+				case 'level':
+					return s.level ?? 1;
 				default:
 					return s.wave;
 			}

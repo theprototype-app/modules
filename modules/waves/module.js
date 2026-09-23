@@ -14,6 +14,21 @@ function clamp(n, lo, hi, fallback = lo) {
   if (!Number.isFinite(v)) return fallback;
   return Math.min(hi, Math.max(lo, v));
 }
+function levelOf(wave, perLevel) {
+  const p = Math.round(clamp(perLevel, 0, 50, 0));
+  if (!p) return 1;
+  return Math.max(1, Math.ceil(Math.max(1, wave) / p));
+}
+function levelSpeed(level, step) {
+  return 1 + clamp(step, 0, 2, 0) * Math.max(0, level - 1);
+}
+function opensLevel(wave, perLevel) {
+  const p = Math.round(clamp(perLevel, 0, 50, 0));
+  return p > 0 && wave > 1 && (wave - 1) % p === 0;
+}
+function killScore(points, level) {
+  return Math.round(points * Math.max(1, level));
+}
 function curveOf(data, enemies) {
   return {
     waves: Math.round(clamp(data?.waves, 1, 50, DEFAULTS.waves)),
@@ -109,9 +124,9 @@ function pushedBy(uuid, events, since, now) {
   for (const e of events ?? []) if (e?.k === "push" && e.at >= since && e.at <= now) m += Number(e.d?.[uuid]) || 0;
   return m;
 }
-function appendFx(held, round, event, cap = 40) {
+function appendFx(held, round, event, cap2 = 40) {
   const list = held && typeof held === "object" && held.round === round && Array.isArray(held.ev) ? held.ev : [];
-  return { round, ev: [...list, event].sort((a, b) => a.at - b.at).slice(-cap) };
+  return { round, ev: [...list, event].sort((a, b) => a.at - b.at).slice(-cap2) };
 }
 function fxOf(held, round) {
   return held && typeof held === "object" && held.round === round && Array.isArray(held.ev) ? held.ev : [];
@@ -119,6 +134,9 @@ function fxOf(held, round) {
 function setbackOf(hits, heals, max, knock) {
   const taken = Math.max(0, Math.min(max, (Number(hits) || 0) - (Number(heals) || 0)));
   return taken * Math.max(0, Number(knock) || 0);
+}
+function groundDistance(a, b) {
+  return Math.hypot(a[0] - b[0], a[2] - b[2]);
 }
 function spawnFor(i, points, fallback) {
   if (!points.length) return fallback.slice();
@@ -135,11 +153,11 @@ function runEntry(r) {
     players: r.rows.map((x) => ({ name: String(x.name ?? ""), kills: Number(x.kills) || 0 })).sort((a, b) => b.kills - a.kills || a.name.localeCompare(b.name))
   };
 }
-function appendRun(log, entry, cap = 50) {
+function appendRun(log, entry, cap2 = 50) {
   const same = (e) => typeof entry.round === "number" && e.round === entry.round || e.at === entry.at;
   const list = Array.isArray(log) ? log.filter((e) => e && !same(e)) : [];
   list.push(entry);
-  return list.slice(-cap);
+  return list.slice(-cap2);
 }
 
 // modules/waves/src/engine.js
@@ -148,6 +166,7 @@ var LOG_PREFIX = "waves:";
 var FX_PREFIX = "waves:fx:";
 var toSeconds = (ms) => ms / 1e3 % 86400;
 var KILLS_ROW = "kills";
+var SCORE_ROW = "score";
 var STASH_DEPTH = -30;
 function createWavesEngine(api) {
   const state = /* @__PURE__ */ new Map();
@@ -162,6 +181,11 @@ function createWavesEngine(api) {
   const seenHits = /* @__PURE__ */ new Map();
   const announcedKills = /* @__PURE__ */ new Map();
   const stashed = /* @__PURE__ */ new Set();
+  const roundRun = /* @__PURE__ */ new Map();
+  const breached = /* @__PURE__ */ new Map();
+  const firstSeen = /* @__PURE__ */ new Map();
+  const runListeners = /* @__PURE__ */ new Set();
+  let guard = () => false;
   const enemyListeners = /* @__PURE__ */ new Set();
   const now = () => api.now();
   function objectOf(uuid) {
@@ -267,8 +291,16 @@ function createWavesEngine(api) {
     const goalUuid = selectorInto(g, node, "goal");
     const goalObject = objectOf(goalUuid);
     const fx = running ? fxOf(api.game.getVar(FX_PREFIX + name, null), round) : [];
+    const perLevel = clamp(d.perLevel, 0, 50, 0);
+    const level = levelOf(wave, perLevel);
     return {
       fx,
+      perLevel,
+      level,
+      levelSpeed: levelSpeed(level, d.levelSpeed),
+      // 30b: an enemy that reaches the goal BREACHES it (explodes, hurts the players) — only
+      // when the node asks; a pre-30b arena keeps its enemies standing at the goal
+      breach: d.breach === true,
       slows: fx.filter((e) => e?.k === "slow"),
       id: node.id,
       name,
@@ -339,13 +371,18 @@ function createWavesEngine(api) {
             waveStart: s.waveStart,
             index,
             now: now(),
-            speed: s.speed * kind.speed,
+            speed: s.speed * kind.speed * (s.levelSpeed ?? 1),
             stagger: s.stagger,
             setback: setbackOf(hitsOf(e), e.heals, e.max, kind.knock) + pushedBy(e.uuid, s.fx, s.waveStart, now()),
             slows: s.slows
           })
         );
         e.pos = object.position.toArray();
+        if (s.breach && groundDistance(
+          e.pos,
+          /** @type {number[]} */
+          s.goal
+        ) <= s.reach) breachBy(s, e, object);
       } else if (!s.running) {
         object.position.fromArray(home);
       } else if (index >= 0 && alive.has(k)) {
@@ -374,6 +411,30 @@ function createWavesEngine(api) {
       }
     }
   }
+  function breachBy(s, e, object) {
+    const life = killsOf(hitsOf(e), e.max);
+    if (breached.get(e.uuid) === life) return;
+    if (performance.now() / 1e3 - (firstSeen.get(s.id) ?? Infinity) < 1) return;
+    const left = e.max - Math.max(0, hitsOf(e) - e.heals);
+    if (left <= 0 || !e.damageId) return;
+    breached.set(e.uuid, life);
+    for (let i = 0; i < left; i++) api.fireNodeTrigger("damage", (_d, id) => id === e.damageId, { replicate: false });
+    hitExpected.set(e.healthId, hitsOf(e) + left);
+    announcedKills.set(e.uuid, killsOf(hitsOf(e), e.max));
+    const pos = object.getWorldPosition(new api.THREE.Vector3()).toArray();
+    const blocked = guard();
+    if (!blocked) emit(s.name, "breach");
+    emitRun({ kind: "breach", s, enemy: e, pos, blocked });
+  }
+  function emitRun(ev) {
+    for (const fn of runListeners) {
+      try {
+        fn(ev);
+      } catch (error) {
+        console.warn("[waves] run listener failed", error);
+      }
+    }
+  }
   function targets() {
     const out = [];
     for (const s of state.values()) {
@@ -384,7 +445,7 @@ function createWavesEngine(api) {
         if (!e?.damageId || !e.uuid) continue;
         const hp = e.max - Math.max(0, hitsOf(e) - e.heals);
         if (hp <= 0) continue;
-        out.push({ ...e, hp, runId: s.id, walking: s.started });
+        out.push({ ...e, hp, runId: s.id, walking: s.started, level: s.level });
       }
     }
     return out;
@@ -400,6 +461,8 @@ function createWavesEngine(api) {
     const pos = objectOf(uuid)?.getWorldPosition(new api.THREE.Vector3()).toArray() ?? e.pos ?? [0, 0, 0];
     if (killed) {
       api.peerVars.setMine(KILLS_ROW, api.peerVars.mine(KILLS_ROW, 0) + 1);
+      const points = killScore((KINDS[e.kind] ?? KINDS.grunt).points, e.level ?? 1);
+      api.peerVars.setMine(SCORE_ROW, api.peerVars.mine(SCORE_ROW, 0) + points);
       const kills = killsOf(hitsOf(e), e.max);
       announcedKills.set(uuid, kills);
       emitEnemy({ kind: "death", uuid, pos, enemy: e, mine: true });
@@ -449,16 +512,28 @@ function createWavesEngine(api) {
     const prevWave = waveSeen.get(s.id);
     const prevDone = doneSeen.get(s.id);
     const prevRun = runSeen.get(s.id);
+    const prevRound = roundRun.get(s.id);
+    roundRun.set(s.id, s.running ? s.round : null);
     waveSeen.set(s.id, s.wave);
     doneSeen.set(s.id, s.done);
     runSeen.set(s.id, s.running);
     if (firstSight) return;
-    if (s.running && prevRun === false) emit(s.name, "start");
-    if (typeof prevWave === "number" && s.wave > prevWave && !s.done) emit(s.name, "wave");
+    if (s.running && (prevRun === false || typeof prevRound === "number" && prevRound !== s.round)) {
+      emit(s.name, "start");
+      emitRun({ kind: "start", s });
+    }
+    if (typeof prevWave === "number" && s.wave > prevWave && !s.done) {
+      emit(s.name, "wave");
+      if (opensLevel(s.wave, s.perLevel)) {
+        emit(s.name, "level");
+        emitRun({ kind: "level", s });
+      } else emitRun({ kind: "wave", s });
+    }
     if (s.done && prevDone === false) {
       emit(s.name, "over");
       logRun(s);
-    }
+      emitRun({ kind: "over", s, won: true });
+    } else if (!s.running && prevRun === true && !s.done) emitRun({ kind: "over", s, won: false });
   }
   function logRun(s) {
     if (typeof s.clearedAt !== "number") return;
@@ -480,6 +555,7 @@ function createWavesEngine(api) {
       if (node.type !== "waves") continue;
       live.add(node.id);
       const firstSight = !state.has(node.id);
+      if (firstSight) firstSeen.set(node.id, performance.now() / 1e3);
       const s = derive(node, g);
       state.set(node.id, s);
       edges(s, firstSight);
@@ -490,6 +566,7 @@ function createWavesEngine(api) {
       if (!live.has(id)) {
         state.delete(id);
         waveSeen.delete(id);
+        roundRun.delete(id);
         doneSeen.delete(id);
         runSeen.delete(id);
       }
@@ -535,6 +612,9 @@ function createWavesEngine(api) {
     seenHits.clear();
     announcedKills.clear();
     stashed.clear();
+    breached.clear();
+    firstSeen.clear();
+    roundRun.clear();
   }
   return {
     state,
@@ -547,6 +627,15 @@ function createWavesEngine(api) {
     targets,
     hit,
     addFx,
+    /** @param {(e: {kind: string, s: any, enemy?: any, pos?: number[]}) => void} fn */
+    onRun: (fn) => {
+      runListeners.add(fn);
+      return () => runListeners.delete(fn);
+    },
+    /** @param {() => boolean} fn the local rule a breach asks before it hurts this player */
+    setGuard: (fn) => {
+      guard = fn;
+    },
     /** @param {(e: {kind: 'hurt' | 'death', uuid: string, pos: number[], enemy: any, mine: boolean}) => void} fn */
     onEnemy: (fn) => {
       enemyListeners.add(fn);
@@ -561,9 +650,9 @@ function createWavesEngine(api) {
 }
 
 // modules/waves/src/nodes.js
-var READS = ["wave", "left", "size", "waves", "done"];
-var EVENTS = ["wave", "over", "start"];
-var PLAYER_READS = ["ability", "heat"];
+var READS = ["wave", "left", "size", "waves", "done", "level"];
+var EVENTS = ["wave", "over", "start", "level", "breach"];
+var PLAYER_READS = ["ability", "heat", "score", "best"];
 function registerNodes(api, engine, player = {}) {
   api.registerNodeGroup({
     group: "Waves",
@@ -581,7 +670,11 @@ function registerNodes(api, engine, player = {}) {
           { key: "speed", kind: "range", min: 0.1, max: 20, step: 0.1 },
           { key: "stagger", kind: "range", min: 0, max: 10, step: 0.1 },
           { key: "reach", kind: "range", min: 0.5, max: 10, step: 0.5 },
-          { key: "spawnPrefix", kind: "text", placeholder: "Spawn", maxLength: 40 }
+          { key: "spawnPrefix", kind: "text", placeholder: "Spawn", maxLength: 40 },
+          // 30b: levels (every N waves; 0 = none), their speed-up, and the breach
+          { key: "perLevel", kind: "range", min: 0, max: 10, step: 1 },
+          { key: "levelSpeed", kind: "range", min: 0, max: 0.5, step: 0.01 },
+          { key: "breach", kind: "toggle" }
         ]
       },
       {
@@ -641,6 +734,8 @@ function registerNodes(api, engine, player = {}) {
           return s.curve.waves;
         case "done":
           return s.done ? 1 : 0;
+        case "level":
+          return s.level ?? 1;
         default:
           return s.wave;
       }
@@ -688,7 +783,12 @@ function arenaRecipe(spec) {
   const edges = [];
   let row = spec.row;
   const y = () => Y0 + row * ROW;
-  const wavesIdx = nodes.push({ type: "waves", x: X0, y: y(), data: { name, waves: o.waves, sizeStart: o.sizeStart, sizeStep: o.sizeStep, interval: o.interval, speed: o.speed, stagger: DEFAULTS.stagger, reach: o.reach, spawnPrefix: o.spawnPrefix } }) - 1;
+  const extra = {
+    ...o.stagger !== void 0 ? { stagger: o.stagger } : { stagger: DEFAULTS.stagger },
+    ...o.perLevel ? { perLevel: o.perLevel, levelSpeed: o.levelSpeed ?? 0 } : {},
+    ...o.breach ? { breach: true } : {}
+  };
+  const wavesIdx = nodes.push({ type: "waves", x: X0, y: y(), data: { name, waves: o.waves, sizeStart: o.sizeStart, sizeStep: o.sizeStep, interval: o.interval, speed: o.speed, reach: o.reach, spawnPrefix: o.spawnPrefix, ...extra } }) - 1;
   if (spec.goal) {
     const sel = nodes.push({ type: "objectselector", x: X0 - 0, y: y() + 100, data: { selected: spec.goal } }) - 1;
     edges.push({ from: sel, to: wavesIdx, handle: "goal" });
@@ -703,22 +803,28 @@ function arenaRecipe(spec) {
   if (!playerRef) {
     const pd = nodes.push({ type: "damage", x: X0 + 3 * COL, y: y(), data: { amount: 1, source: "wired" } }) - 1;
     const pc = nodes.push({ type: "counter", x: X0 + 4 * COL, y: y(), data: { op: "up", step: 1 } }) - 1;
-    const ph = nodes.push({ type: "health", x: X0 + 5 * COL, y: y(), data: { name: playerName, scope: "player", max: o.playerHp, regen: o.playerRegen, deathAction: "respawn", respawnDelay: 3 } }) - 1;
+    const ph = nodes.push({ type: "health", x: X0 + 5 * COL, y: y(), data: { name: playerName, scope: "player", max: o.playerHp, regen: o.playerRegen, deathAction: o.breach ? "nothing" : "respawn", respawnDelay: 3 } }) - 1;
     const pr = nodes.push({ type: "healthreset", x: X0 + 3 * COL, y: y() + 100, data: { name: playerName } }) - 1;
     edges.push({ from: pd, to: pc, handle: "pulse" }, { from: pc, to: ph, handle: "damage" }, { from: pr, to: pc, handle: "reset" });
     playerRef = ph;
+    if (o.breach) {
+      const bd = nodes.push({ type: "damage", x: X0 + 3 * COL, y: y() + 200, data: { amount: o.breachDamage ?? 2, source: "wired" } }) - 1;
+      const be = nodes.push({ type: "wavesevent", x: X0 + 2 * COL, y: y() + 200, data: { name, event: "breach" } }) - 1;
+      const death = nodes.push({ type: "healthevent", x: X0 + 4 * COL, y: y() + 300, data: { name: playerName, event: "death" } }) - 1;
+      const lost = nodes.push({ type: "setgamestate", x: X0 + 5 * COL, y: y() + 300, data: { state: "over", outcome: "lost" } }) - 1;
+      edges.push({ from: be, to: bd, handle: "trigger" }, { from: bd, to: pc, handle: "pulse" }, { from: death, to: lost, handle: "trigger" });
+    }
   }
   row++;
-  for (const uuid of spec.enemies) {
+  spec.enemies.forEach((uuid, i) => {
     const d = nodes.push({ type: "damage", x: X0, y: y(), data: { amount: 1, source: o.source, scale: o.source === "hit" ? "speed" : "none", speedRef: 3 } }) - 1;
     const c = nodes.push({ type: "counter", x: X0 + COL, y: y(), data: { op: "up", step: 1 } }) - 1;
-    const h = nodes.push({ type: "health", x: X0 + 2 * COL, y: y(), data: { name, scope: "object", max: o.hp, deathAction: "hide", respawnDelay: 3 } }) - 1;
+    const hp = spec.hps?.[i] ?? o.hp;
+    const h = nodes.push({ type: "health", x: X0 + 2 * COL, y: y(), data: { name, scope: "object", max: hp, deathAction: "hide", respawnDelay: 3 } }) - 1;
     const s = nodes.push({ type: "objectselector", x: X0 + 3 * COL, y: y(), data: { selected: uuid } }) - 1;
     const r = nodes.push({ type: "healthreset", x: X0, y: y() + 100, data: { name } }) - 1;
     const he = nodes.push({ type: "heal", x: X0 + COL, y: y() + 100, data: { amount: 1 } }) - 1;
     const hc = nodes.push({ type: "counter", x: X0 + 2 * COL, y: y() + 100, data: { op: "up", step: 1 } }) - 1;
-    const z = nodes.push({ type: "damage", x: X0 + 4 * COL, y: y(), data: { amount: o.enemyDamage, source: "zone", perSecond: o.enemyRate, radius: o.reach } }) - 1;
-    const zs = nodes.push({ type: "objectselector", x: X0 + 4 * COL, y: y() + 100, data: { selected: uuid } }) - 1;
     edges.push(
       { from: d, to: c, handle: "pulse" },
       { from: c, to: h, handle: "damage" },
@@ -726,12 +832,15 @@ function arenaRecipe(spec) {
       { from: r, to: c, handle: "reset" },
       { from: r, to: hc, handle: "reset" },
       { from: he, to: hc, handle: "pulse" },
-      { from: hc, to: h, handle: "heal" },
-      { from: zs, to: z, handle: "zone" },
-      { from: z, to: playerRef, handle: "damage" }
+      { from: hc, to: h, handle: "heal" }
     );
+    if (o.zone !== false) {
+      const z = nodes.push({ type: "damage", x: X0 + 4 * COL, y: y(), data: { amount: o.enemyDamage, source: "zone", perSecond: o.enemyRate, radius: o.reach } }) - 1;
+      const zs = nodes.push({ type: "objectselector", x: X0 + 4 * COL, y: y() + 100, data: { selected: uuid } }) - 1;
+      edges.push({ from: zs, to: z, handle: "zone" }, { from: z, to: playerRef, handle: "damage" });
+    }
     row++;
-  }
+  });
   return { nodes, edges, rows: row - spec.row };
 }
 function registerToolbox(api, engine) {
@@ -914,8 +1023,41 @@ function registerToolbox(api, engine) {
 }
 
 // modules/waves/src/hud.js
-var PANEL = { bg: "rgba(22, 18, 28, 0.92)", radius: 18, border: "1px solid rgba(255, 140, 100, 0.3)" };
-var BUTTON = (bg) => ({ size: 16, weight: "700", bg, color: "#ffffff", radius: 12 });
+var PANEL = { bg: "rgba(22, 18, 28, 0.93)", radius: 18, border: "1px solid rgba(255, 140, 100, 0.3)" };
+var BUTTON = (bg, size = 16) => ({ size, weight: "700", bg, color: "#ffffff", radius: 12 });
+var QUIET = { size: 15, weight: "600", bg: "#3a3440", color: "#e6dede", radius: 12 };
+var TITLE = (size) => ({ size, weight: "800", color: "#ff9c6b", align: "center" });
+var BODY = { size: 14, color: "#e6dede", align: "left" };
+var GUN_BUTTONS = Object.freeze([
+  ["wv-gun-blaster", "Blaster", "#1e8fb0", "Semi-auto. One precise bolt per pull."],
+  ["wv-gun-scatter", "Scatter", "#c46a1c", "7 pellets, slow pump. Brutal up close."],
+  ["wv-gun-beam", "Beam", "#a2308c", "Hold to burn. Overheats \u2014 let it cool."]
+]);
+var ABILITY_BUTTONS = Object.freeze([
+  ["wv-ab-shield", "Shield", "#1e8fb0", "Blocks all crystal damage for 3 s."],
+  ["wv-ab-slowmo", "Slow-mo", "#5a4fc0", "Every enemy at 40% for 4 s."],
+  ["wv-ab-pulse", "Pulse", "#b8901c", "A shockwave shoves them back."]
+]);
+var OPTION_BUTTONS = Object.freeze([
+  ["wv-opt-music", "Music"],
+  ["wv-opt-sfx", "Sound effects"],
+  ["wv-opt-hand", "Gun hand"],
+  ["wv-opt-haptics", "Vibration"]
+]);
+var NAV = Object.freeze([
+  ["wv-nav-howto", "howto", "show"],
+  ["wv-nav-loadout", "loadout", "show"],
+  ["wv-nav-options", "options", "show"],
+  ["wv-back-howto", "howto", "hide"],
+  ["wv-back-loadout", "loadout", "hide"],
+  ["wv-back-options", "options", "hide"]
+]);
+function tile(id, x, y, glyph, bg) {
+  return [
+    { id: id + "-bg", kind: "panel", anchor: "center", x, y, w: 64, h: 64, z: 1, label: "", style: { bg, radius: 14, border: "1px solid rgba(255,255,255,0.25)" } },
+    { id, kind: "text", anchor: "center", x, y, w: 64, h: 64, z: 2, label: glyph, style: { size: 34, color: "#ffffff", align: "center" } }
+  ];
+}
 function arenaHud() {
   return {
     scene: {
@@ -928,13 +1070,71 @@ function arenaHud() {
           showWhile: "menu",
           input: "menu",
           elements: [
-            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 480, h: 360, z: 0, label: "", style: PANEL },
-            { id: "menu-stripe", kind: "panel", anchor: "center", x: 0, y: -176, w: 480, h: 8, z: 1, label: "", style: { bg: "#ff7a4a", radius: 4 } },
-            { id: "title", kind: "text", anchor: "center", x: 0, y: -122, w: 420, h: 56, z: 1, label: "WAVES", style: { size: 46, weight: "800", color: "#ff9c6b", align: "left" } },
-            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -66, w: 420, h: 44, z: 1, label: "Hold the crystal. Every wave brings more enemies through the portals; the round ends when the last one falls.", style: { size: 14, color: "#e6dede", align: "left" }, wrap: true },
-            { id: "wv-start", kind: "button", anchor: "center", x: 0, y: 8, w: 420, h: 54, z: 1, label: "Start", enabled: true, style: { ...BUTTON("#d9533f"), size: 20 } },
-            { id: "wv-log", kind: "list", anchor: "center", x: 0, y: 92, w: 420, h: 76, z: 1, label: "", rows: [], style: { size: 12, color: "#d6c8c8", align: "left", bg: "transparent" } },
-            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 150, w: 420, h: 20, z: 1, label: "Knock them down: walk into them or grab and throw  \xB7  P pauses", style: { size: 11, color: "#9b8f8f", align: "left" } }
+            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 520, h: 480, z: 0, label: "", style: PANEL },
+            { id: "menu-stripe", kind: "panel", anchor: "center", x: 0, y: -236, w: 520, h: 8, z: 1, label: "", style: { bg: "#ff7a4a", radius: 4 } },
+            { id: "title", kind: "text", anchor: "center", x: 0, y: -188, w: 460, h: 60, z: 1, label: "WAVES", style: TITLE(52) },
+            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -136, w: 440, h: 44, z: 1, label: "Five levels of enemies pour out of the portals. Pick your gun, hold the crystal.", style: { size: 14, color: "#e6dede", align: "center" }, wrap: true },
+            { id: "wv-start", kind: "button", anchor: "center", x: 0, y: -68, w: 440, h: 60, z: 1, label: "\u25B6  Play", enabled: true, style: BUTTON("#d9533f", 22) },
+            { id: "wv-nav-howto", kind: "button", anchor: "center", x: 0, y: 2, w: 440, h: 46, z: 1, label: "How to play", enabled: true, style: QUIET },
+            { id: "wv-nav-loadout", kind: "button", anchor: "center", x: 0, y: 56, w: 440, h: 46, z: 1, label: "Loadout", enabled: true, style: QUIET },
+            { id: "wv-nav-options", kind: "button", anchor: "center", x: 0, y: 110, w: 440, h: 46, z: 1, label: "Options", enabled: true, style: QUIET },
+            { id: "wv-loadout-now", kind: "list", anchor: "center", x: 0, y: 160, w: 440, h: 22, z: 1, label: "", rows: [], style: { size: 13, weight: "600", color: "#ffd0b0", align: "center", bg: "transparent" } },
+            { id: "wv-best", kind: "list", anchor: "center", x: 0, y: 184, w: 440, h: 22, z: 1, label: "", rows: [], style: { size: 13, color: "#d6c8c8", align: "center", bg: "transparent" } },
+            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 216, w: 460, h: 20, z: 1, label: "Trigger / click: shoot  \xB7  Grip / Q: ability  \xB7  P: pause", style: { size: 11, color: "#9b8f8f", align: "center" } }
+          ]
+        },
+        {
+          id: "howto",
+          name: "How to play",
+          input: "menu",
+          elements: [
+            { id: "howto-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 640, h: 540, z: 0, label: "", style: PANEL },
+            { id: "howto-title", kind: "text", anchor: "center", x: 0, y: -226, w: 560, h: 44, z: 1, label: "HOW TO PLAY", style: TITLE(32) },
+            ...tile("howto-icon-1", -250, -150, "\u{1F3AF}", "#1e8fb0"),
+            { id: "howto-1", kind: "text", anchor: "center", x: 50, y: -150, w: 480, h: 74, z: 1, label: "SHOOT \u2014 pull the trigger (desktop: click). The gun is in your right hand; switch hands in Options.", style: BODY, wrap: true },
+            ...tile("howto-icon-2", -250, -64, "\u{1F48E}", "#2a8a9a"),
+            { id: "howto-2", kind: "text", anchor: "center", x: 50, y: -64, w: 480, h: 74, z: 1, label: "HOLD THE CRYSTAL \u2014 enemies walk from the portals to it. One that reaches it explodes: \u22122 crystal. At zero the run is lost.", style: BODY, wrap: true },
+            ...tile("howto-icon-3", -250, 22, "\u270B", "#8a5cff"),
+            { id: "howto-3", kind: "text", anchor: "center", x: 50, y: 22, w: 480, h: 74, z: 1, label: "ABILITY \u2014 squeeze the grip on your free hand (desktop: Q): Shield, Slow-mo or Pulse. Then it recharges.", style: BODY, wrap: true },
+            ...tile("howto-icon-4", -250, 108, "\u2B50", "#b8901c"),
+            { id: "howto-4", kind: "text", anchor: "center", x: 50, y: 108, w: 480, h: 74, z: 1, label: "LEVELS \u2014 every 3 waves is a new level: runners, then tanks, then faster. Higher levels score more.", style: BODY, wrap: true },
+            { id: "wv-back-howto", kind: "button", anchor: "center", x: 0, y: 212, w: 260, h: 46, z: 1, label: "Back", enabled: true, style: QUIET }
+          ]
+        },
+        {
+          id: "loadout",
+          name: "Loadout",
+          input: "menu",
+          elements: [
+            { id: "loadout-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 660, h: 520, z: 0, label: "", style: PANEL },
+            { id: "loadout-title", kind: "text", anchor: "center", x: 0, y: -214, w: 560, h: 44, z: 1, label: "LOADOUT", style: TITLE(32) },
+            { id: "loadout-gun", kind: "text", anchor: "center", x: 0, y: -168, w: 600, h: 22, z: 1, label: "GUN", style: { size: 12, weight: "700", color: "#c8b8b8", align: "center" } },
+            ...GUN_BUTTONS.flatMap(([id, label, bg, blurb], i) => [
+              { id, kind: "button", anchor: "center", x: -205 + i * 205, y: -126, w: 190, h: 50, z: 1, label, enabled: true, style: BUTTON(bg, 17) },
+              { id: id + "-blurb", kind: "text", anchor: "center", x: -205 + i * 205, y: -78, w: 190, h: 40, z: 1, label: blurb, style: { size: 12, color: "#d6c8c8", align: "center" }, wrap: true }
+            ]),
+            { id: "loadout-ability", kind: "text", anchor: "center", x: 0, y: -24, w: 600, h: 22, z: 1, label: "ABILITY", style: { size: 12, weight: "700", color: "#c8b8b8", align: "center" } },
+            ...ABILITY_BUTTONS.flatMap(([id, label, bg, blurb], i) => [
+              { id, kind: "button", anchor: "center", x: -205 + i * 205, y: 18, w: 190, h: 50, z: 1, label, enabled: true, style: BUTTON(bg, 17) },
+              { id: id + "-blurb", kind: "text", anchor: "center", x: -205 + i * 205, y: 66, w: 190, h: 40, z: 1, label: blurb, style: { size: 12, color: "#d6c8c8", align: "center" }, wrap: true }
+            ]),
+            { id: "wv-loadout-pick", kind: "list", anchor: "center", x: 0, y: 128, w: 560, h: 28, z: 1, label: "", rows: [], style: { size: 17, weight: "700", color: "#ffd0b0", align: "center", bg: "transparent" } },
+            { id: "wv-back-loadout", kind: "button", anchor: "center", x: 0, y: 196, w: 260, h: 46, z: 1, label: "Back", enabled: true, style: QUIET }
+          ]
+        },
+        {
+          id: "options",
+          name: "Options",
+          input: "menu",
+          elements: [
+            { id: "options-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 540, h: 460, z: 0, label: "", style: PANEL },
+            { id: "options-title", kind: "text", anchor: "center", x: 0, y: -184, w: 480, h: 44, z: 1, label: "OPTIONS", style: TITLE(32) },
+            ...OPTION_BUTTONS.flatMap(([id, label], i) => [
+              { id, kind: "button", anchor: "center", x: -80, y: -112 + i * 60, w: 260, h: 46, z: 1, label, enabled: true, style: QUIET },
+              { id: id + "-v", kind: "list", anchor: "center", x: 150, y: -112 + i * 60, w: 170, h: 30, z: 1, label: "", rows: [], style: { size: 16, weight: "700", color: "#ffd0b0", align: "left", bg: "transparent" } }
+            ]),
+            { id: "options-hint", kind: "text", anchor: "center", x: 0, y: 130, w: 480, h: 20, z: 1, label: "Tap a setting to change it. Saved on this device.", style: { size: 12, color: "#9b8f8f", align: "center" } },
+            { id: "wv-back-options", kind: "button", anchor: "center", x: 0, y: 182, w: 260, h: 46, z: 1, label: "Back", enabled: true, style: QUIET }
           ]
         },
         {
@@ -943,11 +1143,20 @@ function arenaHud() {
           showWhile: "playing",
           input: "game",
           elements: [
-            { id: "wv-banner", kind: "panel", anchor: "top-center", x: 0, y: 10, w: 150, h: 68, z: 0, label: "", style: { bg: "rgba(22, 18, 28, 0.78)", radius: 14, border: "1px solid rgba(255, 140, 100, 0.25)" } },
-            { id: "wv-wave", kind: "text", anchor: "top-center", x: 0, y: 14, w: 122, h: 34, z: 1, label: "Wave 1", style: { size: 24, weight: "800", color: "#ff9c6b", align: "left" } },
-            { id: "wv-left", kind: "text", anchor: "top-center", x: 0, y: 48, w: 122, h: 24, z: 1, label: "", style: { size: 14, color: "#e6dede", align: "left" } },
-            { id: "wv-hp-label", kind: "text", anchor: "bottom-center", x: 0, y: 46, w: 340, h: 18, z: 1, label: "HEALTH", style: { size: 10, weight: "700", color: "#c8e6cc", align: "left" } },
-            { id: "wv-hp", kind: "bar", anchor: "bottom-center", x: 0, y: 24, w: 340, h: 20, z: 1, label: "", min: 0, max: 1, value: 1, orientation: "horizontal", showPercent: false, style: { color: "#6fcf7a", bg: "rgba(0,0,0,0.45)", radius: 10 } },
+            { id: "wv-banner", kind: "panel", anchor: "top-center", x: 0, y: 10, w: 190, h: 86, z: 0, label: "", style: { bg: "rgba(22, 18, 28, 0.78)", radius: 14, border: "1px solid rgba(255, 140, 100, 0.25)" } },
+            { id: "wv-wave", kind: "text", anchor: "top-center", x: 0, y: 14, w: 170, h: 32, z: 1, label: "Wave 1", style: { size: 24, weight: "800", color: "#ff9c6b", align: "center" } },
+            { id: "wv-level", kind: "text", anchor: "top-center", x: 0, y: 46, w: 170, h: 20, z: 1, label: "LEVEL 1", style: { size: 12, weight: "700", color: "#ffd24a", align: "center" } },
+            { id: "wv-left", kind: "text", anchor: "top-center", x: 0, y: 66, w: 170, h: 22, z: 1, label: "", style: { size: 13, color: "#e6dede", align: "center" } },
+            { id: "wv-score-bg", kind: "panel", anchor: "top-left", x: 16, y: 12, w: 180, h: 70, z: 0, label: "", style: { bg: "rgba(22, 18, 28, 0.78)", radius: 14, border: "1px solid rgba(255, 140, 100, 0.25)" } },
+            { id: "wv-score-label", kind: "text", anchor: "top-left", x: 30, y: 18, w: 150, h: 18, z: 1, label: "SCORE", style: { size: 11, weight: "700", color: "#c8b8b8", align: "left" } },
+            { id: "wv-score", kind: "text", anchor: "top-left", x: 30, y: 38, w: 160, h: 36, z: 1, label: "0", style: { size: 28, weight: "800", color: "#ffffff", align: "left" } },
+            { id: "wv-hp-label", kind: "text", anchor: "bottom-center", x: 0, y: 46, w: 340, h: 18, z: 1, label: "CRYSTAL", style: { size: 11, weight: "700", color: "#9ff0ff", align: "center" } },
+            { id: "wv-hp", kind: "bar", anchor: "bottom-center", x: 0, y: 24, w: 340, h: 20, z: 1, label: "", min: 0, max: 1, value: 1, orientation: "horizontal", showPercent: false, style: { color: "#39e0ff", bg: "rgba(0,0,0,0.45)", radius: 10 } },
+            { id: "wv-ability-label", kind: "list", anchor: "bottom-right", x: 20, y: 62, w: 200, h: 24, z: 1, label: "", rows: [], rowHeight: 20, style: { size: 11, weight: "700", color: "#ffe7a0", align: "left", bg: "transparent" } },
+            { id: "wv-ability", kind: "bar", anchor: "bottom-right", x: 20, y: 46, w: 200, h: 14, z: 1, label: "", min: 0, max: 1, value: 1, orientation: "horizontal", showPercent: false, style: { color: "#ffd24a", bg: "rgba(0,0,0,0.45)", radius: 7 } },
+            { id: "wv-heat-label", kind: "text", anchor: "bottom-right", x: 20, y: 30, w: 200, h: 14, z: 1, label: "HEAT", style: { size: 9, weight: "700", color: "#ff9ce8", align: "right" } },
+            { id: "wv-heat", kind: "bar", anchor: "bottom-right", x: 20, y: 18, w: 200, h: 10, z: 1, label: "", min: 0, max: 1, value: 0, orientation: "horizontal", showPercent: false, style: { color: "#ff4fd8", bg: "rgba(0,0,0,0.45)", radius: 5 } },
+            { id: "wv-crosshair", kind: "crosshair", anchor: "center", x: 0, y: 0, w: 24, h: 24, z: 2, label: "", thickness: 2, gap: 5, dot: true, style: { color: "#ffffff", opacity: 0.85 } },
             { id: "wv-kills", kind: "list", anchor: "top-right", x: 16, y: 14, w: 220, h: 100, z: 1, label: "", rows: [], style: { size: 13, weight: "600", color: "#ffe0d0", align: "right", bg: "transparent" } }
           ]
         },
@@ -957,23 +1166,27 @@ function arenaHud() {
           input: "menu",
           elements: [
             { id: "pause-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 380, h: 300, z: 0, label: "", style: PANEL },
-            { id: "pause-title", kind: "text", anchor: "center", x: 0, y: -95, w: 260, h: 36, z: 1, label: "PAUSED", style: { size: 28, weight: "800", color: "#e6dede", align: "left" } },
+            { id: "pause-title", kind: "text", anchor: "center", x: 0, y: -95, w: 260, h: 36, z: 1, label: "PAUSED", style: { size: 28, weight: "800", color: "#e6dede", align: "center" } },
             { id: "resume-btn", kind: "button", anchor: "center", x: 0, y: -30, w: 260, h: 44, z: 1, label: "Resume", enabled: true, style: BUTTON("#3b7dd8") },
             { id: "restart-btn", kind: "button", anchor: "center", x: 0, y: 24, w: 260, h: 44, z: 1, label: "Restart round", enabled: true, style: BUTTON("#d9533f") },
-            { id: "quit-btn", kind: "button", anchor: "center", x: 0, y: 78, w: 260, h: 44, z: 1, label: "Quit to menu", enabled: true, style: { size: 15, weight: "600", bg: "#3a3440", color: "#e6dede", radius: 12 } }
+            { id: "quit-btn", kind: "button", anchor: "center", x: 0, y: 78, w: 260, h: 44, z: 1, label: "Quit to menu", enabled: true, style: QUIET }
           ]
         },
         {
           id: "over",
-          name: "Round over",
+          name: "Results",
           showWhile: "over",
           input: "menu",
           elements: [
-            { id: "over-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 480, h: 360, z: 0, label: "", style: PANEL },
-            { id: "over-title", kind: "text", anchor: "center", x: 0, y: -126, w: 420, h: 44, z: 1, label: "ARENA CLEARED", style: { size: 32, weight: "800", color: "#ff9c6b", align: "left" } },
-            { id: "wv-kills-over", kind: "list", anchor: "center", x: 0, y: -50, w: 420, h: 90, z: 1, label: "", rows: [], style: { size: 14, color: "#e6dede", align: "center", bg: "transparent" } },
-            { id: "wv-log-over", kind: "list", anchor: "center", x: 0, y: 40, w: 420, h: 70, z: 1, label: "", rows: [], style: { size: 12, color: "#d6c8c8", align: "center", bg: "transparent" } },
-            { id: "wv-again", kind: "button", anchor: "center", x: 0, y: 124, w: 260, h: 48, z: 1, label: "Again", enabled: true, style: BUTTON("#d9533f") }
+            { id: "over-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 520, h: 440, z: 0, label: "", style: PANEL },
+            { id: "over-stripe", kind: "panel", anchor: "center", x: 0, y: -216, w: 520, h: 8, z: 1, label: "", style: { bg: "#ff7a4a", radius: 4 } },
+            { id: "over-title", kind: "text", anchor: "center", x: 0, y: -176, w: 460, h: 40, z: 1, label: "RESULTS", style: TITLE(30) },
+            // list rows align left (core draws them so): the rows sit in the buttons' column
+            { id: "wv-result-title", kind: "list", anchor: "center", x: 0, y: -124, w: 300, h: 34, z: 1, label: "", rows: ["ROUND OVER"], rowHeight: 30, style: { size: 22, weight: "800", color: "#ffd0b0", align: "left", bg: "transparent" } },
+            { id: "wv-result", kind: "list", anchor: "center", x: 0, y: -58, w: 300, h: 80, z: 1, label: "", rows: [], rowHeight: 24, style: { size: 15, color: "#e6dede", align: "left", bg: "transparent" } },
+            { id: "wv-kills-over", kind: "list", anchor: "center", x: 0, y: 30, w: 300, h: 76, z: 1, label: "", rows: [], style: { size: 13, color: "#ffe0d0", align: "left", bg: "transparent" } },
+            { id: "wv-again", kind: "button", anchor: "center", x: 0, y: 118, w: 300, h: 52, z: 1, label: "Play again", enabled: true, style: BUTTON("#d9533f", 18) },
+            { id: "wv-menu", kind: "button", anchor: "center", x: 0, y: 176, w: 300, h: 44, z: 1, label: "Menu", enabled: true, style: QUIET }
           ]
         }
       ]
@@ -994,7 +1207,8 @@ function hudGraph(o) {
     { type: "hudtext", x: x + 220, y: y + 300, data: { element: "wv-left", format: "{v} left", decimals: 0 } },
     { type: "healthvalue", x, y: y + 400, data: { name: o.playerName, read: "fraction" } },
     { type: "hudbar", x: x + 220, y: y + 400, data: { element: "wv-hp", min: 0, max: 1 } },
-    { type: "leaderboard", x, y: y + 500, data: { variable: "kills", element: "wv-kills,wv-kills-over", limit: 8 } },
+    // 30b: the board ranks SCORE (each player's own row), in play and on the results
+    { type: "leaderboard", x, y: y + 500, data: { variable: "score", element: "wv-kills,wv-kills-over", limit: 8 } },
     // 30: the pause menu — P toggles it, Resume hides it, Restart re-enters playing (a fresh
     // round stamp) and Quit goes back to the menu; both close the pause screen
     { type: "keypress", x, y: y + 600, data: { code: "KeyP", edge: "down", pulse: 0.3 } },
@@ -1021,7 +1235,40 @@ function hudGraph(o) {
     { from: 18, to: 19, handle: "trigger" },
     { from: 18, to: 20, handle: "trigger" }
   ];
-  return { nodes, edges };
+  const add = (node) => nodes.push(node) - 1;
+  let row = y + 1e3;
+  {
+    const b = add({ type: "hudbutton", x, y: row, data: { element: "wv-menu" } });
+    const g = add({ type: "setgamestate", x: x + 220, y: row, data: { state: "menu", outcome: "", reset: true } });
+    edges.push({ from: b, to: g, handle: "trigger" });
+    row += 100;
+  }
+  for (
+    const [type, data, target, tdata] of
+    /** @type {[string, any, string, any][]} */
+    [
+      ["wavesvalue", { name: o.name, read: "level" }, "hudtext", { element: "wv-level", format: "LEVEL {v}", decimals: 0 }],
+      ["wavesplayer", { read: "score" }, "hudtext", { element: "wv-score", format: "{v}", decimals: 0 }],
+      ["wavesplayer", { read: "ability" }, "hudbar", { element: "wv-ability", min: 0, max: 1 }],
+      ["wavesplayer", { read: "heat" }, "hudbar", { element: "wv-heat", min: 0, max: 1 }]
+    ]
+  ) {
+    const a = add({ type, x, y: row, data });
+    const b = add({ type: target, x: x + 220, y: row, data: tdata });
+    edges.push({ from: a, to: b, handle: "value" });
+    row += 100;
+  }
+  for (const [element, screen, action] of NAV) {
+    const b = add({ type: "hudbutton", x, y: row, data: { element, perPlayer: true } });
+    const s = add({ type: "hudscreen", x: x + 220, y: row, data: { screen, action } });
+    edges.push({ from: b, to: s, handle: "trigger" });
+    row += 100;
+  }
+  for (const [element] of [...GUN_BUTTONS, ...ABILITY_BUTTONS, ...OPTION_BUTTONS]) {
+    add({ type: "hudbutton", x, y: row, data: { element, perPlayer: true } });
+    row += 80;
+  }
+  return { nodes, edges, rows: Math.ceil((row - y) / 200) };
 }
 
 // modules/waves/src/look.js
@@ -1034,6 +1281,13 @@ function coreGlow(fraction, floor = 0.15) {
   const f = Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : 1;
   return floor + (1 - floor) * f;
 }
+var ENEMY_BODY = 16747100;
+var VISOR = 8255999;
+var ENEMY_LOOKS = Object.freeze({
+  grunt: Object.freeze({ body: ENEMY_BODY, visor: VISOR, r: 0.32, h: 0.5, mass: 1 }),
+  runner: Object.freeze({ body: 12120138, visor: 16726830, r: 0.24, h: 0.46, mass: 0.6 }),
+  tank: Object.freeze({ body: 9067775, visor: 16765514, r: 0.46, h: 0.62, mass: 3 })
+});
 
 // modules/waves/src/fx.js
 var POP_COLOR = { grunt: 16747100, runner: 14221130, tank: 11563263 };
@@ -1283,6 +1537,11 @@ function registerStart(api, root) {
   const edges = createEdges();
   let pressedAt = -Infinity;
   let placed = false;
+  let transient = (
+    /** @type {{card: any, until: number} | null} */
+    null
+  );
+  let resultCard = () => null;
   const hands = () => ["right", "left"].map((hand) => ({ hand, snap: api.vrHand?.(hand) ?? null }));
   const hasStart = () => api.flow.nodes("hudbutton").some((n) => String(n.data?.element ?? "") === START_ELEMENT);
   function press() {
@@ -1294,7 +1553,7 @@ function registerStart(api, root) {
     api.playSound?.(api.music ? "portal" : "ding");
     return true;
   }
-  function place() {
+  function place(lift = 0.15, distance = DISTANCE) {
     const head = api.playerPosition?.() ?? [0, 1.6, 0];
     const tracked = hands().filter((h) => h.snap?.position && h.snap?.quaternion);
     let yaw = 0;
@@ -1305,7 +1564,7 @@ function registerStart(api, root) {
       ).dir;
       yaw = yawOf([d[0], 0, d[2]]);
     }
-    const at = [head[0] - Math.sin(yaw) * DISTANCE, head[1] + 0.15, head[2] - Math.cos(yaw) * DISTANCE];
+    const at = [head[0] - Math.sin(yaw) * distance, head[1] + lift, head[2] - Math.cos(yaw) * distance];
     board.placeFacing(at, yaw);
     placed = true;
   }
@@ -1313,15 +1572,32 @@ function registerStart(api, root) {
     const cutoff = api.game.roundCutoff();
     return typeof cutoff === "number" && Number.isFinite(cutoff) && api.game.roundUnderway();
   };
+  let mode = "";
   function frame() {
-    const want = !!api.isVR?.() && inGame(api) && !running() && hasStart();
+    const vrGame = !!api.isVR?.() && inGame(api);
+    if (transient && performance.now() / 1e3 < transient.until && vrGame) {
+      board.draw(transient.card);
+      if (mode !== "card") {
+        place(0.9, 3.4);
+        mode = "card";
+      }
+      board.show(true);
+      return;
+    }
+    transient = null;
+    if (mode === "card") {
+      placed = false;
+      mode = "";
+    }
+    const want = vrGame && !running() && hasStart();
     if (!want) {
       if (board.visible()) board.show(false);
       placed = false;
       edges.clear();
       return;
     }
-    board.draw({ title: "WAVES", lines: ["Hold the crystal against the waves.", "Aim a controller here and pull the trigger."], button: "SHOOT TO START" });
+    const result = resultCard();
+    board.draw(result ? { title: result.title, lines: result.lines, button: "SHOOT TO PLAY AGAIN", color: result.color } : { title: "WAVES", lines: ["Hold the crystal against the waves.", "Aim a controller here and pull the trigger."], button: "SHOOT TO START" });
     if (!placed) place();
     board.show(true);
     const rect = board.rect();
@@ -1338,7 +1614,21 @@ function registerStart(api, root) {
       console.warn("[waves] start board failed", error);
     }
   });
-  return { board, press, hasStart, visible: () => board.visible() };
+  return {
+    board,
+    press,
+    hasStart,
+    visible: () => board.visible(),
+    /** a banner on the board for `ms` (the headset's announce fallback) @param {any} card @param {number} ms */
+    card(card, ms) {
+      transient = { card, until: performance.now() / 1e3 + ms / 1e3 };
+      mode = "";
+    },
+    /** @param {() => any} fn */
+    setResult(fn) {
+      resultCard = fn;
+    }
+  };
 }
 
 // modules/waves/src/juice.js
@@ -1569,6 +1859,10 @@ function normalize(raw) {
     music: MUSIC.includes(r.music) ? r.music : DEFAULT_PREFS.music,
     haptics: typeof r.haptics === "boolean" ? r.haptics : DEFAULT_PREFS.haptics
   };
+}
+function cycle(list, value) {
+  const i = list.indexOf(value);
+  return list[(i + 1) % list.length];
 }
 function createPrefs(api) {
   let prefs = normalize(api.storage?.get?.(KEY, null));
@@ -2078,13 +2372,266 @@ function registerPowers(api, engine, root, prefs, feel) {
   };
 }
 
+// modules/waves/src/session.js
+var BEST_KEY = "best";
+var LEVEL_NEWS = { 2: "Runners incoming \u2014 fast and fragile", 3: "Tanks! Heavy, slow, worth 400", 4: "Everything, faster", 5: "The last stand" };
+var fmt = (n) => Math.round(n).toLocaleString("en-US");
+function betterRun(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  if (b.score !== a.score) return b.score > a.score ? b : a;
+  return (b.level ?? 0) > (a.level ?? 0) ? b : a;
+}
+function resultLines(r) {
+  return {
+    title: r.won ? "ARENA CLEARED" : "CRYSTAL DESTROYED",
+    lines: [
+      (r.won ? "All " + r.waves + " waves held" : "Fell on wave " + r.wave + " of " + r.waves) + " \xB7 level " + r.level,
+      "Score " + fmt(r.score) + " \xB7 " + r.kills + (r.kills === 1 ? " kill" : " kills"),
+      r.isBest ? "NEW BEST!" : "Best: " + fmt(r.best?.score ?? 0) + " \xB7 level " + (r.best?.level ?? 1)
+    ]
+  };
+}
+function registerSession(api, engine, juice, feel, prefs, board) {
+  let best = api.storage?.get?.(BEST_KEY, null) ?? null;
+  let result = null;
+  const said = (
+    /** @type {{text: string, sub?: string}[]} */
+    []
+  );
+  function announce(text, o = {}) {
+    said.push({ text, sub: o.sub });
+    if (said.length > 30) said.shift();
+    if (typeof api.announce === "function") {
+      api.announce(text, { sub: o.sub, ms: o.ms ?? 1800, color: o.color });
+      return;
+    }
+    if (api.isVR?.()) board?.card({ title: text, lines: o.sub ? [o.sub] : [], color: o.color }, o.ms ?? 1800);
+    else if (o.big) api.toast?.(o.sub ? text + " \u2014 " + o.sub : text);
+  }
+  const crystal = (s) => s?.goal ? [s.goal[0], s.goal[1] + 1.6, s.goal[2]] : [0, 2, 0];
+  function crystalHp() {
+    const node = api.flow.nodes("health").find((n) => n.data?.scope === "player");
+    return node ? Number(api.flow.nodeValue(node.id)) : NaN;
+  }
+  function crystalFell() {
+    if (crystalHp() <= 0) return true;
+    return api.flow.nodes("healthevent").some((n) => {
+      if (String(n.data?.event ?? "") !== "death") return false;
+      const st = api.flow.triggerStamp(n.id);
+      return !!st && st.stamp !== null && Number(st.age) < 3;
+    });
+  }
+  let pendingLoss = null;
+  function pushRows() {
+    api.hud.rows("wv-best", best ? ["Best: " + fmt(best.score) + " \xB7 level " + best.level] : ["No best run yet"]);
+    if (result) {
+      const r = resultLines(result);
+      api.hud.rows("wv-result-title", [r.title]);
+      api.hud.rows("wv-result", r.lines);
+    }
+  }
+  engine.onRun((ev) => {
+    const s = ev.s;
+    if (ev.kind === "start") {
+      api.peerVars.setMine("score", 0);
+      api.peerVars.setMine("kills", 0);
+      result = null;
+      api.hud.clearRows("wv-result");
+      api.hud.clearRows("wv-result-title");
+      announce("WAVE 1", { sub: "Hold the crystal!", color: "#ff9c6b" });
+      feel.sound("whistle");
+    } else if (ev.kind === "wave") {
+      announce("Wave " + s.wave, { sub: s.perLevel ? "Level " + s.level : void 0, ms: 1300 });
+      feel.sound("whoosh");
+    } else if (ev.kind === "level") {
+      announce("LEVEL " + s.level, { sub: (
+        /** @type {any} */
+        LEVEL_NEWS[s.level] ?? "Faster"
+      ), color: "#ffd24a", big: true });
+      feel.sound("levelup");
+      feel.haptic("success");
+      const c = crystal(s);
+      if (api.effects?.burst) api.effects.burst(c, { kind: "confetti", count: 80 });
+      else juice.pop(c, 16765514);
+    } else if (ev.kind === "breach") {
+      juice.pop(ev.pos ?? crystal(s), 16726830);
+      feel.sound(ev.blocked ? "ring" : "explosion", ev.pos);
+      feel.haptic(ev.blocked ? "bump" : "fail");
+      if (!ev.blocked) api.effects?.burst?.(crystal(s), { kind: "sparks", color: "#ff3b2e", count: 30 });
+    } else if (ev.kind === "over") {
+      if (ev.won) finish(s, true);
+      else pendingLoss = { s, until: performance.now() / 1e3 + 1.5 };
+    }
+    pushRows();
+  });
+  function finish(s, won) {
+    const run = { score: Number(api.peerVars.mine("score", 0)) || 0, level: s.level ?? 1, wave: s.wave, at: Date.now() };
+    const isBest = !best || betterRun(best, run) === run;
+    if (isBest) {
+      best = run;
+      api.storage?.set?.(BEST_KEY, best);
+    }
+    result = { won, level: run.level, wave: s.wave, waves: s.curve.waves, score: run.score, kills: Number(api.peerVars.mine("kills", 0)) || 0, best, isBest };
+    const r = resultLines(result);
+    announce(r.title, { sub: r.lines[1], color: won ? "#6fcf7a" : "#ff5a4a", ms: 2600, big: true });
+    feel.sound(won ? "cheer" : "fail");
+    feel.haptic(won ? "success" : "fail");
+    if (won) {
+      if (api.effects?.burst) api.effects.burst(crystal(s), { kind: "confetti", count: 120 });
+      else juice.pop(crystal(s), 7327610);
+    }
+    pushRows();
+  }
+  let lastRows = 0;
+  api.registerFrameTask(() => {
+    const now = performance.now() / 1e3;
+    if (now - lastRows > 1) {
+      lastRows = now;
+      pushRows();
+    }
+    if (!pendingLoss) return;
+    if (crystalFell()) {
+      const s = pendingLoss.s;
+      pendingLoss = null;
+      finish(s, false);
+    } else if (performance.now() / 1e3 > pendingLoss.until) pendingLoss = null;
+  });
+  pushRows();
+  return {
+    best: () => best,
+    result: () => result,
+    said,
+    announce,
+    pushRows
+  };
+}
+
+// modules/waves/src/menu.js
+var ACTIONS = Object.freeze({
+  ...Object.fromEntries(GUN_IDS.map((id) => ["wv-gun-" + id, () => ({ gun: id })])),
+  ...Object.fromEntries(ABILITY_IDS.map((id) => ["wv-ab-" + id, () => ({ ability: id })])),
+  "wv-opt-music": (p) => ({ music: cycle(MUSIC, p.music) }),
+  "wv-opt-sfx": (p) => ({ sfx: !p.sfx }),
+  "wv-opt-hand": (p) => ({ hand: cycle(HANDS, p.hand) }),
+  "wv-opt-haptics": (p) => ({ haptics: !p.haptics })
+});
+var MUSIC_VOLUME = Object.freeze({ off: 0, low: 0.35, high: 0.7 });
+var cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+function menuRows(p) {
+  const gun = gunOf(p.gun).name;
+  const ability = abilityOf(p.ability).name;
+  return {
+    "wv-loadout-now": [gun + " + " + ability],
+    "wv-loadout-pick": ["Selected: " + gun + " + " + ability],
+    "wv-opt-music-v": [cap(p.music)],
+    "wv-opt-sfx-v": [p.sfx ? "On" : "Off"],
+    "wv-opt-hand-v": [p.hand === "both" ? "Both" : cap(p.hand)],
+    "wv-opt-haptics-v": [p.haptics ? "On" : "Off"],
+    "wv-ability-label": [ability.toUpperCase() + (p.hand === "both" ? " \u2014 left grip / Q" : " \u2014 grip / Q")]
+  };
+}
+function registerMenu(api, engine, prefs, feel) {
+  const acted = /* @__PURE__ */ new Map();
+  const pressed = (
+    /** @type {string[]} */
+    []
+  );
+  function pushRows() {
+    for (const [id, rows] of Object.entries(menuRows(prefs.get()))) api.hud.rows(id, rows);
+  }
+  function sweep() {
+    for (const node of api.flow.nodes("hudbutton")) {
+      const element = String(node.data?.element ?? "");
+      const act = ACTIONS[element];
+      if (!act) continue;
+      const stamp = api.flow.triggerStamp(node.id)?.stamp ?? null;
+      if (!acted.has(node.id)) {
+        acted.set(node.id, stamp);
+        continue;
+      }
+      if (stamp === null || acted.get(node.id) === stamp) continue;
+      acted.set(node.id, stamp);
+      prefs.set(act(prefs.get()));
+      pressed.push(element);
+      if (pressed.length > 40) pressed.shift();
+      feel.sound("click");
+      feel.haptic("tap");
+    }
+  }
+  let playing = (
+    /** @type {string | null} */
+    null
+  );
+  function music() {
+    if (!api.music?.play) return;
+    const p = prefs.get();
+    const volume = (
+      /** @type {any} */
+      MUSIC_VOLUME[p.music] ?? 0
+    );
+    const want = inGame(api) && volume > 0 && engine.all().length > 0 ? "arcade@" + volume : null;
+    if (want === playing) return;
+    if (want) api.music.play("arcade", { volume });
+    else api.music.stop?.();
+    playing = want;
+  }
+  let lastStep = 0;
+  function steps() {
+    const t = performance.now() / 1e3;
+    if (t - lastStep < 0.42 || !inGame(api)) return;
+    const me = api.playerPosition?.();
+    if (!me) return;
+    let best = null;
+    let bestD = 12;
+    for (const e of engine.targets()) {
+      if (!e.walking) continue;
+      const o = api.objectsGroup()?.getObjectByProperty("uuid", e.uuid);
+      if (!o) continue;
+      const p = o.getWorldPosition(new api.THREE.Vector3());
+      const d = Math.hypot(p.x - me[0], p.z - me[2]);
+      if (d < bestD) {
+        bestD = d;
+        best = p.toArray();
+      }
+    }
+    if (!best) return;
+    lastStep = t;
+    feel.sound("step", best);
+  }
+  let last = 0;
+  let lastRows = 0;
+  api.registerFrameTask(() => {
+    const t = performance.now() / 1e3;
+    try {
+      steps();
+      if (t - last < 0.1) return;
+      last = t;
+      sweep();
+      music();
+      if (t - lastRows > 1) {
+        lastRows = t;
+        pushRows();
+      }
+    } catch (error) {
+      console.warn("[waves] menu failed", error);
+    }
+  });
+  prefs.onChange(() => {
+    pushRows();
+    music();
+  });
+  pushRows();
+  return { sweep, pressed, pushRows, playing: () => playing };
+}
+
 // modules/waves/src/index.js
 var ROOT = "waves-module";
 var index_default = {
   id: "waves",
   name: "Waves",
-  version: "1.1.0",
-  description: "Wave survival on the health module: enemies walk from spawn points to a goal, a wave ends when its last enemy dies, the run is over when the last wave does \u2014 derived on every peer, no authority.",
+  version: "2.0.0",
+  description: "A VR wave shooter on the health module: a gun in your hand, five levels of grunts, runners and tanks walking from the portals to your crystal, a loadout of guns and abilities \u2014 every wave derived on every peer, no authority.",
   /** @param {any} api the module SDK surface */
   register(api) {
     if (!api.flow?.addNodes || !api.game?.roundCutoff || !api.peerVars?.all || !api.registerValueNode) {
@@ -2108,6 +2655,29 @@ var index_default = {
     const start = registerStart(api, root);
     const weapon = registerWeapon(api, engine, root, juice, prefs, feel);
     const powers = registerPowers(api, engine, root, prefs, feel);
+    let spawnSet = false;
+    const session = registerSession(api, engine, juice, feel, prefs, start);
+    start.setResult(() => {
+      const r = session.result();
+      if (!r) return null;
+      const l = resultLines(r);
+      return { title: l.title, lines: l.lines, color: r.won ? "#6fcf7a" : "#ff5a4a" };
+    });
+    const menu = registerMenu(api, engine, prefs, feel);
+    api.registerFrameTask(() => {
+      if (spawnSet || typeof api.setSpawn !== "function") return;
+      const home = api.objectsGroup()?.children.find((c) => c.name === "Home");
+      if (!home || !engine.all().length) return;
+      const p = home.getWorldPosition(new api.THREE.Vector3());
+      api.setSpawn([p.x, 0, p.z], 0);
+      spawnSet = true;
+    });
+    api.onSceneClear(() => {
+      spawnSet = false;
+    });
+    engine.setGuard(() => powers.shielded());
+    player.score = () => Number(api.peerVars.mine("score", 0)) || 0;
+    player.best = () => session.best()?.score ?? 0;
     player.ability = () => powers.readiness();
     player.heat = () => Math.max(...["right", "left", "desk"].map((h) => weapon.heatOf(h).heat));
     let roundAt = api.game.roundCutoff();
@@ -2155,12 +2725,15 @@ var index_default = {
         juice,
         weapon,
         powers,
+        session,
+        menu,
         hud: arenaHud,
         hudGraph,
         snapshot: () => engine.all().map((s) => ({
           id: s.id,
           name: s.name,
           wave: s.wave,
+          level: s.level,
           completed: s.completed,
           done: s.done,
           running: s.running,

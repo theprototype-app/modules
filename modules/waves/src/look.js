@@ -43,23 +43,47 @@ export function coreGlow(fraction, floor = 0.15) {
 const ENEMY_BODY = 0xff8a5c;
 const VISOR = 0x7df9ff;
 
+/** 30b: the three kinds' looks — a Grunt (the orange capsule), a Runner (lean, acid green, a
+ * red visor, fins), a Tank (squat, violet, armoured shoulders). `r`/`h` size the capsule; `y` is
+ * the centre height the def parks it at (its half height + a hair) */
+export const ENEMY_LOOKS = Object.freeze({
+	grunt: Object.freeze({ body: ENEMY_BODY, visor: VISOR, r: 0.32, h: 0.5, mass: 1 }),
+	runner: Object.freeze({ body: 0xb8f04a, visor: 0xff3b2e, r: 0.24, h: 0.46, mass: 0.6 }),
+	tank: Object.freeze({ body: 0x8a5cff, visor: 0xffd24a, r: 0.46, h: 0.62, mass: 3 })
+});
+/** the centre height a kind stands at @param {'grunt' | 'runner' | 'tank'} kind */
+export const standHeight = (kind) => {
+	const l = ENEMY_LOOKS[kind] ?? ENEMY_LOOKS.grunt;
+	return Math.round((l.r + l.h / 2 + 0.05) * 100) / 100;
+};
+
 /** An enemy: a capsule body with an emissive visor band — ONE group, ONE dynamic body (the
  * group carries the physics; its collider is the capsule fitted to the group's box). The
  * health/knock contract reads the group's uuid, which is the object the def names.
- * @param {string} name @param {number[]} pos */
-export function enemyObject(name, pos) {
+ * @param {string} name @param {number[]} pos @param {'grunt' | 'runner' | 'tank'} [kind] */
+export function enemyObject(name, pos, kind = 'grunt') {
+	const l = ENEMY_LOOKS[kind] ?? ENEMY_LOOKS.grunt;
+	const r = l.r;
+	/** @type {any[]} */
+	const children = [
+		{ type: 'capsule', name: name + ' body', r, h: l.h, pos: [0, 0, 0], color: l.body, roughness: 0.45, clearcoat: 0.5 },
+		{ type: 'box', name: name + ' visor', size: [r * 1.38, 0.11, 0.2], bevel: 0.04, pos: [0, l.h * 0.4, r * 0.62], color: l.visor, emissive: l.visor, emissiveIntensity: 2.2, roughness: 0.2, shadow: false },
+		// 30b: the belt is a RING hugging the body (a square plate wider than the capsule read as a
+		// hat brim)
+		{ type: 'torus', name: name + ' belt', r: r * 0.98, tube: 0.035, pos: [0, -l.h * 0.24, 0], rot: [Math.PI / 2, 0, 0], color: 0x3a2230, roughness: 0.6 }
+	];
+	if (kind === 'runner')
+		for (const sx of [-1, 1]) children.push({ type: 'box', name: name + ' fin ' + (sx < 0 ? 'L' : 'R'), size: [0.04, 0.26, 0.2], bevel: 0.015, pos: [sx * (r + 0.02), l.h * 0.1, -0.04], rot: [0.3, 0, sx * 0.35], color: 0x2a3a14, roughness: 0.5 });
+	if (kind === 'tank')
+		for (const sx of [-1, 1]) children.push({ type: 'box', name: name + ' pauldron ' + (sx < 0 ? 'L' : 'R'), size: [0.26, 0.2, 0.42], bevel: 0.05, pos: [sx * (r + 0.06), l.h * 0.3, 0], color: 0x3a2a5a, roughness: 0.4, metalness: 0.5 });
 	return {
 		type: 'group',
 		name,
 		pos,
 		// upright: a capsule on its round end tips over at rest — tilt locked, a knock still slides
 		// and spins it (the health/knock contract only reads the hit)
-		physics: { mode: 'dynamic', mass: 1, friction: 0.6, collider: 'capsule', freeze: { rx: true, rz: true } },
-		children: [
-			{ type: 'capsule', name: name + ' body', r: 0.32, h: 0.5, pos: [0, 0, 0], color: ENEMY_BODY, roughness: 0.45, clearcoat: 0.5 },
-			{ type: 'box', name: name + ' visor', size: [0.44, 0.11, 0.2], bevel: 0.04, pos: [0, 0.2, 0.2], color: VISOR, emissive: VISOR, emissiveIntensity: 2.2, roughness: 0.2, shadow: false },
-			{ type: 'box', name: name + ' belt', size: [0.66, 0.06, 0.66], bevel: 0.03, pos: [0, -0.12, 0], color: 0x3a2230, roughness: 0.6 }
-		]
+		physics: { mode: 'dynamic', mass: l.mass, friction: 0.6, collider: 'capsule', freeze: { rx: true, rz: true } },
+		children
 	};
 }
 

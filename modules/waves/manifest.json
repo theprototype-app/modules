@@ -1,9 +1,9 @@
 {
 	"id": "waves",
 	"name": "Waves",
-	"version": "1.1.0",
+	"version": "2.0.0",
 	"format": 1,
-	"description": "Wave survival on the health module: enemies walk from spawn points to a goal, a wave ends when its last enemy dies, the run when the last wave does - derived on every peer, no authority.",
+	"description": "A VR wave shooter on the health module: a gun in your hand, five levels of grunts, runners and tanks walking from the portals to your crystal, a loadout of guns and abilities - every wave derived on every peer, no authority.",
 	"entry": "module.js",
 	"files": ["module.js"]
 }

@@ -441,6 +441,196 @@ h.run(async () => {
 		if (api.__realPlayerPosition) api.playerPosition = api.__realPlayerPosition;
 	});
 
+	// =====================================================================
+	// 4. P3 — the shooter's run: the menu, levels, the breach, the Shield, the results
+	// =====================================================================
+	const screen = (page) => page.evaluate(() => window.__stores.hudDocs.visibleScreen('scene')?.id ?? null);
+	const rowsOf = (page, id) => page.evaluate((i) => (window.__stores.flowRuntime.hudRowsOf(i) ?? []).map((r) => (typeof r === 'string' ? r : r?.label ?? r?.text ?? JSON.stringify(r))), id);
+	// a press, then a beat: the module reads its buttons' stamps at 10 Hz (a human cannot tap twice
+	// inside 100 ms; a script can, and the second press would fold into the first)
+	const pressHud = async (page, label) => {
+		const ok = await page.evaluate((label) => {
+			const b = [...document.querySelectorAll('#hud-layer button')].find((x) => x.textContent.trim() === label);
+			if (!b) return false;
+			b.click();
+			return true;
+		}, label);
+		await page.waitForTimeout(250);
+		return ok;
+	};
+	const crystal = (page) =>
+		page.evaluate(() => {
+			const s = window.__stores;
+			const node = s.allNodes().find((n) => n.type === 'health' && n.data?.scope === 'player');
+			let values;
+			s.flowValues.subscribe((v) => (values = v))();
+			return Number(values?.[node?.id]);
+		});
+	const levelNow = (page) => page.evaluate(() => window.__waves.snapshot()[0]?.level ?? null);
+	const said = (page) => page.evaluate(() => window.__said ?? []);
+	await A.page.evaluate(() => {
+		const api = window.__waves.api;
+		window.__said = [];
+		api.announce = (text) => window.__said.push(text);
+		window.__music = [];
+		api.music = { play: (p, o) => window.__music.push('play:' + p + ':' + o?.volume), stop: () => window.__music.push('stop') };
+	});
+	// back to a fresh menu, on a desktop
+	await headset(A.page, false);
+	await A.page.evaluate(() => {
+		window.__stores.gameState.setGameState('menu');
+		window.__stores.isLocked.set(true);
+	});
+	await h.eventually(() => screen(A.page), (x) => x === 'menu', '4.0 the shell is on the menu');
+	h.check(await pressHud(A.page, 'How to play'), '4.1 the menu has How to play');
+	await h.eventually(() => screen(A.page), (x) => x === 'howto', '4.2 it opens the illustrated How to play');
+	await pressHud(A.page, 'Back');
+	await h.eventually(() => screen(A.page), (x) => x === 'menu', '4.3 Back returns to the menu');
+	await pressHud(A.page, 'Loadout');
+	await h.eventually(() => screen(A.page), (x) => x === 'loadout', '4.4 Loadout opens');
+	await pressHud(A.page, 'Scatter');
+	await pressHud(A.page, 'Shield');
+	await h.eventually(() => A.page.evaluate(() => window.__waves.prefs.get()), (p) => p.gun === 'scatter' && p.ability === 'shield', '4.5 a gun and an ability picked on the Loadout screen');
+	await h.eventually(() => rowsOf(A.page, 'wv-loadout-pick'), (r) => r[0] === 'Selected: Scatter + Shield', '4.6 and shown back');
+	await pressHud(A.page, 'Back');
+	await pressHud(A.page, 'Options');
+	await h.eventually(() => screen(A.page), (x) => x === 'options', '4.7 Options opens');
+	await pressHud(A.page, 'Gun hand');
+	await pressHud(A.page, 'Music');
+	await h.eventually(() => A.page.evaluate(() => window.__waves.prefs.get()), (p) => p.hand === 'left' && p.music === 'high', '4.8 Gun hand and Music cycle');
+	await h.eventually(() => rowsOf(A.page, 'wv-opt-hand-v'), (r) => r[0] === 'Left', '4.9 and show their value');
+	await pressHud(A.page, 'Gun hand');
+	await pressHud(A.page, 'Gun hand');
+	await pressHud(A.page, 'Back');
+	await h.eventually(() => A.page.evaluate(() => window.__waves.prefs.get().hand), (x) => x === 'right', '4.10 back to the right hand');
+	await A.page.evaluate(() => window.__waves.prefs.set({ gun: 'blaster', ability: 'shield' }));
+
+	// Play, in the headset, through the board
+	await headset(A.page, true);
+	await h.eventually(() => A.page.evaluate(() => window.__waves.start.visible()), (v) => v, '4.11 in the headset the board offers the start');
+	{
+		const c = await boardCenter(A.page);
+		const e = await eye(A.page);
+		await pull(A.page, 'right', [e[0] + 0.2, e[1] - 0.4, e[2] - 0.2], c);
+	}
+	await h.eventually(() => gameState(A.page), (x) => x === 'playing', '4.12 the round starts');
+	await h.eventually(() => said(A.page), (x) => x.includes('WAVE 1'), '4.13 "WAVE 1" is announced (api.announce)');
+	await h.eventually(() => A.page.evaluate(() => window.__music), (m) => m.some((x) => x.startsWith('play:arcade')), '4.14 the arcade music plays in the game');
+	h.check((await crystal(A.page)) === 10, '4.15 the crystal starts at 10');
+	h.check((await A.page.evaluate(() => window.__stores.peerVars.myPeerVar('score', -1))) === 0, '4.16 the score starts at 0');
+
+	// clear level 1 fast, through the module's own shot path
+	const t0 = Date.now();
+	while (Date.now() - t0 < 60000 && (await levelNow(A.page)) < 2) {
+		await A.page.evaluate(() => {
+			for (const t of window.__waves.engine.targets()) window.__waves.engine.hit(t.uuid, 99);
+		});
+		await A.page.waitForTimeout(400);
+	}
+	h.check((await levelNow(A.page)) === 2, '4.17 three waves cleared: LEVEL 2');
+	await h.eventually(() => said(A.page), (x) => x.includes('LEVEL 2'), '4.18 "LEVEL 2" is announced');
+	const f4 = await feelLog(A.page);
+	h.check(f4.sounds.includes('levelup'), '4.19 with the levelup sound');
+	h.check((await A.page.evaluate(() => window.__stores.peerVars.myPeerVar('score', 0))) === 900, '4.20 nine grunts at level 1 scored 900');
+	await h.eventually(() => targets(A.page), (t) => t.some((x) => /Runner/.test(x.label)), '4.21 level 2 brings a runner into the wave', 15000);
+
+	// the breach: an enemy that reaches the crystal costs 2
+	const hpA = await crystal(A.page);
+	await h.eventually(() => crystal(A.page), (v) => v === hpA - 2, '4.22 an enemy reaching the crystal breaches it: 10 -> 8', 40000);
+	h.check((await feelLog(A.page)).sounds.includes('explosion'), '4.23 with an explosion');
+
+	// the Shield holds a breach
+	await A.page.evaluate(() => window.__waves.powers.reset());
+	let shielded = false;
+	const t1 = Date.now();
+	while (Date.now() - t1 < 40000 && !shielded) {
+		const near = await A.page.evaluate(() => {
+			const s = window.__waves.snapshot()[0];
+			let g;
+			window.__stores.objectsGroup.subscribe((v) => (g = v))();
+			let best = 99;
+			for (const t of window.__waves.engine.targets()) {
+				if (!t.walking) continue;
+				const p = g.getObjectByProperty('uuid', t.uuid).getWorldPosition(new window.__stores.THREE.Vector3());
+				best = Math.min(best, Math.hypot(p.x - s.goal[0], p.z - s.goal[2]));
+			}
+			return best;
+		});
+		if (near < 1.7 + 2) {
+			await grip(A.page, 'left');
+			shielded = await A.page.evaluate(() => window.__waves.powers.shielded());
+		} else await A.page.waitForTimeout(150);
+	}
+	const hpS = await crystal(A.page);
+	const ringsBefore = (await feelLog(A.page)).sounds.filter((x) => x === 'ring').length;
+	await h.eventually(() => feelLog(A.page), (f) => f.sounds.filter((x) => x === 'ring').length > ringsBefore + 0, '4.24 a breach while the Shield is up is BLOCKED (the ring)', 8000);
+	h.check((await crystal(A.page)) === hpS, '4.25 and the crystal keeps its ' + hpS);
+
+	// the run is lost when the crystal falls
+	await h.eventually(() => gameState(A.page), (x) => x === 'over', '4.26 breaches drain the crystal: the round is OVER', 120000);
+	await h.eventually(() => rowsOf(A.page, 'wv-result-title'), (r) => r[0] === 'CRYSTAL DESTROYED', '4.27 the results: CRYSTAL DESTROYED');
+	const res = await rowsOf(A.page, 'wv-result');
+	h.check(res.length === 3 && /level 2/.test(res[0]) && /^Score /.test(res[1]), '4.28 the results panel: wave + level, score + kills, best (' + res.join(' | ') + ')');
+	const best = await A.page.evaluate(() => JSON.parse(localStorage.getItem('tp:mod:waves:best') ?? 'null'));
+	h.check(best && best.score >= 900 && best.level === 2, '4.29 the best run is saved on this device (' + JSON.stringify(best) + ')');
+	await h.eventually(() => A.page.evaluate(() => window.__waves.start.visible()), (v) => v, '4.30 in the headset the board shows the result and "shoot to play again"');
+	h.check((await said(A.page)).includes('CRYSTAL DESTROYED'), '4.31 announced');
+	await A.page.evaluate(() => window.__waves.prefs.set({ music: 'off' }));
+	await h.eventually(() => A.page.evaluate(() => window.__music), (m) => m[m.length - 1] === 'stop', '4.32 Music off stops it');
+
+	// =====================================================================
+	// 5. two peers — a shot, a kill and an ability reach the other player
+	// =====================================================================
+	if (!process.env.SOLO) {
+		const B = await h.setupPage(browser, 'B');
+		await h.installModule(B, 'health');
+		await h.installModule(B, 'waves');
+		// the connect dialog is editor UI: out of the headset and out of play first
+		await headset(A.page, false);
+		await A.page.evaluate(() => window.__stores.isLocked.set(false));
+		await A.page.waitForTimeout(800);
+		await h.connect(A, B);
+		await A.page.evaluate(() => window.__stores.isLocked.set(true));
+		await h.eventually(() => B.page.evaluate(() => window.__waves?.snapshot()[0]?.enemies.length ?? 0), (n) => n === 10, '5.1 B holds the same arena (ten enemies)', 20000);
+		await B.page.evaluate(() => {
+			const api = window.__waves.api;
+			window.__feel = { sounds: [], haptics: [] };
+			api.music = { play() {}, stop() {} };
+			api.playSound = (name) => window.__feel.sounds.push(name);
+		});
+		await A.page.evaluate(() => window.__waves.prefs.set({ gun: 'blaster', ability: 'slowmo', hand: 'right' }));
+		await headset(A.page, true);
+		await h.eventually(() => A.page.evaluate(() => window.__waves.start.visible()), (v) => v, '5.2 A\'s board offers another round');
+		{
+			const c = await boardCenter(A.page);
+			const e = await eye(A.page);
+			await pull(A.page, 'right', [e[0] + 0.2, e[1] - 0.4, e[2] - 0.2], c);
+		}
+		await h.eventually(() => gameState(B.page), (x) => x === 'playing', '5.3 A\'s board press starts the round on B too (replicated)');
+		await h.eventually(() => targets(A.page), (t) => t.some((x) => x.walking), '5.4 a walking enemy', 20000);
+		const prey = (await targets(A.page)).find((t) => t.walking);
+		const fromA = await worldPos(A.page, prey.uuid);
+		const shooter = [fromA[0], fromA[1] + 0.3, fromA[2] + 3];
+		const bHits0 = (await enemyState(B.page, prey.uuid))?.hits ?? 0;
+		await shootAt(A.page, 'right', shooter, prey.uuid);
+		await h.eventually(() => enemyState(B.page, prey.uuid), (e) => e && e.hits === bHits0 + 1, '5.5 A\'s shot lands on B\'s copy of the counter');
+		for (let i = 0; i < 4; i++) {
+			await shootAt(A.page, 'right', shooter, prey.uuid);
+			await A.page.waitForTimeout(220);
+		}
+		await h.eventually(() => enemyState(B.page, prey.uuid), (e) => e && e.kills >= 1, '5.6 the kill is B\'s too');
+		await h.eventually(() => B.page.evaluate(() => window.__feel.sounds), (x) => x.includes('explosion'), '5.7 B sees (hears) it explode');
+		await h.eventually(() => worldPos(B.page, prey.uuid), (p) => p && p[1] < -10, '5.8 and takes it off B\'s field');
+		const scoreA = await A.page.evaluate(() => window.__stores.peerVars.myPeerVar('score', 0));
+		h.check(scoreA === 100, '5.9 the kill scores on A\'s own row (' + scoreA + ')');
+		await A.page.evaluate(() => window.__waves.powers.reset());
+		await A.page.evaluate(() => (window.__hand.left = { position: [0, 1, 0], quaternion: [0, 0, 0, 1], trigger: false, gripped: false }));
+		await A.page.waitForTimeout(120);
+		await A.page.evaluate(() => (window.__hand.left.gripped = true));
+		await A.page.waitForTimeout(150);
+		await A.page.evaluate(() => (window.__hand.left.gripped = false));
+		await h.eventually(() => B.page.evaluate(() => (window.__waves.snapshot()[0] && window.__stores.gameState.gameVar('waves:fx:enemy', null)?.ev?.filter((e) => e.k === 'slow').length) || 0), (n) => n >= 1, '5.10 A\'s Slow-mo window reaches B (the fx variable)');
+	}
 
 	await h.finish(browser);
 });
