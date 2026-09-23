@@ -186,7 +186,7 @@
 					"data": {
 						"label": "HUD ut-crossings",
 						"element": "ut-crossings",
-						"format": "{v} crossings",
+						"format": "Crossings: {v}",
 						"decimals": 0
 					},
 					"class": "w-[150px]"
@@ -583,7 +583,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -235,
-							"w": 190,
+							"w": 480,
 							"h": 48,
 							"z": 1,
 							"label": "UNTANGLE",
@@ -707,7 +707,7 @@
 							"w": 230,
 							"h": 22,
 							"z": 1,
-							"label": "0 crossings",
+							"label": "Crossings: 0",
 							"style": {
 								"size": 15,
 								"color": "#e2e8f0",
@@ -788,7 +788,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -82,
-							"w": 196,
+							"w": 420,
 							"h": 40,
 							"z": 1,
 							"label": "UNTANGLED!",
@@ -805,7 +805,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -44,
-							"w": 164,
+							"w": 360,
 							"h": 24,
 							"z": 1,
 							"label": "LEVEL 1 UNTANGLED",
@@ -895,7 +895,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -75,
-							"w": 116,
+							"w": 300,
 							"h": 36,
 							"z": 1,
 							"label": "PAUSED",

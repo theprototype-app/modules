@@ -65,7 +65,7 @@ export function untangleGraph() {
 		y += 110;
 	};
 	readout('level', 'level', 'ut-level', 'LEVEL {v}');
-	readout('cross', 'crossings', 'ut-crossings', '{v} crossings');
+	readout('cross', 'crossings', 'ut-crossings', 'Crossings: {v}');
 	readout('clear', 'level', 'ut-clear', 'LEVEL {v} UNTANGLED');
 	// the solved EVENT into a Counter (replicated once per solve) into a HUD Text
 	N('evsolved', 'utevent', 'On solved', 40, y, { event: 'solved' });
@@ -110,8 +110,8 @@ export function untangleGraph() {
 	return { nodes, edges };
 }
 
-// Short one-line titles are boxes sized to their text: core's `.hud-text` is a flex box, so
-// `align: 'center'` cannot centre a single line inside a wider box (handed to the integrator).
+// Titles are wide centred boxes: core 1.17 centres a single-line HUD text on its box (DEVX
+// #28). On 1.16 they sit flush left inside the box, readable, just not centred.
 export function untangleHud() {
 	return {
 		scene: {
@@ -125,7 +125,7 @@ export function untangleHud() {
 					input: 'menu',
 					elements: [
 						{ id: 'menu-panel', kind: 'panel', anchor: 'center', x: 0, y: 0, w: 540, h: 560, z: 0, label: '', style: PANEL },
-						{ id: 'title', kind: 'text', anchor: 'center', x: 0, y: -235, w: 190, h: 48, z: 1, label: 'UNTANGLE', style: { size: 36, weight: '700', color: '#fbbf24', align: 'center' } },
+						{ id: 'title', kind: 'text', anchor: 'center', x: 0, y: -235, w: 480, h: 48, z: 1, label: 'UNTANGLE', style: { size: 36, weight: '700', color: '#fbbf24', align: 'center' } },
 						{ id: 'subtitle', kind: 'text', anchor: 'center', x: 0, y: -185, w: 480, h: 44, z: 1, label: 'Drag the dots until no edges cross — on a flat board or around a globe. Every peer sees the same board; your unlocked levels are yours.', style: { size: 13, color: '#d8dee9', align: 'center' }, wrap: true },
 						// the module's own HUD kind: mode, the 30-level grid with locks, Continue, Reset
 						{ id: 'levels', kind: 'mod-untangle-levels', anchor: 'center', x: 0, y: 10, w: 480, h: 330, z: 1, label: '' },
@@ -141,7 +141,7 @@ export function untangleHud() {
 					elements: [
 						{ id: 'hud-panel', kind: 'panel', anchor: 'top-left', x: 16, y: 64, w: 260, h: 118, z: 0, label: '', style: PANEL },
 						{ id: 'ut-level', kind: 'text', anchor: 'top-left', x: 30, y: 72, w: 230, h: 30, z: 1, label: 'LEVEL 1', style: { size: 22, weight: '700', color: '#fbbf24', align: 'left' } },
-						{ id: 'ut-crossings', kind: 'text', anchor: 'top-left', x: 30, y: 104, w: 230, h: 22, z: 1, label: '0 crossings', style: { size: 15, color: '#e2e8f0', align: 'left' } },
+						{ id: 'ut-crossings', kind: 'text', anchor: 'top-left', x: 30, y: 104, w: 230, h: 22, z: 1, label: 'Crossings: 0', style: { size: 15, color: '#e2e8f0', align: 'left' } },
 						// the module's clock + your best for this level (m:ss, an em dash for none)
 						{ id: 'ut-time', kind: 'mod-untangle-stats', anchor: 'top-left', x: 30, y: 128, w: 230, h: 22, z: 1, label: '', show: 'play' },
 						{ id: 'ut-counter', kind: 'text', anchor: 'top-left', x: 30, y: 154, w: 230, h: 20, z: 1, label: '0 untangled', style: { size: 12, color: '#94a3b8', align: 'left' } }, // boards solved by the room this session
@@ -155,8 +155,8 @@ export function untangleHud() {
 					input: 'menu',
 					elements: [
 						{ id: 'solved-panel', kind: 'panel', anchor: 'center', x: 0, y: 0, w: 420, h: 250, z: 0, label: '', style: { ...PANEL, border: '1px solid rgba(62, 224, 143, 0.5)' } },
-						{ id: 'solved-title', kind: 'text', anchor: 'center', x: 0, y: -82, w: 196, h: 40, z: 1, label: 'UNTANGLED!', style: { size: 30, weight: '700', color: '#3ee08f', align: 'center' } },
-						{ id: 'ut-clear', kind: 'text', anchor: 'center', x: 0, y: -44, w: 164, h: 24, z: 1, label: 'LEVEL 1 UNTANGLED', style: { size: 14, weight: '600', color: '#e2e8f0', align: 'center' } },
+						{ id: 'solved-title', kind: 'text', anchor: 'center', x: 0, y: -82, w: 420, h: 40, z: 1, label: 'UNTANGLED!', style: { size: 30, weight: '700', color: '#3ee08f', align: 'center' } },
+						{ id: 'ut-clear', kind: 'text', anchor: 'center', x: 0, y: -44, w: 360, h: 24, z: 1, label: 'LEVEL 1 UNTANGLED', style: { size: 14, weight: '600', color: '#e2e8f0', align: 'center' } },
 						{ id: 'ut-result', kind: 'mod-untangle-stats', anchor: 'center', x: 0, y: -8, w: 380, h: 28, z: 1, label: '', show: 'result' },
 						{ id: 'next-btn', kind: 'button', anchor: 'center', x: -60, y: 60, w: 160, h: 44, z: 1, label: 'Next level', enabled: true, style: BUTTON('#059669') },
 						{ id: 'menu-btn', kind: 'button', anchor: 'center', x: 115, y: 60, w: 130, h: 44, z: 1, label: 'Menu', enabled: true, style: QUIET }
@@ -168,7 +168,7 @@ export function untangleHud() {
 					input: 'menu',
 					elements: [
 						{ id: 'pause-panel', kind: 'panel', anchor: 'center', x: 0, y: 0, w: 380, h: 250, z: 0, label: '', style: PANEL },
-						{ id: 'pause-title', kind: 'text', anchor: 'center', x: 0, y: -75, w: 116, h: 36, z: 1, label: 'PAUSED', style: { size: 26, weight: '700', color: '#e5e9f0', align: 'center' } },
+						{ id: 'pause-title', kind: 'text', anchor: 'center', x: 0, y: -75, w: 300, h: 36, z: 1, label: 'PAUSED', style: { size: 26, weight: '700', color: '#e5e9f0', align: 'center' } },
 						{ id: 'resume-btn', kind: 'button', anchor: 'center', x: 0, y: -10, w: 240, h: 42, z: 1, label: 'Resume', enabled: true, style: BUTTON('#d97706') },
 						{ id: 'quit-btn', kind: 'button', anchor: 'center', x: 0, y: 42, w: 240, h: 42, z: 1, label: 'Quit to menu', enabled: true, style: QUIET }
 					]

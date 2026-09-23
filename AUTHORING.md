@@ -470,8 +470,8 @@ What cost time in 30-visuals-mod (football, dungeon-realms, waves):
   Drive module rules from its buttons through HUD Button (perPlayer) -> Delay -> your module
   node's number input (DEVX #22). Dungeon Realms moved its Start/victory menu there and its
   `drmenu` node's `show: 'never'` stands the old DOM card down.
-- **HUD text ignores `align` unless it wraps** (DEVX #28: `.hud-text` is a flex box). Lay a menu
-  out left-aligned to its button column, and give a number that must look centred a tight box.
+- **HUD text ignored `align` unless it wrapped before core 1.17** (DEVX #28, fixed there: `.hud-text` was a flex box). Lay a menu
+  out left-aligned to its button column (or, on 1.17+, give a centred title a wide box).
 - **Late knocks move last-hit stamps.** A knock on a dead, hidden enemy still pulses its damage
   counter, so an identity built from "the last hit" drifts by a millisecond between peers —
   key a run on the round (`api.game.roundCutoff()`, remembered while it runs), not on a hit.
