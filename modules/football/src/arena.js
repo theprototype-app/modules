@@ -116,9 +116,10 @@ export function arenaObjects(dims) {
 	for (const sx of [-1, 1]) kids.push({ type: 'box', name: 'Glass rail ' + (sx < 0 ? 'left' : 'right'), size: [0.05, 0.05, L + 0.15], pos: [sx * (hw + 0.05), H + 0.05, 0], ...METAL, shadow: false });
 	for (const sz of [-1, 1]) kids.push({ type: 'box', name: 'Glass rail ' + (sz < 0 ? 'red' : 'blue'), size: [d.width + 0.15, 0.05, 0.05], pos: [0, H + 0.05, sz * (endZ + 0.05)], ...METAL, shadow: false });
 
-	// ---- perimeter boards along both touchlines (emissive, outside the glass) ----------------
+	// ---- perimeter boards along both touchlines (emissive, outside the glass; 30b: past the
+	// button consoles, which now stand between the glass and the boards) ------------------------
 	for (const sign of [-1, 1]) {
-		kids.push({ type: 'box', name: 'Perimeter board ' + (sign < 0 ? 'left' : 'right'), size: [0.08, 0.28, L * 0.8], pos: [sign * (hw + 0.35), 0.16, 0], color: 0x0f1a2a, emissive: 0x3aa0ff, emissiveIntensity: 0.55, roughness: 0.3 });
+		kids.push({ type: 'box', name: 'Perimeter board ' + (sign < 0 ? 'left' : 'right'), size: [0.08, 0.28, L * 0.8], pos: [sign * (hw + 0.95), 0.16, 0], color: 0x0f1a2a, emissive: 0x3aa0ff, emissiveIntensity: 0.55, roughness: 0.3 });
 	}
 
 	// ---- the VR buttons' stands: a column + a base under each button box, so Join / Start /

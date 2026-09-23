@@ -1268,8 +1268,8 @@ var DEFAULT_DIMS = {
   length: 5,
   width: 3,
   height: 2.4,
-  gateWidth: 1.2,
-  gateHeight: 0.8,
+  gateWidth: 1.5,
+  gateHeight: 1,
   mouthY: 1.35,
   ballY: 1.3,
   ballRadius: 0.22,
@@ -1307,6 +1307,17 @@ var NAMES = {
   newMatch: "New match",
   lamp: (team, i) => (team === "red" ? "Red" : "Blue") + " lamp " + i
 };
+var CONSOLE_OUT = 0.45;
+function consolePositions(d) {
+  const x = d.width / 2 + CONSOLE_OUT;
+  const far = Math.min(1.3, d.length / 2 - 0.7);
+  return {
+    [NAMES.joinRed]: [x, 1.05, -far],
+    [NAMES.start]: [x, 1.05, -0.42],
+    [NAMES.newMatch]: [x, 1.05, 0.42],
+    [NAMES.joinBlue]: [x, 1.05, far]
+  };
+}
 function pitchObjects(dims) {
   const d = normalizeDims(dims);
   const hl = d.length / 2;
@@ -1366,19 +1377,20 @@ function pitchObjects(dims) {
         physics: stat()
       });
     }
+    const joinName = team === "red" ? NAMES.joinRed : NAMES.joinBlue;
     out.push({
       type: "box",
-      name: team === "red" ? NAMES.joinRed : NAMES.joinBlue,
+      name: joinName,
       color,
       emissive: color,
       emissiveIntensity: 1.2,
       size: [0.3, 0.12, 0.3],
-      pos: [sign * -1 * (hw - 0.3), 1.05, sign * (mouthZ - 0.6)],
+      pos: consolePositions(d)[joinName],
       physics: stat()
     });
   }
-  out.push({ type: "box", name: NAMES.start, color: 5021290, emissive: 5021290, emissiveIntensity: 1.2, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, -0.35], physics: stat() });
-  out.push({ type: "box", name: NAMES.newMatch, color: 15262416, emissive: 14209728, emissiveIntensity: 0.9, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, 0.35], physics: stat() });
+  out.push({ type: "box", name: NAMES.start, color: 5021290, emissive: 5021290, emissiveIntensity: 1.2, size: [0.3, 0.12, 0.3], pos: consolePositions(d)[NAMES.start], physics: stat() });
+  out.push({ type: "box", name: NAMES.newMatch, color: 15262416, emissive: 14209728, emissiveIntensity: 0.9, size: [0.3, 0.12, 0.3], pos: consolePositions(d)[NAMES.newMatch], physics: stat() });
   out.push({
     type: "sphere",
     name: NAMES.ball,
@@ -1399,7 +1411,9 @@ var PITCH_PHYSICS = {
   damping: { linear: 0.35, angular: 0.5 },
   ccd: true,
   knock: { enabled: true, gain: 1, maxSpeed: 10, spin: 0.8 },
-  play: { interaction: "grab", grounded: false, simOnPlay: true }
+  // 30b C1: Play/Interact puts the player on the pitch's blue half facing the red gate (a core
+  // before C1 ignores the field); no fly, no teleport (locomotion absent = walk)
+  play: { interaction: "grab", grounded: false, simOnPlay: true, spawn: { position: [0, 0, 1.6], yaw: 0 } }
 };
 function createCommand(o) {
   if (o.type === "sphere") return "/create Sphere " + o.r;
@@ -1475,8 +1489,8 @@ function pitchGraph(names, opts = {}) {
     row();
   }
   if (opts.hudButtons) {
-    for (const [id, element] of [["bnewover", "fb-new-match"], ["bnewpause", "fb-new-match-pause"]]) {
-      N(id, "fbbutton", "Button: new-match (" + element + ")", 280, y, { action: "new-match" });
+    for (const [id, element, action] of [["bnewover", "fb-new-match", "new-match"], ["bnewpause", "fb-new-match-pause", "new-match"], ["brematch", "fb-rematch", "rematch"]]) {
+      N(id, "fbbutton", "Button: " + action + " (" + element + ")", 280, y, { action, physical: false });
       E(id, "selbnew");
       N("h" + id, "hudbutton", "HUD " + element, 40, y, { element, perPlayer: true });
       N("d" + id, "delay", "HUD " + element + " press", 160, y, { seconds: 0.05, pulse: 0.3 });
@@ -1555,8 +1569,13 @@ function registerNodes(api, game) {
       {
         type: "fbbutton",
         label: "Match Button",
-        defaults: { action: "start", press: 0 },
-        params: [{ key: "action", kind: "select", options: ACTIONS }]
+        defaults: { action: "start", press: 0, physical: true },
+        params: [
+          { key: "action", kind: "select", options: ACTIONS },
+          // 30b: off = only the wired `press` acts; a click on the target object is left to
+          // the object's own Match Button (several HUD buttons may share one target)
+          { key: "physical", kind: "toggle" }
+        ]
       },
       {
         type: "fbserve",
@@ -1640,7 +1659,7 @@ function registerNodes(api, game) {
     "fbbutton",
     (object, base, data, time, ctx) => {
       const action = ACTIONS.includes(data.action) ? data.action : "none";
-      buttons.set(object.uuid, { action, frame, id: ctx?.id ?? object.uuid });
+      if (data.physical !== false) buttons.set(object.uuid, { action, frame, id: ctx?.id ?? object.uuid });
       const level = Number(data.press) > 0 ? 1 : 0;
       const key = ctx?.id ?? object.uuid;
       const was = pressLevel.get(key);
@@ -1997,6 +2016,13 @@ var BUTTON = (bg) => ({ size: 16, weight: "700", bg, color: "#ffffff", radius: 1
 var RED_BG = "#c94a4a";
 var BLUE_BG = "#3b7dd8";
 var GREEN_BG = "#3f9a61";
+var HOW_TO_PLAY = [
+  "Hit the ball: swing a controller through it (desktop: walk into it or click it).",
+  "Score in the OTHER team's gate: red attacks the blue gate, blue attacks the red.",
+  "First to 5 goals, or the higher score after 3:00. Level at the whistle: golden goal.",
+  "After a goal the ball goes back to the centre; the team that conceded kicks off.",
+  "No need to pick a side: hit the ball or press Start and you join the smaller team."
+];
 function scoreboard(y) {
   const block = (team, x, bg) => [
     { id: "sb-" + team + "-block", kind: "panel", anchor: "top-center", x, y: y + 6, w: 118, h: 60, z: 1, label: "", style: { bg, radius: 12 } },
@@ -2024,16 +2050,19 @@ function pitchHud() {
           showWhile: "menu",
           input: "menu",
           elements: [
-            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 500, h: 420, z: 0, label: "", style: PANEL },
-            { id: "menu-stripe-red", kind: "panel", anchor: "center", x: -125, y: -200, w: 250, h: 8, z: 1, label: "", style: { bg: RED_BG, radius: 4 } },
-            { id: "menu-stripe-blue", kind: "panel", anchor: "center", x: 125, y: -200, w: 250, h: 8, z: 1, label: "", style: { bg: BLUE_BG, radius: 4 } },
-            { id: "title", kind: "text", anchor: "center", x: 0, y: -150, w: 424, h: 54, z: 1, label: "FOOTBALL", style: { size: 44, weight: "800", color: "#ffd45e", align: "left" } },
-            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -98, w: 424, h: 44, z: 1, label: "Pick a side, then Start. Hit the floating ball with your hands; a ball through the other gate is a goal.", style: { size: 14, color: "#d8dee9", align: "left" }, wrap: true },
-            { id: "fb-join-red", kind: "button", anchor: "center", x: -112, y: -28, w: 200, h: 48, z: 1, label: "Join RED", enabled: true, style: BUTTON(RED_BG) },
-            { id: "fb-join-blue", kind: "button", anchor: "center", x: 112, y: -28, w: 200, h: 48, z: 1, label: "Join BLUE", enabled: true, style: BUTTON(BLUE_BG) },
-            { id: "fb-start", kind: "button", anchor: "center", x: 0, y: 36, w: 424, h: 52, z: 1, label: "Start match", enabled: true, style: { ...BUTTON(GREEN_BG), size: 18 } },
-            { id: "fb-sheet", kind: "list", anchor: "center", x: 0, y: 112, w: 424, h: 62, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "center", bg: "rgba(255, 255, 255, 0.05)", radius: 10 } },
-            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 176, w: 424, h: 30, z: 1, label: "Walk into the ball to knock it  \xB7  Grab: hold click  \xB7  Pause: P", style: { size: 12, color: "#8b97a8", align: "left" }, wrap: true }
+            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 600, h: 620, z: 0, label: "", style: PANEL },
+            { id: "menu-stripe-red", kind: "panel", anchor: "center", x: -150, y: -306, w: 300, h: 8, z: 1, label: "", style: { bg: RED_BG, radius: 4 } },
+            { id: "menu-stripe-blue", kind: "panel", anchor: "center", x: 150, y: -306, w: 300, h: 8, z: 1, label: "", style: { bg: BLUE_BG, radius: 4 } },
+            { id: "title", kind: "text", anchor: "center", x: 0, y: -262, w: 540, h: 54, z: 1, label: "FOOTBALL", style: { size: 44, weight: "800", color: "#ffd45e", align: "left" } },
+            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -222, w: 540, h: 24, z: 1, label: "Red vs Blue. Knock the floating ball through the other team's gate.", style: { size: 14, color: "#d8dee9", align: "left" }, wrap: true },
+            // 30b: the rules, on the menu (the user: "it's not clear how to play it")
+            { id: "howto-title", kind: "text", anchor: "center", x: 0, y: -190, w: 540, h: 20, z: 1, label: "HOW TO PLAY", style: { size: 12, weight: "800", color: "#ffd45e", align: "left" } },
+            ...HOW_TO_PLAY.map((line, i) => ({ id: "howto-" + (i + 1), kind: "text", anchor: "center", x: 0, y: -156 + i * 34, w: 540, h: 34, z: 1, label: line, style: { size: 13, color: "#e5e9f0", align: "left" }, wrap: true })),
+            { id: "fb-join-red", kind: "button", anchor: "center", x: -136, y: 40, w: 256, h: 48, z: 1, label: "Join RED", enabled: true, style: BUTTON(RED_BG) },
+            { id: "fb-join-blue", kind: "button", anchor: "center", x: 136, y: 40, w: 256, h: 48, z: 1, label: "Join BLUE", enabled: true, style: BUTTON(BLUE_BG) },
+            { id: "fb-start", kind: "button", anchor: "center", x: 0, y: 100, w: 528, h: 52, z: 1, label: "Start match", enabled: true, style: { ...BUTTON(GREEN_BG), size: 18 } },
+            { id: "fb-sheet", kind: "list", anchor: "center", x: 0, y: 164, w: 528, h: 58, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "center", bg: "rgba(255, 255, 255, 0.05)", radius: 10 } },
+            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 226, w: 540, h: 40, z: 1, label: "Pause: P  \xB7  Esc leaves play  \xB7  In VR the Y button switches Edit / Interact", style: { size: 12, color: "#8b97a8", align: "left" }, wrap: true }
           ]
         },
         {
@@ -2044,7 +2073,7 @@ function pitchHud() {
           elements: [
             ...scoreboard(12),
             { id: "fb-sheet-play", kind: "list", anchor: "top-right", x: 16, y: 14, w: 380, h: 96, z: 1, label: "", rows: [], style: { size: 12, weight: "600", color: "#e5e9f0", align: "right", bg: "transparent" } },
-            { id: "play-hint", kind: "text", anchor: "bottom-center", x: 0, y: 12, w: 520, h: 20, z: 1, label: "Hit the ball toward the other gate.  Press P to pause.", style: { size: 11, color: "#c8d0dc", align: "center" } }
+            { id: "play-hint", kind: "text", anchor: "bottom-center", x: 0, y: 12, w: 520, h: 20, z: 1, label: "Knock the ball into the other gate  \xB7  first to 5 or 3:00  \xB7  P pauses", style: { size: 11, color: "#c8d0dc", align: "center" } }
           ]
         },
         {
@@ -2069,7 +2098,9 @@ function pitchHud() {
             { id: "over-title", kind: "text", anchor: "center", x: 0, y: -140, w: 440, h: 44, z: 1, label: "MATCH OVER", style: { size: 34, weight: "800", color: "#ffd45e", align: "left" } },
             { id: "fb-score", kind: "list", anchor: "center", x: 0, y: -74, w: 440, h: 64, z: 1, label: "", rows: [], style: { size: 18, weight: "700", color: "#e5e9f0", align: "center", bg: "rgba(255, 255, 255, 0.05)", radius: 10 } },
             { id: "fb-log", kind: "list", anchor: "center", x: 0, y: 20, w: 440, h: 100, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "center", bg: "transparent" } },
-            { id: "fb-new-match", kind: "button", anchor: "center", x: 0, y: 128, w: 260, h: 48, z: 1, label: "New match", enabled: true, style: BUTTON(GREEN_BG) }
+            // 30b: Rematch (same sides, straight to the kick-off) beside back-to-menu
+            { id: "fb-rematch", kind: "button", anchor: "center", x: -112, y: 128, w: 200, h: 48, z: 1, label: "Rematch", enabled: true, style: BUTTON(GREEN_BG) },
+            { id: "fb-new-match", kind: "button", anchor: "center", x: 112, y: 128, w: 200, h: 48, z: 1, label: "Menu", enabled: true, style: { size: 16, weight: "700", bg: "#3a4150", color: "#e5e9f0", radius: 12 } }
           ]
         }
       ]
@@ -2218,7 +2249,7 @@ function createKicker(api, game) {
 var index_default = {
   id: "football",
   name: "Football",
-  version: "1.1.0",
+  version: "1.2.0",
   description: "VR football on the knock: floating ball, two team gates, last-touch attribution, modes, per-player records and a saved match log \u2014 every rule a flow node.",
   /** @param {any} api the module SDK surface */
   register(api) {

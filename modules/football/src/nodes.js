@@ -60,8 +60,13 @@ export function registerNodes(api, game) {
 			{
 				type: 'fbbutton',
 				label: 'Match Button',
-				defaults: { action: 'start', press: 0 },
-				params: [{ key: 'action', kind: 'select', options: ACTIONS }]
+				defaults: { action: 'start', press: 0, physical: true },
+				params: [
+					{ key: 'action', kind: 'select', options: ACTIONS },
+					// 30b: off = only the wired `press` acts; a click on the target object is left to
+					// the object's own Match Button (several HUD buttons may share one target)
+					{ key: 'physical', kind: 'toggle' }
+				]
 			},
 			{
 				type: 'fbserve',
@@ -153,7 +158,7 @@ export function registerNodes(api, game) {
 		'fbbutton',
 		(object, base, data, time, ctx) => {
 			const action = ACTIONS.includes(data.action) ? data.action : 'none';
-			buttons.set(object.uuid, { action, frame, id: ctx?.id ?? object.uuid });
+			if (data.physical !== false) buttons.set(object.uuid, { action, frame, id: ctx?.id ?? object.uuid });
 			// a HUD Button (perPlayer) or an On Click wired into `press` reads 1 for its
 			// pulse window; act on the rising edge, and never on the level first seen (a
 			// joiner arriving inside a pulse must not press a button it never touched)

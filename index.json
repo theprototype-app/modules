@@ -119,8 +119,8 @@
 	{
 		"id": "football",
 		"name": "Football",
-		"version": "1.1.0",
-		"description": "VR football in a floodlit glass arena: hit the floating ball with your hands and put it through the glowing gate. Pick a side, Start - a live scoreboard with a match clock, score lamps over each gate, last-touch attribution, modes, per-player records and a saved match log - every rule a flow node.",
+		"version": "1.2.0",
+		"description": "VR football in a floodlit glass arena: hit the floating ball with your hands and put it through the glowing gate. Hit the ball to kick off (or pick a side and Start): a 3-2-1 kick-off, GOAL! banners, confetti and a crowd, the conceding team kicks off, first to 5 or 3:00 with a golden goal - a live scoreboard with a match clock, score lamps over each gate, last-touch attribution, modes, per-player records and a saved match log - every rule a flow node.",
 		"author": "theprototype-app",
 		"source": "modules/football",
 		"zip": "football.zip",

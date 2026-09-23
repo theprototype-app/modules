@@ -562,6 +562,19 @@ list when something bites you.
   expectation) or derive from the last sweep's numbers (`health`'s kill credit).
 - **A second `installModule` on one peer needs the `/^User/` tab locator** — after an
   install the tab reads "User (1)" and an exact match hangs (fixed in `helpers.cjs`).
+- **A game that only starts from a DOM menu never starts in a headset.** The HUD's screens do
+  not draw in VR on a 1.17 core, so football's goals — which count only in a started match —
+  never counted on a Quest ("the ball reaches the gate and nothing changes"). Give every game a
+  start a player can reach with their hands: football kicks a match off on the first touch of
+  the ball and seats an unseated player on the smaller team (30b).
+- **A solo session's own hits carry `by: ''`.** With no peer id the knock stamps nobody, so a
+  module that keys a touch on `hit.by` drops every touch of a player alone; take `hit.local` as
+  "me" (football 30b).
+- **There is no api to place a dynamic body** (DEVX #30). Writing its pose with
+  `api.moveObject` while the sim runs holds it where you put it (core's external-hold rule) and
+  lets go, at rest, 250 ms after the last write — football parks the ball in the net and on the
+  centre spot this way. An impulse given in the same frame as the write is eaten by the hold:
+  nudge after it lets go.
 - **Capping `dt` turns a slow frame rate into slow motion.** `Math.min(dt, 0.1)`
   is the right way to stop a physics step tunnelling, but at 7fps (headless
   Chromium, a background tab) it means sim time advances at 0.7x — a jump that

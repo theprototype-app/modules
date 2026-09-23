@@ -11,6 +11,15 @@ const RED_BG = '#c94a4a';
 const BLUE_BG = '#3b7dd8';
 const GREEN_BG = '#3f9a61';
 
+/** 30b: the rules, one line each — the menu's How to play (and the def's README of the game) */
+export const HOW_TO_PLAY = [
+	'Hit the ball: swing a controller through it (desktop: walk into it or click it).',
+	"Score in the OTHER team's gate: red attacks the blue gate, blue attacks the red.",
+	'First to 5 goals, or the higher score after 3:00. Level at the whistle: golden goal.',
+	'After a goal the ball goes back to the centre; the team that conceded kicks off.',
+	'No need to pick a side: hit the ball or press Start and you join the smaller team.'
+];
+
 /** 30: the in-play SCOREBOARD — a dark bar with a red and a blue block (their big numbers are
  * HUD Texts the def's Football Value nodes drive), the match clock between them (a list the
  * Records node fills with one m:ss row) and a one-line ticker under it (last touch). The
@@ -44,16 +53,19 @@ export function pitchHud() {
 					showWhile: 'menu',
 					input: 'menu',
 					elements: [
-						{ id: 'menu-panel', kind: 'panel', anchor: 'center', x: 0, y: 0, w: 500, h: 420, z: 0, label: '', style: PANEL },
-						{ id: 'menu-stripe-red', kind: 'panel', anchor: 'center', x: -125, y: -200, w: 250, h: 8, z: 1, label: '', style: { bg: RED_BG, radius: 4 } },
-						{ id: 'menu-stripe-blue', kind: 'panel', anchor: 'center', x: 125, y: -200, w: 250, h: 8, z: 1, label: '', style: { bg: BLUE_BG, radius: 4 } },
-						{ id: 'title', kind: 'text', anchor: 'center', x: 0, y: -150, w: 424, h: 54, z: 1, label: 'FOOTBALL', style: { size: 44, weight: '800', color: '#ffd45e', align: 'left' } },
-						{ id: 'subtitle', kind: 'text', anchor: 'center', x: 0, y: -98, w: 424, h: 44, z: 1, label: 'Pick a side, then Start. Hit the floating ball with your hands; a ball through the other gate is a goal.', style: { size: 14, color: '#d8dee9', align: 'left' }, wrap: true },
-						{ id: 'fb-join-red', kind: 'button', anchor: 'center', x: -112, y: -28, w: 200, h: 48, z: 1, label: 'Join RED', enabled: true, style: BUTTON(RED_BG) },
-						{ id: 'fb-join-blue', kind: 'button', anchor: 'center', x: 112, y: -28, w: 200, h: 48, z: 1, label: 'Join BLUE', enabled: true, style: BUTTON(BLUE_BG) },
-						{ id: 'fb-start', kind: 'button', anchor: 'center', x: 0, y: 36, w: 424, h: 52, z: 1, label: 'Start match', enabled: true, style: { ...BUTTON(GREEN_BG), size: 18 } },
-						{ id: 'fb-sheet', kind: 'list', anchor: 'center', x: 0, y: 112, w: 424, h: 62, z: 1, label: '', rows: [], style: { size: 12, color: '#c8d0dc', align: 'center', bg: 'rgba(255, 255, 255, 0.05)', radius: 10 } },
-						{ id: 'menu-hint', kind: 'text', anchor: 'center', x: 0, y: 176, w: 424, h: 30, z: 1, label: 'Walk into the ball to knock it  ·  Grab: hold click  ·  Pause: P', style: { size: 12, color: '#8b97a8', align: 'left' }, wrap: true }
+						{ id: 'menu-panel', kind: 'panel', anchor: 'center', x: 0, y: 0, w: 600, h: 620, z: 0, label: '', style: PANEL },
+						{ id: 'menu-stripe-red', kind: 'panel', anchor: 'center', x: -150, y: -306, w: 300, h: 8, z: 1, label: '', style: { bg: RED_BG, radius: 4 } },
+						{ id: 'menu-stripe-blue', kind: 'panel', anchor: 'center', x: 150, y: -306, w: 300, h: 8, z: 1, label: '', style: { bg: BLUE_BG, radius: 4 } },
+						{ id: 'title', kind: 'text', anchor: 'center', x: 0, y: -262, w: 540, h: 54, z: 1, label: 'FOOTBALL', style: { size: 44, weight: '800', color: '#ffd45e', align: 'left' } },
+						{ id: 'subtitle', kind: 'text', anchor: 'center', x: 0, y: -222, w: 540, h: 24, z: 1, label: 'Red vs Blue. Knock the floating ball through the other team\'s gate.', style: { size: 14, color: '#d8dee9', align: 'left' }, wrap: true },
+						// 30b: the rules, on the menu (the user: "it's not clear how to play it")
+						{ id: 'howto-title', kind: 'text', anchor: 'center', x: 0, y: -190, w: 540, h: 20, z: 1, label: 'HOW TO PLAY', style: { size: 12, weight: '800', color: '#ffd45e', align: 'left' } },
+						...HOW_TO_PLAY.map((line, i) => ({ id: 'howto-' + (i + 1), kind: 'text', anchor: 'center', x: 0, y: -156 + i * 34, w: 540, h: 34, z: 1, label: line, style: { size: 13, color: '#e5e9f0', align: 'left' }, wrap: true })),
+						{ id: 'fb-join-red', kind: 'button', anchor: 'center', x: -136, y: 40, w: 256, h: 48, z: 1, label: 'Join RED', enabled: true, style: BUTTON(RED_BG) },
+						{ id: 'fb-join-blue', kind: 'button', anchor: 'center', x: 136, y: 40, w: 256, h: 48, z: 1, label: 'Join BLUE', enabled: true, style: BUTTON(BLUE_BG) },
+						{ id: 'fb-start', kind: 'button', anchor: 'center', x: 0, y: 100, w: 528, h: 52, z: 1, label: 'Start match', enabled: true, style: { ...BUTTON(GREEN_BG), size: 18 } },
+						{ id: 'fb-sheet', kind: 'list', anchor: 'center', x: 0, y: 164, w: 528, h: 58, z: 1, label: '', rows: [], style: { size: 12, color: '#c8d0dc', align: 'center', bg: 'rgba(255, 255, 255, 0.05)', radius: 10 } },
+						{ id: 'menu-hint', kind: 'text', anchor: 'center', x: 0, y: 226, w: 540, h: 40, z: 1, label: 'Pause: P  ·  Esc leaves play  ·  In VR the Y button switches Edit / Interact', style: { size: 12, color: '#8b97a8', align: 'left' }, wrap: true }
 					]
 				},
 				{
@@ -64,7 +76,7 @@ export function pitchHud() {
 					elements: [
 						...scoreboard(12),
 						{ id: 'fb-sheet-play', kind: 'list', anchor: 'top-right', x: 16, y: 14, w: 380, h: 96, z: 1, label: '', rows: [], style: { size: 12, weight: '600', color: '#e5e9f0', align: 'right', bg: 'transparent' } },
-						{ id: 'play-hint', kind: 'text', anchor: 'bottom-center', x: 0, y: 12, w: 520, h: 20, z: 1, label: 'Hit the ball toward the other gate.  Press P to pause.', style: { size: 11, color: '#c8d0dc', align: 'center' } }
+						{ id: 'play-hint', kind: 'text', anchor: 'bottom-center', x: 0, y: 12, w: 520, h: 20, z: 1, label: 'Knock the ball into the other gate  ·  first to 5 or 3:00  ·  P pauses', style: { size: 11, color: '#c8d0dc', align: 'center' } }
 					]
 				},
 				{
@@ -89,7 +101,9 @@ export function pitchHud() {
 						{ id: 'over-title', kind: 'text', anchor: 'center', x: 0, y: -140, w: 440, h: 44, z: 1, label: 'MATCH OVER', style: { size: 34, weight: '800', color: '#ffd45e', align: 'left' } },
 						{ id: 'fb-score', kind: 'list', anchor: 'center', x: 0, y: -74, w: 440, h: 64, z: 1, label: '', rows: [], style: { size: 18, weight: '700', color: '#e5e9f0', align: 'center', bg: 'rgba(255, 255, 255, 0.05)', radius: 10 } },
 						{ id: 'fb-log', kind: 'list', anchor: 'center', x: 0, y: 20, w: 440, h: 100, z: 1, label: '', rows: [], style: { size: 12, color: '#c8d0dc', align: 'center', bg: 'transparent' } },
-						{ id: 'fb-new-match', kind: 'button', anchor: 'center', x: 0, y: 128, w: 260, h: 48, z: 1, label: 'New match', enabled: true, style: BUTTON(GREEN_BG) }
+						// 30b: Rematch (same sides, straight to the kick-off) beside back-to-menu
+						{ id: 'fb-rematch', kind: 'button', anchor: 'center', x: -112, y: 128, w: 200, h: 48, z: 1, label: 'Rematch', enabled: true, style: BUTTON(GREEN_BG) },
+						{ id: 'fb-new-match', kind: 'button', anchor: 'center', x: 112, y: 128, w: 200, h: 48, z: 1, label: 'Menu', enabled: true, style: { size: 16, weight: '700', bg: '#3a4150', color: '#e5e9f0', radius: 12 } }
 					]
 				}
 			]
