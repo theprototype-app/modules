@@ -9,6 +9,7 @@
 
 import { MODES, WIN_BY, SERVE, OWN_GOALS } from './rules.js';
 import { pitchObjects, pitchGraph, createCommand, PITCH_PHYSICS, DEFAULT_DIMS, normalizeDims, NAMES } from './pitch.js';
+import { ARENA } from './arena.js';
 
 /** @param {any} api @param {ReturnType<import('./game.js').createGame>} game @param {{hitSource: () => string}} info */
 export function registerToolbox(api, game, info) {
@@ -110,6 +111,15 @@ export function registerToolbox(api, game, info) {
 			// boxes are re-sized through scale against the unit they were created with
 			const scale = o.type === 'box' ? o.size.map((v, i) => v / (object.userData.fbSize?.[i] ?? object.geometry?.parameters?.[['width', 'height', 'depth'][i]] ?? v)) : undefined;
 			api.moveObject(uuid, { pos, ...(scale ? { scale } : {}) });
+			moved++;
+		}
+		// 30: the template's look (turf, markings, floodlights, boards) is ONE group laid out
+		// for the default pitch — stretch it with the pitch so the markings stay on the lines
+		const arena = group.getObjectByName(ARENA);
+		if (arena && arena.parent === group) {
+			const d = normalizeDims(dims);
+			const span = (/** @type {any} */ x) => x.length / 2 - 0.3 + x.sensorDepth + 0.05;
+			api.moveObject(arena.uuid, { pos: [...centre], scale: [d.width / DEFAULT_DIMS.width, 1, span(d) / span(DEFAULT_DIMS)] });
 			moved++;
 		}
 		return moved;

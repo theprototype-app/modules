@@ -605,6 +605,8 @@ export function createGame(api) {
 		}));
 	}
 	const left = () => (state.started ? secondsLeft(rules(), now() - state.startedAt) : null);
+	/** 30: seconds played — running while started, frozen at the whistle, null before */
+	const elapsed = () => (state.started ? now() - state.startedAt : state.endedAt && state.startedAt ? state.endedAt - state.startedAt : null);
 
 	return {
 		state,
@@ -627,6 +629,7 @@ export function createGame(api) {
 		matchLog,
 		writeMatchLog,
 		secondsLeft: left,
+		elapsed,
 		scoreLine: () => scoreLine(state.score),
 		outcomeText,
 		pitchCentre,

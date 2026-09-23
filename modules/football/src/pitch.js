@@ -13,6 +13,35 @@ export const BLUE = 0x4a7dd9;
 export const LAMP_DIM = 0x22262e;
 export const LAMPS_PER_GATE = 10;
 
+/** 30: the walls and ceiling as clean glass (physical + transmission) that the editor's pick
+ * passes through; `opacity` stays for the toolbox recipe, which reads only colour/opacity */
+export const GLASS = {
+	color: 0xe8f6ff,
+	opacity: 0.1,
+	physical: true,
+	transmission: 1,
+	thickness: 0.02,
+	ior: 1.45,
+	// near-zero specular: the floodlights' spot highlights on the side panes read as glow blobs
+	// floating at pitch height
+	roughness: 0.2,
+	specularIntensity: 0.06,
+	shadow: false,
+	pick: 'through'
+};
+
+/** y of the score lamp strip: on the crossbar @param {any} d normalized dims */
+export function lampStripY(d) {
+	return d.mouthY + d.gateHeight / 2 + 0.15;
+}
+
+/** x of score lamp `i` (1..LAMPS_PER_GATE) on the strip, centred, 0.22 m apart
+ * @param {number} i @param {number} width */
+export function lampX(i, width) {
+	const pitch = Math.min(0.22, (width - 0.3) / LAMPS_PER_GATE);
+	return (i - (LAMPS_PER_GATE + 1) / 2) * pitch;
+}
+
 /** B3 defaults: a living room. Mouths centred at chest height, ball served at 1.3 m. */
 export const DEFAULT_DIMS = {
 	length: 5,
@@ -82,9 +111,12 @@ export function pitchObjects(dims) {
 	const stat = (/** @type {any} */ extra) => ({ mode: 'static', ...(extra ?? {}) });
 
 	// the floor is the pitch; the real floor when colocated
-	out.push({ type: 'box', name: NAMES.pitch, color: 0x3a4a3d, size: [d.width, wall, endZ * 2], pos: [0, -wall / 2, 0], roughness: 0.95, physics: stat({ friction: 0.6 }) });
-	// six invisible walls keep the ball in play (floor above is the seventh face)
-	const ghost = { color: 0x9ee6ff, opacity: 0.06 };
+	out.push({ type: 'box', name: NAMES.pitch, color: 0x2f7a3c, size: [d.width, wall, endZ * 2], pos: [0, -wall / 2, 0], roughness: 0.95, physics: stat({ friction: 0.6 }) });
+	// five glass walls keep the ball in play (the floor is the sixth face). 30: clean glass —
+	// physical + transmission for the template, the old faint opacity for the toolbox recipe
+	// (which only reads colour/opacity); they never cast a shadow (the floodlights shine
+	// through) and the editor's pick passes through them to what stands inside (fork 3)
+	const ghost = { ...GLASS };
 	out.push({ type: 'box', name: 'Wall left', ...ghost, size: [wall, d.height, endZ * 2], pos: [-hw - wall / 2, d.height / 2, 0], physics: stat() });
 	out.push({ type: 'box', name: 'Wall right', ...ghost, size: [wall, d.height, endZ * 2], pos: [hw + wall / 2, d.height / 2, 0], physics: stat() });
 	out.push({ type: 'box', name: 'Wall red end', ...ghost, size: [d.width, d.height, wall], pos: [0, d.height / 2, -endZ - wall / 2], physics: stat() });
@@ -97,7 +129,8 @@ export function pitchObjects(dims) {
 		const z = sign * mouthZ;
 		const gx = d.gateWidth / 2;
 		const gy = d.gateHeight / 2;
-		const frame = { color, emissive: color, emissiveIntensity: 0.9, roughness: 0.4 };
+		// 30: the frame is a neon tube — the bloom pass picks it up
+		const frame = { color, emissive: color, emissiveIntensity: 2.4, roughness: 0.3 };
 		const T = team === 'red' ? 'Red' : 'Blue';
 		out.push({ type: 'box', name: T + ' post left', ...frame, size: [post, d.gateHeight + post, post], pos: [-gx, d.mouthY, z], physics: stat() });
 		out.push({ type: 'box', name: T + ' post right', ...frame, size: [post, d.gateHeight + post, post], pos: [gx, d.mouthY, z], physics: stat() });
@@ -110,23 +143,26 @@ export function pitchObjects(dims) {
 			name: team === 'red' ? NAMES.redGate : NAMES.blueGate,
 			color,
 			opacity: 0.12,
+			shadow: false,
 			size: [d.gateWidth, d.gateHeight, d.sensorDepth],
 			pos: [0, d.mouthY, sign * sensorZ],
 			physics: stat({ sensor: true, collider: 'box' })
 		});
-		// score lamps: two rows of five above the bar, lit from the outside in by fblamp
-		const lampY0 = d.mouthY + gy + 0.25;
+		// score lamps: ONE strip of ten on the scoreboard riding the crossbar, lit from the left
+		// by fblamp (30: a strip, not two rows — the arena's board sits behind it; low on the
+		// bar so it stays out of the desktop spawn's eye line, core's fixed [0, 2, 3])
+		const lampY = lampStripY(d);
 		for (let i = 1; i <= LAMPS_PER_GATE; i++) {
-			const row = i <= 5 ? 0 : 1;
-			const col = (i - 1) % 5;
 			out.push({
 				type: 'box',
 				name: NAMES.lamp(team, i),
 				color: LAMP_DIM,
 				emissive: LAMP_DIM,
 				emissiveIntensity: 0.2,
-				size: [0.16, 0.16, 0.06],
-				pos: [-0.5 + col * 0.25, lampY0 + row * 0.22, z],
+				clearcoat: 1,
+				roughness: 0.35,
+				size: [0.16, 0.16, 0.05],
+				pos: [lampX(i, d.width), lampY, z],
 				physics: stat()
 			});
 		}
@@ -136,23 +172,26 @@ export function pitchObjects(dims) {
 			name: team === 'red' ? NAMES.joinRed : NAMES.joinBlue,
 			color,
 			emissive: color,
-			emissiveIntensity: 0.5,
+			emissiveIntensity: 1.2,
 			size: [0.3, 0.12, 0.3],
 			pos: [sign * -1 * (hw - 0.3), 1.05, sign * (mouthZ - 0.6)],
 			physics: stat()
 		});
 	}
 	// Start / New match at the pitch's side, within reach from the centre line
-	out.push({ type: 'box', name: NAMES.start, color: 0x4c9e6a, emissive: 0x4c9e6a, emissiveIntensity: 0.5, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, -0.35], physics: stat() });
-	out.push({ type: 'box', name: NAMES.newMatch, color: 0x8a8f9a, emissive: 0x8a8f9a, emissiveIntensity: 0.4, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, 0.35], physics: stat() });
+	out.push({ type: 'box', name: NAMES.start, color: 0x4c9e6a, emissive: 0x4c9e6a, emissiveIntensity: 1.2, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, -0.35], physics: stat() });
+	out.push({ type: 'box', name: NAMES.newMatch, color: 0xe8e2d0, emissive: 0xd8d2c0, emissiveIntensity: 0.9, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, 0.35], physics: stat() });
 	// the ball, last: one dynamic body, floating (the scene's zero-g block keeps it up)
 	out.push({
 		type: 'sphere',
 		name: NAMES.ball,
-		color: 0xf2f2f2,
+		color: 0xf4f4f0,
 		r: d.ballRadius,
 		pos: [0, d.ballY, 0],
-		roughness: 0.6,
+		roughness: 0.45,
+		// 30: a lacquered match ball
+		clearcoat: 1,
+		clearcoatRoughness: 0.08,
 		physics: { mode: 'dynamic', mass: 0.45, restitution: 0.7, friction: 0.2 }
 	});
 	return out;
@@ -226,8 +265,12 @@ export function pitchGraph(names, opts = {}) {
 	N('records', 'fbrecords', 'Records', 280, y, {
 		show: 'all',
 		element: opts.hudButtons ? 'fb-sheet,fb-sheet-play' : 'fb-sheet',
-		scoreElement: opts.hudButtons ? 'fb-score,fb-score-over' : 'fb-score',
-		logElement: opts.hudButtons ? 'fb-log' : ''
+		// 30: in play the score is the scoreboard's own numbers; the RED x — y BLUE list
+		// `fb-score` lives on the over screen
+		scoreElement: 'fb-score',
+		logElement: opts.hudButtons ? 'fb-log' : '',
+		// 30: the scoreboard's clock (the def's HUD only — a recipe pitch has no such list)
+		...(opts.hudButtons ? { clockElement: 'fb-clock', tickerElement: 'fb-ticker' } : {})
 	});
 	E('records', 'selpitch');
 	row();

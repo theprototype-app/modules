@@ -171,6 +171,12 @@ function appendMatchLog(log, entry, cap = MATCH_LOG_CAP) {
   const list = Array.isArray(log) ? [...log, entry] : [entry];
   return list.slice(-Math.max(1, cap));
 }
+function matchClock(rules, elapsed) {
+  if (elapsed == null || !Number.isFinite(elapsed)) return "0:00";
+  const left = secondsLeft(rules, Math.max(0, elapsed));
+  const s = Math.max(0, Math.floor(left == null ? elapsed : Math.ceil(left)));
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
 function scoreLine(score) {
   return "RED " + (score.red ?? 0) + " \u2014 " + (score.blue ?? 0) + " BLUE";
 }
@@ -659,6 +665,7 @@ function createGame(api) {
     }));
   }
   const left = () => state.started ? secondsLeft(rules(), now() - state.startedAt) : null;
+  const elapsed = () => state.started ? now() - state.startedAt : state.endedAt && state.startedAt ? state.endedAt - state.startedAt : null;
   return {
     state,
     config,
@@ -680,6 +687,7 @@ function createGame(api) {
     matchLog,
     writeMatchLog,
     secondsLeft: left,
+    elapsed,
     scoreLine: () => scoreLine(state.score),
     outcomeText,
     pitchCentre,
@@ -696,6 +704,27 @@ var RED = 14240330;
 var BLUE = 4881881;
 var LAMP_DIM = 2237998;
 var LAMPS_PER_GATE = 10;
+var GLASS = {
+  color: 15267583,
+  opacity: 0.1,
+  physical: true,
+  transmission: 1,
+  thickness: 0.02,
+  ior: 1.45,
+  // near-zero specular: the floodlights' spot highlights on the side panes read as glow blobs
+  // floating at pitch height
+  roughness: 0.2,
+  specularIntensity: 0.06,
+  shadow: false,
+  pick: "through"
+};
+function lampStripY(d) {
+  return d.mouthY + d.gateHeight / 2 + 0.15;
+}
+function lampX(i, width) {
+  const pitch = Math.min(0.22, (width - 0.3) / LAMPS_PER_GATE);
+  return (i - (LAMPS_PER_GATE + 1) / 2) * pitch;
+}
 var DEFAULT_DIMS = {
   length: 5,
   width: 3,
@@ -750,8 +779,8 @@ function pitchObjects(dims) {
   const post = 0.06;
   const out = [];
   const stat = (extra) => ({ mode: "static", ...extra ?? {} });
-  out.push({ type: "box", name: NAMES.pitch, color: 3820093, size: [d.width, wall, endZ * 2], pos: [0, -wall / 2, 0], roughness: 0.95, physics: stat({ friction: 0.6 }) });
-  const ghost = { color: 10413823, opacity: 0.06 };
+  out.push({ type: "box", name: NAMES.pitch, color: 3111484, size: [d.width, wall, endZ * 2], pos: [0, -wall / 2, 0], roughness: 0.95, physics: stat({ friction: 0.6 }) });
+  const ghost = { ...GLASS };
   out.push({ type: "box", name: "Wall left", ...ghost, size: [wall, d.height, endZ * 2], pos: [-hw - wall / 2, d.height / 2, 0], physics: stat() });
   out.push({ type: "box", name: "Wall right", ...ghost, size: [wall, d.height, endZ * 2], pos: [hw + wall / 2, d.height / 2, 0], physics: stat() });
   out.push({ type: "box", name: "Wall red end", ...ghost, size: [d.width, d.height, wall], pos: [0, d.height / 2, -endZ - wall / 2], physics: stat() });
@@ -767,7 +796,7 @@ function pitchObjects(dims) {
     const z = sign * mouthZ;
     const gx = d.gateWidth / 2;
     const gy = d.gateHeight / 2;
-    const frame = { color, emissive: color, emissiveIntensity: 0.9, roughness: 0.4 };
+    const frame = { color, emissive: color, emissiveIntensity: 2.4, roughness: 0.3 };
     const T = team === "red" ? "Red" : "Blue";
     out.push({ type: "box", name: T + " post left", ...frame, size: [post, d.gateHeight + post, post], pos: [-gx, d.mouthY, z], physics: stat() });
     out.push({ type: "box", name: T + " post right", ...frame, size: [post, d.gateHeight + post, post], pos: [gx, d.mouthY, z], physics: stat() });
@@ -778,22 +807,23 @@ function pitchObjects(dims) {
       name: team === "red" ? NAMES.redGate : NAMES.blueGate,
       color,
       opacity: 0.12,
+      shadow: false,
       size: [d.gateWidth, d.gateHeight, d.sensorDepth],
       pos: [0, d.mouthY, sign * sensorZ],
       physics: stat({ sensor: true, collider: "box" })
     });
-    const lampY0 = d.mouthY + gy + 0.25;
+    const lampY = lampStripY(d);
     for (let i = 1; i <= LAMPS_PER_GATE; i++) {
-      const row = i <= 5 ? 0 : 1;
-      const col = (i - 1) % 5;
       out.push({
         type: "box",
         name: NAMES.lamp(team, i),
         color: LAMP_DIM,
         emissive: LAMP_DIM,
         emissiveIntensity: 0.2,
-        size: [0.16, 0.16, 0.06],
-        pos: [-0.5 + col * 0.25, lampY0 + row * 0.22, z],
+        clearcoat: 1,
+        roughness: 0.35,
+        size: [0.16, 0.16, 0.05],
+        pos: [lampX(i, d.width), lampY, z],
         physics: stat()
       });
     }
@@ -802,21 +832,24 @@ function pitchObjects(dims) {
       name: team === "red" ? NAMES.joinRed : NAMES.joinBlue,
       color,
       emissive: color,
-      emissiveIntensity: 0.5,
+      emissiveIntensity: 1.2,
       size: [0.3, 0.12, 0.3],
       pos: [sign * -1 * (hw - 0.3), 1.05, sign * (mouthZ - 0.6)],
       physics: stat()
     });
   }
-  out.push({ type: "box", name: NAMES.start, color: 5021290, emissive: 5021290, emissiveIntensity: 0.5, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, -0.35], physics: stat() });
-  out.push({ type: "box", name: NAMES.newMatch, color: 9080730, emissive: 9080730, emissiveIntensity: 0.4, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, 0.35], physics: stat() });
+  out.push({ type: "box", name: NAMES.start, color: 5021290, emissive: 5021290, emissiveIntensity: 1.2, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, -0.35], physics: stat() });
+  out.push({ type: "box", name: NAMES.newMatch, color: 15262416, emissive: 14209728, emissiveIntensity: 0.9, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, 0.35], physics: stat() });
   out.push({
     type: "sphere",
     name: NAMES.ball,
-    color: 15921906,
+    color: 16053488,
     r: d.ballRadius,
     pos: [0, d.ballY, 0],
-    roughness: 0.6,
+    roughness: 0.45,
+    // 30: a lacquered match ball
+    clearcoat: 1,
+    clearcoatRoughness: 0.08,
     physics: { mode: "dynamic", mass: 0.45, restitution: 0.7, friction: 0.2 }
   });
   return out;
@@ -864,8 +897,12 @@ function pitchGraph(names, opts = {}) {
   N("records", "fbrecords", "Records", 280, y, {
     show: "all",
     element: opts.hudButtons ? "fb-sheet,fb-sheet-play" : "fb-sheet",
-    scoreElement: opts.hudButtons ? "fb-score,fb-score-over" : "fb-score",
-    logElement: opts.hudButtons ? "fb-log" : ""
+    // 30: in play the score is the scoreboard's own numbers; the RED x — y BLUE list
+    // `fb-score` lives on the over screen
+    scoreElement: "fb-score",
+    logElement: opts.hudButtons ? "fb-log" : "",
+    // 30: the scoreboard's clock (the def's HUD only — a recipe pitch has no such list)
+    ...opts.hudButtons ? { clockElement: "fb-clock", tickerElement: "fb-ticker" } : {}
   });
   E("records", "selpitch");
   row();
@@ -999,12 +1036,14 @@ function registerNodes(api, game) {
       {
         type: "fbrecords",
         label: "Records",
-        defaults: { show: "all", element: "fb-sheet", scoreElement: "fb-score", logElement: "" },
+        defaults: { show: "all", element: "fb-sheet", scoreElement: "fb-score", logElement: "", clockElement: "", tickerElement: "" },
         params: [
           { key: "show", kind: "select", options: ["goals", "touches", "owngoals", "all"] },
           { key: "element", kind: "text", placeholder: "HUD list id (sheet)", maxLength: 40 },
           { key: "scoreElement", kind: "text", placeholder: "HUD list id (score)", maxLength: 40 },
-          { key: "logElement", kind: "text", placeholder: "HUD list id (match log)", maxLength: 40 }
+          { key: "logElement", kind: "text", placeholder: "HUD list id (match log)", maxLength: 40 },
+          { key: "clockElement", kind: "text", placeholder: "HUD list id (clock m:ss)", maxLength: 40 },
+          { key: "tickerElement", kind: "text", placeholder: "HUD list id (last touch)", maxLength: 40 }
         ]
       },
       {
@@ -1117,7 +1156,9 @@ function registerNodes(api, game) {
     const left = game.secondsLeft();
     const score = [game.scoreLine(), touch, ...left == null ? [] : [Math.ceil(left) + "s left"], ...game.state.outcome ? [game.outcomeText()] : []];
     const log = game.matchLog().slice(-8).reverse().map((m) => "RED " + m.red + " \u2014 " + m.blue + " BLUE \xB7 " + m.winner);
-    const key = JSON.stringify([rows, score, log]);
+    const clock = data.clockElement ? [matchClock(game.rules(), game.elapsed())] : [];
+    const ticker = data.tickerElement ? [touch] : [];
+    const key = JSON.stringify([rows, score, log, clock, ticker]);
     if (key === lastRows) return;
     lastRows = key;
     const each = (field, list) => {
@@ -1126,6 +1167,8 @@ function registerNodes(api, game) {
     each(data.element, rows);
     each(data.scoreElement, score);
     each(data.logElement, log);
+    if (data.clockElement) each(data.clockElement, clock);
+    if (data.tickerElement) each(data.tickerElement, ticker);
   });
   api.registerValueNode(
     "fbvalue",
@@ -1187,6 +1230,10 @@ function registerNodes(api, game) {
   }
   return { tick, clickButton, buttons: () => [...buttons.entries()].map(([uuid, e]) => ({ uuid, action: e.action })) };
 }
+
+// modules/football/src/arena.js
+var ARENA = "Arena";
+var FLAT = [-Math.PI / 2, 0, 0];
 
 // modules/football/src/toolbox.js
 function registerToolbox(api, game, info) {
@@ -1257,6 +1304,13 @@ function registerToolbox(api, game, info) {
       const pos = [o.pos[0] + centre[0], o.pos[1] + centre[1], o.pos[2] + centre[2]];
       const scale = o.type === "box" ? o.size.map((v, i) => v / (object.userData.fbSize?.[i] ?? object.geometry?.parameters?.[["width", "height", "depth"][i]] ?? v)) : void 0;
       api.moveObject(uuid, { pos, ...scale ? { scale } : {} });
+      moved++;
+    }
+    const arena = group.getObjectByName(ARENA);
+    if (arena && arena.parent === group) {
+      const d = normalizeDims(dims);
+      const span = (x) => x.length / 2 - 0.3 + x.sensorDepth + 0.05;
+      api.moveObject(arena.uuid, { pos: [...centre], scale: [d.width / DEFAULT_DIMS.width, 1, span(d) / span(DEFAULT_DIMS)] });
       moved++;
     }
     return moved;
@@ -1395,8 +1449,26 @@ function registerToolbox(api, game, info) {
 }
 
 // modules/football/src/hud.js
-var PANEL = { bg: "rgba(20, 26, 36, 0.92)", radius: 16, border: "1px solid rgba(136, 192, 208, 0.25)" };
-var BUTTON = (bg) => ({ size: 16, weight: "600", bg, color: "#ffffff", radius: 10 });
+var PANEL = { bg: "rgba(12, 18, 28, 0.9)", radius: 18, border: "1px solid rgba(255, 212, 94, 0.28)" };
+var BUTTON = (bg) => ({ size: 16, weight: "700", bg, color: "#ffffff", radius: 12 });
+var RED_BG = "#c94a4a";
+var BLUE_BG = "#3b7dd8";
+var GREEN_BG = "#3f9a61";
+function scoreboard(y) {
+  const block = (team, x, bg) => [
+    { id: "sb-" + team + "-block", kind: "panel", anchor: "top-center", x, y: y + 6, w: 118, h: 60, z: 1, label: "", style: { bg, radius: 12 } },
+    { id: "sb-" + team + "-name", kind: "text", anchor: "top-center", x, y: y + 8, w: 118, h: 16, z: 2, label: team.toUpperCase(), style: { size: 11, weight: "800", color: "rgba(255,255,255,0.85)", align: "center" } },
+    { id: "fb-" + team + "-score", kind: "text", anchor: "top-center", x, y: y + 22, w: 118, h: 42, z: 2, label: "0", style: { size: 34, weight: "800", color: "#ffffff", align: "center" } }
+  ];
+  return [
+    { id: "sb-panel", kind: "panel", anchor: "top-center", x: 0, y, w: 400, h: 72, z: 0, label: "", style: { bg: "rgba(10, 14, 22, 0.92)", radius: 16, border: "1px solid rgba(255, 255, 255, 0.12)" } },
+    ...block("red", -134, RED_BG),
+    ...block("blue", 134, BLUE_BG),
+    { id: "fb-clock", kind: "list", anchor: "top-center", x: 0, y: y + 12, w: 130, h: 34, z: 2, label: "", rows: [], rowHeight: 30, style: { size: 26, weight: "800", color: "#ffd45e", align: "center", bg: "transparent", pad: 0 } },
+    { id: "sb-label", kind: "text", anchor: "top-center", x: 0, y: y + 46, w: 130, h: 18, z: 2, label: "FOOTBALL", style: { size: 10, weight: "700", color: "#8b97a8", align: "center" } },
+    { id: "fb-ticker", kind: "list", anchor: "top-center", x: 0, y: y + 76, w: 400, h: 22, z: 1, label: "", rows: [], rowHeight: 18, style: { size: 12, color: "#c8d0dc", align: "center", bg: "transparent", pad: 0 } }
+  ];
+}
 function pitchHud() {
   return {
     scene: {
@@ -1409,14 +1481,16 @@ function pitchHud() {
           showWhile: "menu",
           input: "menu",
           elements: [
-            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 480, h: 400, z: 0, label: "", style: PANEL },
-            { id: "title", kind: "text", anchor: "center", x: 0, y: -150, w: 400, h: 54, z: 1, label: "FOOTBALL", style: { size: 40, weight: "700", color: "#ffd45e", align: "center" } },
-            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -100, w: 440, h: 44, z: 1, label: "Pick a side, then Start. Hit the floating ball with your hands; a ball through the other gate is a goal.", style: { size: 14, color: "#d8dee9", align: "center" }, wrap: true },
-            { id: "fb-join-red", kind: "button", anchor: "center", x: -110, y: -30, w: 190, h: 44, z: 1, label: "Join RED", enabled: true, style: BUTTON("#c94a4a") },
-            { id: "fb-join-blue", kind: "button", anchor: "center", x: 110, y: -30, w: 190, h: 44, z: 1, label: "Join BLUE", enabled: true, style: BUTTON("#3b7dd8") },
-            { id: "fb-start", kind: "button", anchor: "center", x: 0, y: 30, w: 220, h: 48, z: 1, label: "Start match", enabled: true, style: BUTTON("#4c9e6a") },
-            { id: "fb-sheet", kind: "list", anchor: "center", x: 0, y: 105, w: 440, h: 70, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "center" } },
-            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 165, w: 440, h: 30, z: 1, label: "Walk into the ball to knock it  \xB7  Grab: hold click  \xB7  Pause: P", style: { size: 12, color: "#8b97a8", align: "center" }, wrap: true }
+            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 500, h: 420, z: 0, label: "", style: PANEL },
+            { id: "menu-stripe-red", kind: "panel", anchor: "center", x: -125, y: -200, w: 250, h: 8, z: 1, label: "", style: { bg: RED_BG, radius: 4 } },
+            { id: "menu-stripe-blue", kind: "panel", anchor: "center", x: 125, y: -200, w: 250, h: 8, z: 1, label: "", style: { bg: BLUE_BG, radius: 4 } },
+            { id: "title", kind: "text", anchor: "center", x: 0, y: -150, w: 440, h: 54, z: 1, label: "FOOTBALL", style: { size: 44, weight: "800", color: "#ffd45e", align: "center" } },
+            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -98, w: 440, h: 44, z: 1, label: "Pick a side, then Start. Hit the floating ball with your hands; a ball through the other gate is a goal.", style: { size: 14, color: "#d8dee9", align: "center" }, wrap: true },
+            { id: "fb-join-red", kind: "button", anchor: "center", x: -112, y: -28, w: 200, h: 48, z: 1, label: "Join RED", enabled: true, style: BUTTON(RED_BG) },
+            { id: "fb-join-blue", kind: "button", anchor: "center", x: 112, y: -28, w: 200, h: 48, z: 1, label: "Join BLUE", enabled: true, style: BUTTON(BLUE_BG) },
+            { id: "fb-start", kind: "button", anchor: "center", x: 0, y: 36, w: 424, h: 52, z: 1, label: "Start match", enabled: true, style: { ...BUTTON(GREEN_BG), size: 18 } },
+            { id: "fb-sheet", kind: "list", anchor: "center", x: 0, y: 112, w: 424, h: 62, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "center", bg: "rgba(255, 255, 255, 0.05)", radius: 10 } },
+            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 176, w: 440, h: 30, z: 1, label: "Walk into the ball to knock it  \xB7  Grab: hold click  \xB7  Pause: P", style: { size: 12, color: "#8b97a8", align: "center" }, wrap: true }
           ]
         },
         {
@@ -1425,9 +1499,9 @@ function pitchHud() {
           showWhile: "playing",
           input: "game",
           elements: [
-            { id: "fb-score", kind: "list", anchor: "top-center", x: 0, y: 14, w: 420, h: 70, z: 1, label: "", rows: [], style: { size: 18, weight: "600", color: "#e5e9f0", align: "center" } },
-            { id: "fb-sheet-play", kind: "list", anchor: "top-right", x: 16, y: 14, w: 260, h: 120, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "right" } },
-            { id: "play-hint", kind: "text", anchor: "bottom-center", x: 0, y: 12, w: 520, h: 20, z: 1, label: "Hit the ball toward the other gate.  Press P to pause.", style: { size: 11, color: "#8b97a8", align: "center" } }
+            ...scoreboard(12),
+            { id: "fb-sheet-play", kind: "list", anchor: "top-right", x: 16, y: 14, w: 260, h: 96, z: 1, label: "", rows: [], style: { size: 12, weight: "600", color: "#e5e9f0", align: "right", bg: "transparent" } },
+            { id: "play-hint", kind: "text", anchor: "bottom-center", x: 0, y: 12, w: 520, h: 20, z: 1, label: "Hit the ball toward the other gate.  Press P to pause.", style: { size: 11, color: "#c8d0dc", align: "center" } }
           ]
         },
         {
@@ -1436,10 +1510,10 @@ function pitchHud() {
           input: "menu",
           elements: [
             { id: "pause-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 380, h: 300, z: 0, label: "", style: PANEL },
-            { id: "pause-title", kind: "text", anchor: "center", x: 0, y: -95, w: 340, h: 36, z: 1, label: "PAUSED", style: { size: 26, weight: "700", color: "#e5e9f0", align: "center" } },
-            { id: "resume-btn", kind: "button", anchor: "center", x: 0, y: -30, w: 240, h: 42, z: 1, label: "Resume", enabled: true, style: BUTTON("#3b7dd8") },
-            { id: "fb-new-match-pause", kind: "button", anchor: "center", x: 0, y: 22, w: 240, h: 42, z: 1, label: "New match", enabled: true, style: BUTTON("#4c9e6a") },
-            { id: "quit-btn", kind: "button", anchor: "center", x: 0, y: 74, w: 240, h: 42, z: 1, label: "Quit to menu", enabled: true, style: { size: 15, weight: "500", bg: "#3a4150", color: "#e5e9f0", radius: 10 } }
+            { id: "pause-title", kind: "text", anchor: "center", x: 0, y: -95, w: 340, h: 36, z: 1, label: "PAUSED", style: { size: 28, weight: "800", color: "#e5e9f0", align: "center" } },
+            { id: "resume-btn", kind: "button", anchor: "center", x: 0, y: -30, w: 260, h: 44, z: 1, label: "Resume", enabled: true, style: BUTTON(BLUE_BG) },
+            { id: "fb-new-match-pause", kind: "button", anchor: "center", x: 0, y: 24, w: 260, h: 44, z: 1, label: "New match", enabled: true, style: BUTTON(GREEN_BG) },
+            { id: "quit-btn", kind: "button", anchor: "center", x: 0, y: 78, w: 260, h: 44, z: 1, label: "Quit to menu", enabled: true, style: { size: 15, weight: "600", bg: "#3a4150", color: "#e5e9f0", radius: 12 } }
           ]
         },
         {
@@ -1448,11 +1522,11 @@ function pitchHud() {
           showWhile: "over",
           input: "menu",
           elements: [
-            { id: "over-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 460, h: 360, z: 0, label: "", style: PANEL },
-            { id: "over-title", kind: "text", anchor: "center", x: 0, y: -130, w: 420, h: 40, z: 1, label: "MATCH OVER", style: { size: 30, weight: "700", color: "#ffd45e", align: "center" } },
-            { id: "fb-score-over", kind: "list", anchor: "center", x: 0, y: -70, w: 420, h: 60, z: 1, label: "", rows: [], style: { size: 16, color: "#e5e9f0", align: "center" } },
-            { id: "fb-log", kind: "list", anchor: "center", x: 0, y: 20, w: 420, h: 100, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "center" } },
-            { id: "fb-new-match", kind: "button", anchor: "center", x: 0, y: 120, w: 220, h: 44, z: 1, label: "New match", enabled: true, style: BUTTON("#3b7dd8") }
+            { id: "over-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 480, h: 380, z: 0, label: "", style: PANEL },
+            { id: "over-title", kind: "text", anchor: "center", x: 0, y: -140, w: 440, h: 44, z: 1, label: "MATCH OVER", style: { size: 34, weight: "800", color: "#ffd45e", align: "center" } },
+            { id: "fb-score", kind: "list", anchor: "center", x: 0, y: -74, w: 440, h: 64, z: 1, label: "", rows: [], style: { size: 18, weight: "700", color: "#e5e9f0", align: "center", bg: "rgba(255, 255, 255, 0.05)", radius: 10 } },
+            { id: "fb-log", kind: "list", anchor: "center", x: 0, y: 20, w: 440, h: 100, z: 1, label: "", rows: [], style: { size: 12, color: "#c8d0dc", align: "center", bg: "transparent" } },
+            { id: "fb-new-match", kind: "button", anchor: "center", x: 0, y: 128, w: 260, h: 48, z: 1, label: "New match", enabled: true, style: BUTTON(GREEN_BG) }
           ]
         }
       ]

@@ -2,6 +2,8 @@
 import { pitchObjects, pitchGraph, normalizeDims, DEFAULT_DIMS, NAMES, LAMPS_PER_GATE, createCommand } from '../src/pitch.js';
 import { pitchHud } from '../src/hud.js';
 import { footballDef } from '../src/def.js';
+import { arenaObjects, arenaGraph, ARENA, NET } from '../src/arena.js';
+import { matchClock } from '../src/rules.js';
 
 /** @param {(ok: boolean, label: string) => void} check */
 export function run(check) {
@@ -66,9 +68,58 @@ export function run(check) {
 	const hud = pitchHud().scene;
 	const hudIds = new Set(hud.screens.flatMap((sc) => sc.elements.map((e) => e.id)));
 	check(hud.screens.map((sc) => sc.id).join() === 'menu,hud,pause,over', 'pitchHud: Towers\' four screens (D1 can compare)');
-	for (const id of ['fb-join-red', 'fb-join-blue', 'fb-start', 'fb-new-match', 'fb-new-match-pause', 'fb-sheet', 'fb-sheet-play', 'fb-score', 'fb-score-over', 'fb-log'])
+	for (const id of ['fb-join-red', 'fb-join-blue', 'fb-start', 'fb-new-match', 'fb-new-match-pause', 'fb-sheet', 'fb-sheet-play', 'fb-ticker', 'fb-clock', 'fb-score', 'fb-log'])
 		check(hudIds.has(id), '  HUD element ' + id + ' exists for the graph that names it');
 	const def = footballDef();
-	check(def.kind === 'game' && def.slug === 'football' && def.installModules[0] === 'football' && def.objects.length === 41 && def.graphs.scene.nodes.length > 60 && def.hud.scene.screens.length === 4 && def.physics.gravity === 0, 'footballDef: kind game, the module required, 41 objects, the def graph, four screens, zero-g');
+	check(def.kind === 'game' && def.slug === 'football' && def.installModules[0] === 'football' && def.objects.length === 42 && def.graphs.scene.nodes.length > 60 && def.hud.scene.screens.length === 4 && def.physics.gravity === 0, 'footballDef: kind game, the module required, 42 objects (the 41 of the pitch + the Arena group), the def graph, four screens, zero-g');
+
+	// ---- 30: the look ---------------------------------------------------------------------
+	const shells = objects.filter((o) => /^Wall |^Ceiling$/.test(o.name));
+	check(shells.length === 5 && shells.every((o) => o.physical && o.transmission > 0.5 && o.pick === 'through' && o.shadow === false && o.opacity < 0.25),
+		'30: the five shells are clean glass (physical + transmission), select-through, cast no shadow, and keep a faint opacity for the recipe');
+	const strip = lamps.filter((l) => l.name.startsWith('Red'));
+	check(new Set(strip.map((l) => l.pos[1])).size === 1 && strip.every((l) => Math.abs(l.pos[0]) < DEFAULT_DIMS.width / 2 - 0.1),
+		'30: each gate\'s ten lamps are ONE strip inside the pitch width');
+	check(ball.clearcoat === 1 && objects.filter((o) => o.physics?.mode === 'dynamic').length === 1, '30: the ball is lacquered (clearcoat) and still the one dynamic body');
+	check(red.physics.sensor && red.size.join() === '1.2,0.8,0.5' && Math.abs(red.pos[2] + 2.45) < 1e-9, '30: the rules geometry did not move (red sensor 1.2 x 0.8 x 0.5 at z -2.45)');
+	const arena = arenaObjects();
+	check(arena.length === 1 && arena[0].type === 'group' && arena[0].name === ARENA, 'arenaObjects: ONE top-level group (the scene gains one object)');
+	const kids = arena[0].children;
+	const slab = arena[0].physics;
+	const ys = slab?.colliderVerts?.filter((_, i) => i % 3 === 1) ?? [];
+	check(slab?.mode === 'static' && slab.collider === 'custom' && ys.length === 8 && Math.max(...ys) <= 0.02,
+		'  the group carries its OWN collider, a floor slab (top <= 0.02): the default box around the whole arena would swallow the ball');
+	check(kids.every((k) => !k.physics), '  none of the arena is a physics body (decoration never touches the rules)');
+	const floods = kids.filter((k) => k.type === 'light' && k.kind === 'spot');
+	check(floods.length >= 2 && floods.length <= 4 && floods.filter((k) => k.castShadow).length === 1, '  2-4 floodlights (spot), exactly ONE casts shadows (' + floods.length + ')');
+	const floor = kids.find((k) => k.name === 'Stadium floor');
+	const turf = kids.find((k) => k.name === 'Turf');
+	check(floor.pos[1] > 0 && turf.pos[1] > floor.pos[1] && floor.size[0] >= 40, '  a real ground ABOVE the editor grid (y 0) and the turf above it');
+	check(kids.filter((k) => k.pick === 'through').length >= 10 && turf.pick === 'through', '  the turf and markings are select-through (a click reaches the Pitch box)');
+	for (const team of ['red', 'blue']) {
+		const net = kids.find((k) => k.name === NET(team));
+		check(net?.anim === 'pulse' && net.emissive != null, '  the ' + team + ' net glows and carries a Pulse clip');
+	}
+	check(kids.some((k) => k.type === 'camera' && k.name === def.thumb.camera) && def.view?.pos && def.view?.target, '  the card camera lives in the arena group; the def has a view');
+	const ag = arenaGraph(0);
+	const plays = ag.nodes.filter((n) => n.type === 'playanim');
+	const viaDelayToPlay = plays.every((p) => ag.edges.some((e) => e.target === p.id && e.targetHandle === 'trigger' && ag.nodes.find((n) => n.id === e.source)?.type === 'delay'));
+	check(plays.length === 4 && viaDelayToPlay, 'arenaGraph: four Play Animation nodes (pulse + stop per net), each triggered THROUGH a Delay');
+	check(ag.edges.some((e) => e.source === 'evrnet' && ag.nodes.find((n) => n.id === 'evrnet').data.event === 'bluegoal'), '  a goal INTO the red gate (bluegoal) pulses the red net');
+	check(def.graphs.scene.nodes.some((n) => n.id === 'prnet') && def.graphs.scene.nodes.some((n) => n.type === 'fbvalue' && n.data.read === 'blue'), '  the def graph carries the pulse block and the scoreboard values');
+	check(def.env.exposure >= 0.9 && def.post.effects.map((e) => e.kind).join() === 'ao,tonemapping,bloom,smaa', 'the standard shell: exposure >= 0.9, post AO -> AgX -> bloom -> SMAA');
+	check(withHud.nodes.find((n) => n.type === 'fbrecords').data.clockElement === 'fb-clock' && !g.nodes.find((n) => n.type === 'fbrecords').data.clockElement, 'Records feeds the scoreboard clock in the def graph only');
+	for (const id of ['fb-red-score', 'fb-blue-score', 'fb-clock', 'fb-ticker'])
+		check(hud.screens.find((sc) => sc.id === 'hud').elements.some((e) => e.id === id), '  the scoreboard element ' + id + ' is on the HUD screen');
+	const recDef = withHud.nodes.find((n) => n.type === 'fbrecords').data;
+	check(!hud.screens.find((sc) => sc.id === 'hud').elements.some((e) => e.id === 'fb-score') && recDef.scoreElement === 'fb-score' && hud.screens.find((sc) => sc.id === 'over').elements.some((e) => e.id === 'fb-score') && recDef.tickerElement === 'fb-ticker',
+		'  the score shows ONCE in play (the board\'s numbers): the score list is on the over screen, the ticker is last touch');
+	for (const b of [NAMES.joinRed, NAMES.joinBlue, NAMES.start, NAMES.newMatch])
+		check(kids.some((k) => k.name === b + ' stand'), '  the ' + b + ' button stands on a console stand');
+	check(['left', 'right', 'red', 'blue'].every((side) => kids.filter((k) => k.name.startsWith('Stand ' + side) && !k.name.endsWith('seats')).length === 3), '  stands (three tiers) on all four sides — no void past the glass');
+	const standMin = Math.min(...kids.filter((k) => /^Stand (left|right) /.test(k.name)).map((k) => Math.abs(k.pos[0]) - k.size[0] / 2));
+	check(standMin > DEFAULT_DIMS.width / 2 + 1.5, '  ...clear of the pitch and the floodlight poles (' + standMin.toFixed(2) + ' m out)');
+	check(matchClock({ winBy: 'time', matchSeconds: 180 }, 0) === '3:00' && matchClock({ winBy: 'time', matchSeconds: 180 }, 61.2) === '1:59', 'matchClock: a timed match counts DOWN (3:00, 1:59)');
+	check(matchClock({ winBy: 'goals' }, 75.9) === '1:15' && matchClock({}, null) === '0:00', '  a goals match counts UP; no match reads 0:00');
 	check(JSON.stringify(def) === JSON.stringify(footballDef()), '  the def is deterministic (byte-identical twice)');
 }

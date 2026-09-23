@@ -282,6 +282,18 @@ export function appendMatchLog(log, entry, cap = MATCH_LOG_CAP) {
 	return list.slice(-Math.max(1, cap));
 }
 
+/**
+ * 30: the scoreboard CLOCK, `m:ss` — the time LEFT in a timed match, the time PLAYED in a
+ * goals match (counting up), `0:00` before a kick-off. `elapsed` in seconds, null = no match.
+ * @param {any} rules @param {number | null} elapsed
+ */
+export function matchClock(rules, elapsed) {
+	if (elapsed == null || !Number.isFinite(elapsed)) return '0:00';
+	const left = secondsLeft(rules, Math.max(0, elapsed));
+	const s = Math.max(0, Math.floor(left == null ? elapsed : Math.ceil(left)));
+	return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
 /** `RED 3 — 2 BLUE`, the scoreboard line @param {{red: number, blue: number}} score */
 export function scoreLine(score) {
 	return 'RED ' + (score.red ?? 0) + ' — ' + (score.blue ?? 0) + ' BLUE';
