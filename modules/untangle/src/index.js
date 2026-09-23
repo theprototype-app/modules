@@ -26,6 +26,7 @@ import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolv
 import { makeMenuKinds } from './menu.js';
 import { makeSfx } from './sfx.js';
 import { createVRDrag, pickDot, followPoint, handRay, raySphere } from './vrdrag.js';
+import { makeVRBar, barCells, CELLS, BAR_H } from './vrbar.js';
 
 const GROUP = 'untangle-module';
 /** the modes this build plays: the flat board and (P3) the globe */
@@ -133,6 +134,9 @@ export default {
 		/** @type {any} */ let globe = null;
 		/** @type {any} */ let hoverRing = null;
 		/** @type {any} */ let burst = null;
+		/** @type {any} 30b: the VR level bar (vrbar.js), rebuilt with the board */
+		let vrBar = null;
+		let barHover = -1;
 		let hovered = -1;
 		let lift = 0; // the carried dot's eased lift, 0..1
 		/** free every geometry/material a previous build made (rebuilds are per level) */
@@ -200,6 +204,12 @@ export default {
 			group.add(hoverRing);
 			burst = makeBurst(THREE);
 			group.add(burst.points, burst.wave);
+			// 30b: the level bar under the board / the globe, facing the player (VR only)
+			vrBar = makeVRBar(THREE, board.radius);
+			const below = mode === '3d' ? globeR() : board.radius;
+			vrBar.mesh.position.set(0, -below - BAR_H * board.radius * 0.5 - 0.22, mode === '3d' ? globeR() * 0.35 : 0.03);
+			vrBar.mesh.visible = false;
+			group.add(vrBar.mesh);
 			parent.add(group);
 			placeGroup();
 			// the test/debug hook (scene-root local, never serialized)
@@ -639,8 +649,43 @@ export default {
 				drop('vr-' + why);
 				sfx.haptic('bump', hand);
 			},
-			carrying: () => carried !== -1
+			carrying: () => carried !== -1,
+			onPress: (pose, hand) => {
+				const k = barUnder(pose);
+				if (k < 0) return false;
+				barAct(CELLS[k], hand);
+				return true;
+			}
 		});
+
+		// ---------- VR: the level bar (vrbar.js) ----------
+		/** a THREE ray from a hand pose */
+		const poseRay = (pose) => {
+			const r = handRay(pose);
+			const ray = new THREE.Raycaster();
+			ray.ray.origin.fromArray(r.origin);
+			ray.ray.direction.fromArray(r.dir);
+			return ray;
+		};
+		const barView = () => ({ level, mode, progress, running: roundUnderway(), shell: !shellUnused() });
+		/** a press on a bar cell: the same replicated paths as the DOM menu */
+		function barAct(id, hand) {
+			const cell = barCells(barView()).find((c) => c.id === id);
+			if (!cell?.enabled) return;
+			if (id === 'prev') selectLevel(level - 1, mode);
+			else if (id === 'next') selectLevel(level + 1, mode);
+			else if (id === 'mode') {
+				const other = mode === '3d' ? '2d' : '3d';
+				selectLevel(continueLevel(progress, other), other);
+			} else if (id === 'restart') restartLevel();
+			else if (id === 'level') fire('start'); // the template: Untangle Event (start) -> playing
+			lastBar = id;
+			sfx.play('click', worldOf(new THREE.Vector3(0, 0, 0)));
+			sfx.haptic('bump', hand);
+		}
+		let lastBar = 'none';
+		/** the bar cell under a hand's laser, or -1 */
+		const barUnder = (pose) => (vrBar?.mesh.visible && pose ? vrBar.hit(poseRay(pose)) : -1);
 
 		// Core's click: on a desktop gesture.js OWNS every press (a press on a dot never reaches
 		// core), so a module click core still dispatches there — play's crosshair TAP while the
@@ -705,6 +750,18 @@ export default {
 			const vr = vrDragOn();
 			if (vr) vrDrag.update({ left: handPose('left'), right: handPose('right') });
 			else if (vrDrag.carrier()) vrDrag.update({ left: null, right: null });
+			// the level bar: shown in VR while the board reacts; the laser's hover lights a cell
+			if (vrBar) {
+				vrBar.mesh.visible = vr && interactive();
+				barHover = -1;
+				if (vrBar.mesh.visible && carried === -1) {
+					for (const hand of ['right', 'left']) {
+						barHover = barUnder(handPose(hand));
+						if (barHover >= 0) break;
+					}
+				}
+				if (vrBar.mesh.visible) vrBar.draw(barCells(barView()), barHover);
+			}
 			// hover: the dot under the pointer — in VR the one a trigger press would grab
 			// (none while carrying, none when inert)
 			const over = carried === -1 && interactive() ? (vr ? vrDrag.candidate()?.i ?? -1 : dotUnder(ray)) : -1;
@@ -863,11 +920,12 @@ export default {
 				}
 			}
 		});
-		api.registerMenu('Restart level', () => {
+		function restartLevel() {
 			touched = true;
 			api.send({ op: 'restart', level, mode });
 			setLevel(level);
-		});
+		}
+		api.registerMenu('Restart level', restartLevel);
 		// a scene clear (applySession runs `/clear all` FIRST) resets to level 1; when a
 		// board node owns the level it applies on the next flowRuntime tick (nodeLevel is
 		// forgotten so the node's value is applied again even when it did not change)
@@ -940,6 +998,10 @@ export default {
 				vrSim = hands ?? null;
 			},
 			vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), lastHand: vrHandLast, on: vrDragOn() }),
+			/** 30b: the VR level bar — shown?, the hovered cell, the cells, the last action */
+			vrBar: () => ({ visible: !!vrBar?.mesh.visible, hover: barHover, cells: barCells(barView()), last: lastBar }),
+			/** world position of bar cell k (for the flights' aim) */
+			vrBarCell: (k) => (vrBar ? vrBar.mesh.localToWorld(vrBar.cellLocal(k)).toArray() : null),
 			/** 30b: every board sound / haptic asked for, the local voices still sounding, the music */
 			sfx: () => sfx.stats(),
 			clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),

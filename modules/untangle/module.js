@@ -1403,7 +1403,7 @@ function createVRDrag(hooks) {
           carrier = { hand, how: hit.how };
           lastEventAt = now();
           hooks.pick(hit.i, hand, hit.how);
-        }
+        } else if (pressed && hooks.onPress?.(pose, hand)) lastEventAt = now();
       }
     },
     /** the hand carrying, or null */
@@ -1415,6 +1415,104 @@ function createVRDrag(hooks) {
     reset() {
       carrier = null;
       candidate = null;
+    }
+  };
+}
+
+// modules/untangle/src/vrbar.js
+var CELLS = (
+  /** @type {const} */
+  ["prev", "level", "next", "mode", "restart"]
+);
+var WIDTHS = [0.14, 0.38, 0.14, 0.18, 0.16];
+var BAR_W = 1.8;
+var BAR_H = 0.24;
+function cellAt(u) {
+  if (!(u >= 0 && u <= 1)) return -1;
+  let edge = 0;
+  for (let k = 0; k < WIDTHS.length; k++) {
+    edge += WIDTHS[k];
+    if (u <= edge + 1e-9) return k;
+  }
+  return -1;
+}
+function cellCentre(k) {
+  let edge = 0;
+  for (let j = 0; j < k; j++) edge += WIDTHS[j];
+  return edge + WIDTHS[k] / 2;
+}
+function barCells(v) {
+  const next = v.level < MAX_LEVEL && isUnlocked(v.progress, v.mode, v.level + 1);
+  const startable = v.shell && !v.running;
+  return [
+    { id: "prev", label: "\u25C0", enabled: v.level > 1 },
+    { id: "level", label: "Level " + v.level + (startable ? "  \xB7  Start" : ""), enabled: startable },
+    { id: "next", label: "\u25B6", enabled: next },
+    { id: "mode", label: v.mode === "3d" ? "Flat" : "Globe", enabled: true },
+    { id: "restart", label: "\u21BA", enabled: true }
+  ];
+}
+function makeVRBar(THREE, radius) {
+  const w = BAR_W * radius;
+  const h = BAR_H * radius;
+  let canvas = null;
+  let texture = null;
+  if (typeof document !== "undefined") {
+    canvas = document.createElement("canvas");
+    canvas.width = 1024;
+    canvas.height = Math.round(1024 * BAR_H / BAR_W);
+    texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace ?? texture.colorSpace;
+  }
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false })
+  );
+  mesh.name = "untangle-vrbar";
+  mesh.renderOrder = 2;
+  let lastKey = "";
+  function draw(cells, hover) {
+    const key = JSON.stringify(cells) + hover;
+    if (!canvas || key === lastKey) return;
+    lastKey = key;
+    const g = canvas.getContext("2d");
+    const W = canvas.width;
+    const H = canvas.height;
+    g.clearRect(0, 0, W, H);
+    let x = 0;
+    cells.forEach((c, k) => {
+      const cw = WIDTHS[k] * W;
+      const pad = 6;
+      g.fillStyle = k === hover && c.enabled ? "rgba(251,191,36,0.92)" : c.enabled ? "rgba(30,41,59,0.9)" : "rgba(30,41,59,0.45)";
+      g.beginPath();
+      g.roundRect?.(x + pad, pad, cw - 2 * pad, H - 2 * pad, 18);
+      if (!g.roundRect) g.rect(x + pad, pad, cw - 2 * pad, H - 2 * pad);
+      g.fill();
+      g.fillStyle = k === hover && c.enabled ? "#0f172a" : c.enabled ? "#e5e9f0" : "rgba(229,233,240,0.35)";
+      g.font = "bold " + (c.id === "level" ? 44 : 52) + "px system-ui, sans-serif";
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillText(c.label, x + cw / 2, H / 2 + 2);
+      x += cw;
+    });
+    texture.needsUpdate = true;
+  }
+  return {
+    mesh,
+    draw,
+    /** the cell a world ray (THREE.Raycaster) hits, or -1 */
+    hit(raycaster) {
+      if (!mesh.visible) return -1;
+      const hits = raycaster.intersectObject(mesh, false);
+      const uv = hits[0]?.uv;
+      return uv ? cellAt(uv.x) : -1;
+    },
+    /** a cell's centre in the mesh's local frame (the flights aim at it) */
+    cellLocal: (k) => new THREE.Vector3((cellCentre(k) - 0.5) * w, 0, 0),
+    dispose() {
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      texture?.dispose();
     }
   };
 }
@@ -1498,6 +1596,8 @@ var index_default = {
     let globe = null;
     let hoverRing = null;
     let burst = null;
+    let vrBar = null;
+    let barHover = -1;
     let hovered = -1;
     let lift = 0;
     function disposeGroup(g) {
@@ -1559,6 +1659,11 @@ var index_default = {
       group.add(hoverRing);
       burst = makeBurst(THREE);
       group.add(burst.points, burst.wave);
+      vrBar = makeVRBar(THREE, board.radius);
+      const below = mode === "3d" ? globeR() : board.radius;
+      vrBar.mesh.position.set(0, -below - BAR_H * board.radius * 0.5 - 0.22, mode === "3d" ? globeR() * 0.35 : 0.03);
+      vrBar.mesh.visible = false;
+      group.add(vrBar.mesh);
       parent.add(group);
       placeGroup();
       group.userData._ut = {
@@ -1937,8 +2042,38 @@ var index_default = {
         drop("vr-" + why);
         sfx.haptic("bump", hand);
       },
-      carrying: () => carried !== -1
+      carrying: () => carried !== -1,
+      onPress: (pose, hand) => {
+        const k = barUnder(pose);
+        if (k < 0) return false;
+        barAct(CELLS[k], hand);
+        return true;
+      }
     });
+    const poseRay = (pose) => {
+      const r = handRay(pose);
+      const ray = new THREE.Raycaster();
+      ray.ray.origin.fromArray(r.origin);
+      ray.ray.direction.fromArray(r.dir);
+      return ray;
+    };
+    const barView = () => ({ level, mode, progress, running: roundUnderway(), shell: !shellUnused() });
+    function barAct(id, hand) {
+      const cell = barCells(barView()).find((c) => c.id === id);
+      if (!cell?.enabled) return;
+      if (id === "prev") selectLevel(level - 1, mode);
+      else if (id === "next") selectLevel(level + 1, mode);
+      else if (id === "mode") {
+        const other = mode === "3d" ? "2d" : "3d";
+        selectLevel(continueLevel(progress, other), other);
+      } else if (id === "restart") restartLevel();
+      else if (id === "level") fire("start");
+      lastBar = id;
+      sfx.play("click", worldOf(new THREE.Vector3(0, 0, 0)));
+      sfx.haptic("bump", hand);
+    }
+    let lastBar = "none";
+    const barUnder = (pose) => vrBar?.mesh.visible && pose ? vrBar.hit(poseRay(pose)) : -1;
     api.registerClickHandler(
       (object) => {
         const isDot = !!object?.name?.startsWith("untangle-dot-");
@@ -1985,6 +2120,17 @@ var index_default = {
       const vr = vrDragOn();
       if (vr) vrDrag.update({ left: handPose("left"), right: handPose("right") });
       else if (vrDrag.carrier()) vrDrag.update({ left: null, right: null });
+      if (vrBar) {
+        vrBar.mesh.visible = vr && interactive();
+        barHover = -1;
+        if (vrBar.mesh.visible && carried === -1) {
+          for (const hand of ["right", "left"]) {
+            barHover = barUnder(handPose(hand));
+            if (barHover >= 0) break;
+          }
+        }
+        if (vrBar.mesh.visible) vrBar.draw(barCells(barView()), barHover);
+      }
       const over = carried === -1 && interactive() ? vr ? vrDrag.candidate()?.i ?? -1 : dotUnder(ray) : -1;
       if (over !== hovered) {
         const was = hovered;
@@ -2138,11 +2284,12 @@ var index_default = {
         }
       }
     });
-    api.registerMenu("Restart level", () => {
+    function restartLevel() {
       touched = true;
       api.send({ op: "restart", level, mode });
       setLevel(level);
-    });
+    }
+    api.registerMenu("Restart level", restartLevel);
     api.onSceneClear?.(() => {
       sceneClears++;
       level = 1;
@@ -2221,6 +2368,10 @@ var index_default = {
         vrSim = hands ?? null;
       },
       vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), lastHand: vrHandLast, on: vrDragOn() }),
+      /** 30b: the VR level bar — shown?, the hovered cell, the cells, the last action */
+      vrBar: () => ({ visible: !!vrBar?.mesh.visible, hover: barHover, cells: barCells(barView()), last: lastBar }),
+      /** world position of bar cell k (for the flights' aim) */
+      vrBarCell: (k) => vrBar ? vrBar.mesh.localToWorld(vrBar.cellLocal(k)).toArray() : null,
       /** 30b: every board sound / haptic asked for, the local voices still sounding, the music */
       sfx: () => sfx.stats(),
       clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),

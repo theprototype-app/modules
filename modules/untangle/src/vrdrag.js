@@ -14,7 +14,8 @@
 //   (projected onto the board plane / the globe), a laser grab rides the ray's hit;
 // - the RELEASE drops it (an untracked hand drops too). The other hand is ignored.
 // Core's trailing `select` still reaches the click handler; index.js consumes it (a board
-// hit, or one within CONSUME_MS of a VR pick/drop) and never acts on it.
+// hit, or one within CONSUME_MS of a VR pick/drop) and never acts on it. A press that grabs
+// no dot is offered to `onPress` (the VR level bar, vrbar.js).
 
 export const TIP_AHEAD = 0.02; // the tip sphere's centre, metres ahead of the ray origin
 export const TIP_RADIUS = 0.03; // ~6 cm sphere (contract C3's tip)
@@ -147,6 +148,7 @@ export function followPoint(how, pose, surface) {
  *   follow: (pose: Pose, hand: string, how: string) => void,
  *   drop: (hand: string, why: string) => void,
  *   carrying: () => boolean,
+ *   onPress?: (pose: Pose, hand: string) => boolean,
  *   now?: () => number
  * }} hooks
  */
@@ -192,7 +194,7 @@ export function createVRDrag(hooks) {
 					carrier = { hand, how: hit.how };
 					lastEventAt = now();
 					hooks.pick(hit.i, hand, hit.how);
-				}
+				} else if (pressed && hooks.onPress?.(pose, hand)) lastEventAt = now(); // a press on something else of ours (the level bar)
 			}
 		},
 		/** the hand carrying, or null */

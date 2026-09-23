@@ -17,6 +17,11 @@
 //      dots follow it; a real mouse drag and a VR laser drag on the turned board land where
 //      aimed (the drag plane is WORLD space); a level change rebuilds the board under the
 //      rig with no orphan left behind; a scene clear takes it out of the rig
+//   M  the VR LEVEL BAR under the board, by laser: hidden on a desktop and in Edit, shown in
+//      VR Interact; the laser's hover lights a cell; a trigger press on ▶ / ◀ steps to the
+//      next / previous UNLOCKED level on both peers (a locked ▶ does nothing), the mode cell
+//      flips to the globe on both peers, ↺ restarts the level; core's trailing select on
+//      the bar is consumed
 //
 // VR EMULATION: headless Chromium has no WebXR, so `isVRMode` is set on the store (what the
 // core vr* suites do) and the controllers' WORLD poses are fed through the module's test seam
@@ -386,6 +391,76 @@ run(async () => {
 		return boards.length;
 	});
 	check(w6 === 0, 'W.6 a scene clear removes the board from under the rig (' + w6 + ' left)');
+
+	// ---- M. the VR level bar ---------------------------------------------------------------------
+	await eventually(() => state(A.page), (s) => !!s && s.built, 'M.0 (premise) the board is back after the clear');
+	await A.page.evaluate(() => window.__untangle.select(12, '2d'));
+	await eventually(() => state(B.page), (s) => s.level === 12 && s.mode === '2d', 'M.0b (premise) both peers on the flat level 12');
+	const bar = () => A.page.evaluate(() => window.__untangle.vrBar());
+	check(!(await bar()).visible, 'M.1 on a desktop the bar is hidden (the DOM menu is the selector there)');
+	await A.page.evaluate(() => window.__stores.isVRMode.set(true));
+	const mb = await boardFrame(A.page);
+	const RM = mb.c.map((v, k) => v + mb.n[k] * 1.3 + [0.1, -0.4, 0][k]);
+	const cellW = (k) => A.page.evaluate((k) => window.__untangle.vrBarCell(k), k);
+	/** aim the right laser at bar cell k and pull + release the trigger */
+	async function pressCell(k) {
+		const at = await cellW(k);
+		await setHands(A.page, { right: await aimPose(A.page, RM, at, false), left: await aimPose(A.page, mb.away, mb.c, false) });
+		await A.page.waitForTimeout(80);
+		await setHands(A.page, { right: await aimPose(A.page, RM, at, true) });
+		await A.page.waitForTimeout(80);
+		await setHands(A.page, { right: await aimPose(A.page, RM, at, false) });
+		await A.page.waitForTimeout(120);
+	}
+	await setHands(A.page, { right: await aimPose(A.page, RM, await cellW(2), false), left: await aimPose(A.page, mb.away, mb.c, false) });
+	await A.page.waitForTimeout(150);
+	const m2 = await bar();
+	check(m2.visible, 'M.2 in VR Interact the bar shows under the board');
+	check(m2.hover === 2, 'M.3 the laser on ▶ lights it (hover ' + m2.hover + ')');
+	const unlocked = await A.page.evaluate(() => window.__untangle.progress()['2d'].unlocked);
+	check(unlocked === 13 && m2.cells[2].enabled, 'M.3b (premise) level 13 is unlocked (unlocked ' + unlocked + '), so ▶ is live on 12');
+	const logM = (await sfx(A.page)).log.length;
+	await pressCell(2);
+	check((await state(A.page)).level === 13 && (await bar()).last === 'next', 'M.4 a trigger press on ▶ goes to level 13');
+	const logM2 = (await sfx(A.page)).log.slice(logM);
+	check(logM2.includes('click') && logM2.includes('haptic:bump:right'), 'M.5 the press clicks and bumps the right controller');
+	await eventually(() => state(B.page), (s) => s.level === 13, 'M.6 B follows to level 13 (the selector\'s replicated path)');
+	const consumed = await A.page.evaluate(() => {
+		let scene;
+		window.__stores.globalScene.subscribe((v) => (scene = v))();
+		return window.__stores.moduleSDK.runClickHandlers(scene.getObjectByName('untangle-vrbar'), null);
+	});
+	check(consumed, 'M.7 core\'s trailing select on the bar is consumed (never selects it)');
+	await pressCell(2);
+	check((await state(A.page)).level === 13, 'M.8 ▶ on the highest unlocked level does nothing (14 is locked)');
+	await pressCell(0);
+	check((await state(A.page)).level === 12, 'M.9 ◀ goes back to level 12');
+	await eventually(() => state(B.page), (s) => s.level === 12, 'M.10 B follows');
+	// ↺: a moved dot comes back to the level's scramble, on both peers
+	const fresh = (await state(A.page)).positions;
+	await A.page.evaluate(() => window.__untangle.move(4, [0.01, 0.02]));
+	await pressCell(4);
+	const m11 = await state(A.page);
+	check(JSON.stringify(m11.positions) === JSON.stringify(fresh) && m11.level === 12, 'M.11 ↺ restarts the level (the moved dot is back in the scramble)');
+	await eventually(() => state(B.page), (s) => JSON.stringify(s.positions) === JSON.stringify(fresh), 'M.12 B restarts too');
+	await pressCell(3);
+	const m13 = await state(A.page);
+	check(m13.mode === '3d' && m13.level === 1, 'M.13 the mode cell flips to the globe at its continue level (' + m13.mode + ' ' + m13.level + ')');
+	await eventually(() => state(B.page), (s) => s.mode === '3d' && s.level === 1, 'M.14 B flips to the globe too');
+	await A.page.waitForTimeout(150);
+	const m15 = await bar();
+	check(m15.visible && m15.cells[3].label === 'Flat', 'M.15 under the globe the bar shows, its mode cell now says Flat');
+	await pressCell(3);
+	check((await state(A.page)).mode === '2d', 'M.16 ...and flips back');
+	const hasModes2 = await A.page.evaluate(() => typeof window.__stores.objectActions?.setEditorMode === 'function');
+	if (hasModes2) {
+		await A.page.evaluate(() => window.__stores.objectActions.setEditorMode('edit'));
+		await A.page.waitForTimeout(150);
+		check(!(await bar()).visible, 'M.17 in EDIT the bar hides (the board does not react there)');
+		await A.page.evaluate(() => window.__stores.objectActions.setEditorMode('interact'));
+	}
+	await A.page.evaluate(() => window.__untangle.vrSim(null));
+	await A.page.evaluate(() => window.__stores.isVRMode.set(false));
 
 	await finish(browser);
 });

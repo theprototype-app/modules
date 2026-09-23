@@ -119,4 +119,35 @@ export function run(check) {
 	carried = -1; // dropped by another path (a level change)
 	vr.update({ left: P(false), right: P(true) });
 	check(vr.carrier() === null && events.at(-1) === 'pick:1:right:tip', 'a carry ended elsewhere is forgotten (no phantom drop, no re-pick while held)');
+
+	// ---- onPress: a press that grabs no dot is offered to the level bar
+	{
+		let t2 = 0;
+		const presses = [];
+		const hit = { value: /** @type {any} */ (null) };
+		let held = -1;
+		const m = createVRDrag({
+			canPick: () => true,
+			pickAt: () => hit.value,
+			pick: (i) => (held = i),
+			follow: () => {},
+			drop: () => (held = -1),
+			carrying: () => held !== -1,
+			onPress: (p, h) => (presses.push(h), true),
+			now: () => t2
+		});
+		m.update({ left: null, right: P(false) });
+		m.update({ left: null, right: P(true) });
+		check(presses.join() === 'right' && m.recent(), 'a press on no dot goes to onPress, and its trailing select counts as ours (recent)');
+		m.update({ left: null, right: P(true) });
+		check(presses.length === 1, 'a HELD trigger offers nothing more (a press is an edge)');
+		m.update({ left: null, right: P(false) });
+		hit.value = { i: 2, how: 'laser' };
+		m.update({ left: null, right: P(true) });
+		check(held === 2 && presses.length === 1, 'a press that grabs a dot never reaches onPress');
+		m.update({ left: P(false), right: P(true) });
+		hit.value = null;
+		m.update({ left: P(true), right: P(true) });
+		check(presses.length === 1, 'mid-carry the other hand\'s press reaches nothing');
+	}
 }
