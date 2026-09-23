@@ -14,6 +14,11 @@ import { registerToolbox } from './toolbox.js';
 import { arenaHud, hudGraph } from './hud.js';
 import { DEFAULTS } from './curve.js';
 import { registerFx } from './fx.js';
+import { registerStart } from './start.js';
+
+/** 30b: the module's own scene-root group — the headset board, later the gun and the shots.
+ * LOCAL content: never in objectsGroup, never saved, never sent. */
+export const ROOT = 'waves-module';
 
 export default {
 	id: 'waves',
@@ -32,6 +37,16 @@ export default {
 		registerNodes(api, engine);
 		const fx = registerFx(api, engine);
 		const toolbox = registerToolbox(api, engine);
+
+		const root = new api.THREE.Group();
+		root.name = ROOT;
+		// attached on first sight of the scene (a module may register before it exists); if core
+		// re-parents it (30b C1 hangs module content on the world rig) it is left where it is
+		api.registerFrameTask(() => {
+			if (!root.parent) api.scene()?.add(root);
+		});
+		api.registerSystemGroup?.(ROOT);
+		const start = registerStart(api, root);
 
 		api.hud.registerDebugLine(() => {
 			const runs = engine.all();
@@ -67,6 +82,8 @@ export default {
 				engine,
 				fx,
 				toolbox,
+				start,
+				root,
 				hud: arenaHud,
 				hudGraph,
 				snapshot: () =>

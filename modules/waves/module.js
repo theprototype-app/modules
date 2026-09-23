@@ -322,7 +322,6 @@ function createWavesEngine(api) {
       state.set(node.id, s);
       edges(s, firstSight);
       healSweep(s);
-      moveSweep(s);
     }
     for (const id of [...state.keys()])
       if (!live.has(id)) {
@@ -341,12 +340,18 @@ function createWavesEngine(api) {
   let lastSweep = -1;
   api.registerFrameTask(() => {
     const t = performance.now() / 1e3;
-    if (t - lastSweep < SWEEP) return;
-    lastSweep = t;
+    if (t - lastSweep >= SWEEP) {
+      lastSweep = t;
+      try {
+        sweep();
+      } catch (error) {
+        console.warn("[waves] sweep failed", error);
+      }
+    }
     try {
-      sweep();
+      for (const s of state.values()) moveSweep(s);
     } catch (error) {
-      console.warn("[waves] sweep failed", error);
+      console.warn("[waves] walk failed", error);
     }
   });
   function read(name) {
@@ -887,7 +892,251 @@ function registerFx(api, engine) {
   return { flashes };
 }
 
+// modules/waves/src/board.js
+var W = 1.6;
+var H = 0.9;
+var PX = 640;
+function createBoard(api) {
+  const THREE = api.THREE;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(W * PX);
+  canvas.height = Math.round(H * PX);
+  const ctx = (
+    /** @type {CanvasRenderingContext2D} */
+    canvas.getContext("2d")
+  );
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false, depthWrite: false, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(W, H), material);
+  mesh.name = "Waves board face";
+  mesh.renderOrder = 10;
+  const group = new THREE.Group();
+  group.name = "Waves board";
+  group.visible = false;
+  group.add(mesh);
+  let key = "";
+  function draw(card) {
+    const next = JSON.stringify(card);
+    if (next === key) return;
+    key = next;
+    const w = canvas.width;
+    const h = canvas.height;
+    const accent = card.color ?? "#ff9c6b";
+    ctx.clearRect(0, 0, w, h);
+    roundRect(ctx, 8, 8, w - 16, h - 16, 44);
+    ctx.fillStyle = "rgba(22, 18, 28, 0.9)";
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "rgba(255, 140, 100, 0.55)";
+    ctx.stroke();
+    ctx.fillStyle = accent;
+    roundRect(ctx, 8, 8, w - 16, 18, 9);
+    ctx.fill();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = accent;
+    ctx.font = "800 112px system-ui, sans-serif";
+    ctx.fillText(card.title, w / 2, 120);
+    ctx.fillStyle = "#efe6e6";
+    ctx.font = "500 36px system-ui, sans-serif";
+    (card.lines ?? []).slice(0, 4).forEach((line, i) => ctx.fillText(line, w / 2, 222 + i * 50));
+    if (card.button) {
+      const bw = w * 0.62;
+      const bh = 104;
+      const bx = (w - bw) / 2;
+      const by = h - bh - 44;
+      roundRect(ctx, bx, by, bw, bh, 30);
+      ctx.fillStyle = "#d9533f";
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#ffd0c0";
+      ctx.stroke();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "800 50px system-ui, sans-serif";
+      ctx.fillText(card.button, w / 2, by + bh / 2 + 2);
+    }
+    texture.needsUpdate = true;
+  }
+  const _m = new THREE.Matrix4();
+  const _p = new THREE.Vector3();
+  const _q = new THREE.Quaternion();
+  const _s = new THREE.Vector3();
+  function placeFacing(at, yaw) {
+    const world = new THREE.Matrix4().compose(new THREE.Vector3(at[0], at[1], at[2]), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1));
+    const parent = group.parent;
+    if (parent) {
+      parent.updateMatrixWorld?.(true);
+      _m.copy(parent.matrixWorld).invert().multiply(world);
+    } else _m.copy(world);
+    _m.decompose(_p, _q, _s);
+    group.position.copy(_p);
+    group.quaternion.copy(_q);
+    group.scale.copy(_s);
+    group.updateMatrixWorld(true);
+  }
+  function rect() {
+    group.updateMatrixWorld(true);
+    const center = new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld);
+    const normal = new THREE.Vector3(0, 0, 1).transformDirection(mesh.matrixWorld);
+    const right = new THREE.Vector3(1, 0, 0).transformDirection(mesh.matrixWorld);
+    const scale = new THREE.Vector3().setFromMatrixScale(mesh.matrixWorld);
+    return { center: center.toArray(), normal: normal.toArray(), right: right.toArray(), w: W * scale.x, h: H * scale.y };
+  }
+  return {
+    group,
+    rect,
+    draw,
+    placeFacing,
+    show: (on) => {
+      group.visible = !!on;
+    },
+    visible: () => group.visible,
+    dispose: () => {
+      group.parent?.remove(group);
+      mesh.geometry.dispose();
+      material.dispose();
+      texture.dispose();
+    }
+  };
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// modules/waves/src/vr.js
+function rotate(q, v) {
+  const [qx, qy, qz, qw] = q;
+  const [vx, vy, vz] = v;
+  const tx = 2 * (qy * vz - qz * vy);
+  const ty = 2 * (qz * vx - qx * vz);
+  const tz = 2 * (qx * vy - qy * vx);
+  return [vx + qw * tx + (qy * tz - qz * ty), vy + qw * ty + (qz * tx - qx * tz), vz + qw * tz + (qx * ty - qy * tx)];
+}
+function aimRay(hand) {
+  return { origin: hand.position.slice(0, 3), dir: rotate(hand.quaternion, [0, 0, -1]) };
+}
+function yawOf(dir) {
+  return Math.atan2(-dir[0], -dir[2]);
+}
+function rayRect(ray, rect) {
+  const d = ray.dir;
+  const n = rect.normal;
+  const denom = d[0] * n[0] + d[1] * n[1] + d[2] * n[2];
+  if (Math.abs(denom) < 1e-6) return null;
+  const o = ray.origin;
+  const c = rect.center;
+  const t = ((c[0] - o[0]) * n[0] + (c[1] - o[1]) * n[1] + (c[2] - o[2]) * n[2]) / denom;
+  if (!(t > 0)) return null;
+  const p = [o[0] + d[0] * t - c[0], o[1] + d[1] * t - c[1], o[2] + d[2] * t - c[2]];
+  const r = rect.right;
+  const up = [n[1] * r[2] - n[2] * r[1], n[2] * r[0] - n[0] * r[2], n[0] * r[1] - n[1] * r[0]];
+  const u = (p[0] * r[0] + p[1] * r[1] + p[2] * r[2]) / rect.w;
+  const v = (p[0] * up[0] + p[1] * up[1] + p[2] * up[2]) / rect.h;
+  if (Math.abs(u) > 0.5 || Math.abs(v) > 0.5) return null;
+  return { t, u, v };
+}
+function createEdges() {
+  const prev = /* @__PURE__ */ new Map();
+  return {
+    /** @param {string} key @param {boolean} down */
+    edge(key, down) {
+      const was = prev.get(key) === true;
+      prev.set(key, !!down);
+      return !!down && !was;
+    },
+    /** @param {string} key @param {boolean} down  true on the frame `down` goes false */
+    release(key, down) {
+      const was = prev.get(key) === true;
+      prev.set(key, !!down);
+      return !down && was;
+    },
+    clear() {
+      prev.clear();
+    }
+  };
+}
+function inGame(api) {
+  if (api.isPlaying?.()) return true;
+  return typeof api.editorMode === "function" && api.editorMode() === "interact";
+}
+
+// modules/waves/src/start.js
+var START_ELEMENT = "wv-start";
+var DISTANCE = 2.4;
+var DEBOUNCE = 1.2;
+function registerStart(api, root) {
+  const board = createBoard(api);
+  root.add(board.group);
+  const edges = createEdges();
+  let pressedAt = -Infinity;
+  let placed = false;
+  const hands = () => ["right", "left"].map((hand) => ({ hand, snap: api.vrHand?.(hand) ?? null }));
+  const hasStart = () => api.flow.nodes("hudbutton").some((n) => String(n.data?.element ?? "") === START_ELEMENT);
+  function press() {
+    const t = performance.now() / 1e3;
+    if (t - pressedAt < DEBOUNCE) return false;
+    pressedAt = t;
+    api.fireNodeTrigger("hudbutton", (d) => String(d?.element ?? "") === START_ELEMENT);
+    api.hapticPattern ? api.hapticPattern("success") : api.haptic?.(0.6, 80);
+    api.playSound?.(api.music ? "portal" : "ding");
+    return true;
+  }
+  function place() {
+    const head = api.playerPosition?.() ?? [0, 1.6, 0];
+    const tracked = hands().filter((h) => h.snap?.position && h.snap?.quaternion);
+    let yaw = 0;
+    if (tracked.length) {
+      const d = aimRay(
+        /** @type {any} */
+        tracked[0].snap
+      ).dir;
+      yaw = yawOf([d[0], 0, d[2]]);
+    }
+    const at = [head[0] - Math.sin(yaw) * DISTANCE, head[1] + 0.15, head[2] - Math.cos(yaw) * DISTANCE];
+    board.placeFacing(at, yaw);
+    placed = true;
+  }
+  const running = () => {
+    const cutoff = api.game.roundCutoff();
+    return typeof cutoff === "number" && Number.isFinite(cutoff) && api.game.roundUnderway();
+  };
+  function frame() {
+    const want = !!api.isVR?.() && inGame(api) && !running() && hasStart();
+    if (!want) {
+      if (board.visible()) board.show(false);
+      placed = false;
+      edges.clear();
+      return;
+    }
+    board.draw({ title: "WAVES", lines: ["Hold the crystal against the waves.", "Aim a controller here and pull the trigger."], button: "SHOOT TO START" });
+    if (!placed) place();
+    board.show(true);
+    const rect = board.rect();
+    for (const { hand, snap } of hands()) {
+      if (!snap?.position || !snap?.quaternion) continue;
+      const pulled = edges.edge("trigger-" + hand, !!snap.trigger);
+      if (pulled && rayRect(aimRay(snap), rect)) press();
+    }
+  }
+  api.registerFrameTask(() => {
+    try {
+      frame();
+    } catch (error) {
+      console.warn("[waves] start board failed", error);
+    }
+  });
+  return { board, press, hasStart, visible: () => board.visible() };
+}
+
 // modules/waves/src/index.js
+var ROOT = "waves-module";
 var index_default = {
   id: "waves",
   name: "Waves",
@@ -903,6 +1152,13 @@ var index_default = {
     registerNodes(api, engine);
     const fx = registerFx(api, engine);
     const toolbox = registerToolbox(api, engine);
+    const root = new api.THREE.Group();
+    root.name = ROOT;
+    api.registerFrameTask(() => {
+      if (!root.parent) api.scene()?.add(root);
+    });
+    api.registerSystemGroup?.(ROOT);
+    const start = registerStart(api, root);
     api.hud.registerDebugLine(() => {
       const runs = engine.all();
       if (!runs.length) return null;
@@ -933,6 +1189,8 @@ var index_default = {
         engine,
         fx,
         toolbox,
+        start,
+        root,
         hud: arenaHud,
         hudGraph,
         snapshot: () => engine.all().map((s) => ({
@@ -956,5 +1214,6 @@ var index_default = {
   }
 };
 export {
+  ROOT,
   index_default as default
 };

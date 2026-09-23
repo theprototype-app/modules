@@ -3,6 +3,7 @@
 import { run as curveTests } from './curve.test.mjs';
 import { run as recipeTests } from './recipe.test.mjs';
 import { run as lookTests } from './look.test.mjs';
+import { run as vrTests } from './vr.test.mjs';
 
 let failures = 0;
 function check(ok, label) {
@@ -15,5 +16,7 @@ console.log('\n=== recipe.test.mjs ===');
 recipeTests(check);
 console.log('\n=== look.test.mjs ===');
 lookTests(check);
+console.log('\n=== vr.test.mjs ===');
+vrTests(check);
 console.log('\n' + (failures === 0 ? 'ALL PASS' : failures + ' FAILURES'));
 process.exit(failures === 0 ? 0 : 1);

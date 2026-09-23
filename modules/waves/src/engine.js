@@ -300,7 +300,6 @@ export function createWavesEngine(api) {
 			state.set(node.id, s);
 			edges(s, firstSight);
 			healSweep(s);
-			moveSweep(s);
 		}
 		for (const id of [...state.keys()])
 			if (!live.has(id)) {
@@ -318,15 +317,25 @@ export function createWavesEngine(api) {
 		for (const fn of listeners) fn();
 	}
 
+	// 30b P0: the DERIVATION runs at 10 Hz, the WALK every frame. Placing the enemies only on
+	// the 10 Hz tick moved them in 15 cm hops — a stutter nobody reads as walking, least of all
+	// at a headset's 72-90 Hz. The position is a pure function of the clock, so placing it every
+	// frame from the last derivation costs one lerp per enemy and changes no peer's answer.
 	let lastSweep = -1;
 	api.registerFrameTask(() => {
 		const t = performance.now() / 1000;
-		if (t - lastSweep < SWEEP) return;
-		lastSweep = t;
+		if (t - lastSweep >= SWEEP) {
+			lastSweep = t;
+			try {
+				sweep();
+			} catch (error) {
+				console.warn('[waves] sweep failed', error);
+			}
+		}
 		try {
-			sweep();
+			for (const s of state.values()) moveSweep(s);
 		} catch (error) {
-			console.warn('[waves] sweep failed', error);
+			console.warn('[waves] walk failed', error);
 		}
 	});
 
