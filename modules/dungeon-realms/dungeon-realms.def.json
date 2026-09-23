@@ -14,11 +14,11 @@
 	"modules": [
 		{
 			"id": "dungeon",
-			"version": "2.1.0"
+			"version": "2.2.0"
 		},
 		{
 			"id": "dungeon-realms",
-			"version": "2.1.0"
+			"version": "2.2.0"
 		}
 	],
 	"installModules": [
@@ -1416,7 +1416,7 @@
 							"w": 412,
 							"h": 20,
 							"z": 1,
-							"label": "WASD walk  ·  walk over gems  ·  P pauses  ·  ↑↓ + Enter work too",
+							"label": "WASD / left stick walk  ·  walk over gems  ·  P pauses  ·  ↑↓ + Enter work too",
 							"style": {
 								"size": 11,
 								"color": "#64748b",
@@ -1596,7 +1596,7 @@
 							"w": 560,
 							"h": 20,
 							"z": 1,
-							"label": "WASD walk · walk over gems · stand on the unsealed portal together · P pauses",
+							"label": "WASD / left stick walk · walk over gems · stand on the unsealed portal together · P pauses",
 							"style": {
 								"size": 11,
 								"color": "#c8d0dc",

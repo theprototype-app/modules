@@ -19,7 +19,7 @@ import { hash32 } from './hash.js';
 export default {
 	id: 'dungeon-realms',
 	name: 'Dungeon Realms',
-	version: '2.1.0',
+	version: '2.2.0',
 	description:
 		'Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors — every rule and readout a flow node. Requires the "dungeon" (Dungeon Kit) module.',
 

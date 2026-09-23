@@ -190,7 +190,7 @@ export function realmsHud() {
 						button('dr-start', 0, 32, 412, 52, 'Start adventure', { ...BUTTON('#0ea5e9'), size: 18, weight: '700' }),
 						button('dr-new-dungeon', 0, 94, 412, 40, 'New dungeon 🎲', { size: 14, weight: '500', bg: '#2a3242', color: '#e5e9f0', radius: 10 }),
 						{ id: 'dr-menu-players', kind: 'list', anchor: 'center', x: 0, y: 146, w: 412, h: 44, z: 1, label: '', rows: [], rowHeight: 18, style: { size: 12, color: '#86efac', align: 'left', bg: 'transparent', pad: 0 } },
-						text('menu-hint', 0, 192, 412, 20, 'WASD walk  ·  walk over gems  ·  P pauses  ·  ↑↓ + Enter work too', { size: 11, color: '#64748b', align: 'left' })
+						text('menu-hint', 0, 192, 412, 20, 'WASD / left stick walk  ·  walk over gems  ·  P pauses  ·  ↑↓ + Enter work too', { size: 11, color: '#64748b', align: 'left' })
 					]
 				},
 				{
@@ -209,7 +209,7 @@ export function realmsHud() {
 						{ id: 'dr-objective', kind: 'list', anchor: 'top-left', x: 22, y: 80, w: 280, h: 20, z: 1, label: '', rows: [], rowHeight: 18, style: { size: 12, weight: '600', color: '#86efac', align: 'left', bg: 'transparent', pad: 0 } },
 						{ id: 'dr-players', kind: 'list', anchor: 'top-left', x: 22, y: 100, w: 280, h: 20, z: 1, label: '', rows: [], rowHeight: 18, style: { size: 11, color: '#c8d0dc', align: 'left', bg: 'transparent', pad: 0 } },
 						{ id: 'dr-taken', kind: 'text', anchor: 'top-left', x: 28, y: 122, w: 270, h: 18, z: 1, label: '0 gems taken', style: { size: 11, color: '#7c8698', align: 'left' } },
-						{ id: 'play-hint', kind: 'text', anchor: 'bottom-center', x: 0, y: 12, w: 560, h: 20, z: 1, label: 'WASD walk · walk over gems · stand on the unsealed portal together · P pauses', style: { size: 11, color: '#c8d0dc', align: 'center' } }
+						{ id: 'play-hint', kind: 'text', anchor: 'bottom-center', x: 0, y: 12, w: 560, h: 20, z: 1, label: 'WASD / left stick walk · walk over gems · stand on the unsealed portal together · P pauses', style: { size: 11, color: '#c8d0dc', align: 'center' } }
 					]
 				},
 				{
@@ -253,7 +253,7 @@ export function realmsDef(entrance) {
 		license: 'CC0-1.0',
 		author: 'theprototype',
 		tags: ['co-op', 'procedural', 'vr', 'dungeon'],
-		modules: [{ id: 'dungeon', version: '2.1.0' }, { id: 'dungeon-realms', version: '2.1.0' }],
+		modules: [{ id: 'dungeon', version: '2.2.0' }, { id: 'dungeon-realms', version: '2.2.0' }],
 		installModules: ['dungeon', 'dungeon-realms'],
 		// 30: a custom dusk — a violet gradient sky, fog that turns far corridors to depth, a cool
 		// moon and a warm-floored sky fill so the stone reads; torches, gems and portals glow

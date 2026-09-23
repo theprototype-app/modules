@@ -60,8 +60,8 @@
 	{
 		"id": "dungeon",
 		"name": "Dungeon Kit",
-		"version": "2.1.0",
-		"description": "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) rendered as torch-lit stone — glowing, flickering flames, a capped light budget that favours the entrance hall — with a toolbox, a Dungeon node and the userData.play contract the app walks in play mode. The playable game is Dungeon Realms.",
+		"version": "2.2.0",
+		"description": "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) rendered as torch-lit stone — every torch glows, throws a halo and a pool and lights the stone around it, the real lights follow you — with a toolbox, a Dungeon node and the userData.play contract the app walks (and collides with) in play mode. The playable game is Dungeon Realms.",
 		"author": "theprototype-app",
 		"source": "modules/dungeon",
 		"zip": "dungeon.zip",
@@ -75,8 +75,8 @@
 	{
 		"id": "dungeon-realms",
 		"name": "Dungeon Realms",
-		"version": "2.1.0",
-		"description": "Co-op dungeon crawl on the Dungeon Kit: explore five torch-lit floors under a dusk sky, collect glowing gems to unseal the portal, stand on it together and climb to the dragon's hoard. A clickable start menu (mouse, keys or gamepad), pause and victory screens - every rule and readout a flow node. Requires the dungeon (Dungeon Kit) module.",
+		"version": "2.2.0",
+		"description": "Co-op dungeon crawl on the Dungeon Kit: walk five torch-lit floors (no clipping through walls), collect glowing gems to unseal the portal, stand on it together and climb to the dragon's hoard. Footsteps, gem chimes and sparkles, a portal that sings, a Floor banner, dungeon music and haptics in VR. A clickable start menu (mouse, keys, gamepad or VR laser), pause and victory screens - every rule and readout a flow node. Requires the dungeon (Dungeon Kit) module.",
 		"author": "theprototype-app",
 		"source": "modules/dungeon-realms",
 		"zip": "dungeon-realms.zip",

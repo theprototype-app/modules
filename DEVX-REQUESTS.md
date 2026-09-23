@@ -479,6 +479,11 @@ outside play), local only, the same house rule as `flyTo`.
 **Meanwhile:** `respawnAt` works in the editor; in play the player comes back at full where
 they died.
 
+**30b (being answered by core lane 30b-vr-modes, C1 — not merged yet):** `api.setSpawn([x, y, z], yaw,
+{teleport?})` (feet + three.js yaw; `teleport` moves the player now while Interact/Play is on,
+otherwise it is the checkpoint used on entering them) and `api.respawnPlayer()`. Dungeon Realms
+2.2.0 feature-detects it: each floor's start, a move on Start and on a new floor.
+
 ## 24. Live values are ~6 Hz, and a pulse's count cannot be read back synchronously
 
 **Found in:** `modules/health` (kill credit), `modules/waves` (heals into the next wave).
