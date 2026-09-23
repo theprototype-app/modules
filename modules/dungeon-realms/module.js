@@ -577,6 +577,10 @@ function createGame(api) {
   }
   function start(broadcast = true) {
     if (state.seed == null || state.started) return;
+    if (broadcast && !Object.values(state.slots).some((s) => s?.peerId === me())) {
+      const free = ["p1", "p2"].find((slot) => !state.slots[slot]);
+      if (free) claimSlot(free);
+    }
     state.started = true;
     state.startedAt = api.now();
     state.wonAt = 0;
@@ -978,7 +982,7 @@ function registerNodes(api, game) {
     const { total, need, have } = game.gemTotals();
     const level = p ? "LEVEL " + s.floorIndex + " / " + s.levelCount + " \xB7 " + p.name : "no dungeon";
     const gems = have + " / " + need + " needed \xB7 " + total + " hidden";
-    const players = ["p1", "p2"].filter((slot) => s.slots[slot]).map((slot) => slot.toUpperCase() + " " + s.slots[slot].name + (s.slots[slot].peerId === (api.peerId() ?? "me") ? " (you)" : ""));
+    const players = ["p1", "p2"].filter((slot) => s.slots[slot]).map((slot) => slot.toUpperCase() + " \u2014 " + (s.slots[slot].peerId === (api.peerId() ?? "me") ? "you" : s.slots[slot].name));
     const props = Object.entries(game.config.props).filter(([, def]) => def.showInHud).map(([name, def]) => name + ": " + (s.propValues[name] ?? def.initial ?? 0));
     if (show === "objective") return p ? [game.objective()] : [];
     if (show === "players") return players;

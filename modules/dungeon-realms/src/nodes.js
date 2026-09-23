@@ -186,7 +186,8 @@ export function registerNodes(api, game) {
 		const gems = have + ' / ' + need + ' needed · ' + total + ' hidden';
 		const players = ['p1', 'p2']
 			.filter((slot) => s.slots[slot])
-			.map((slot) => slot.toUpperCase() + ' ' + s.slots[slot].name + (s.slots[slot].peerId === (api.peerId() ?? 'me') ? ' (you)' : ''));
+			// P4: "P1 — you", not "P1 you (you)" (a slot's name for your own peer is already "you")
+			.map((slot) => slot.toUpperCase() + ' — ' + (s.slots[slot].peerId === (api.peerId() ?? 'me') ? 'you' : s.slots[slot].name));
 		const props = Object.entries(game.config.props)
 			.filter(([, def]) => def.showInHud)
 			.map(([name, def]) => name + ': ' + (s.propValues[name] ?? def.initial ?? 0));

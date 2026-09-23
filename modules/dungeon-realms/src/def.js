@@ -45,13 +45,14 @@ export function archObjects(entrance) {
 	return [
 		// the plinth: a flat slab the Object Selector targets (module effect nodes run wired)
 		{ type: 'box', name: NAMES.plinth, color: 0x4a4f5c, roughness: 0.9, size: [2.8, 0.12, 2.8], pos: [x, 0.06, z] },
-		{ type: 'box', name: NAMES.left, color: stone, roughness: 0.85, size: [0.36, 3, 0.36], pos: [x - 1.1, 1.5, z] },
-		{ type: 'box', name: NAMES.right, color: stone, roughness: 0.85, size: [0.36, 3, 0.36], pos: [x + 1.1, 1.5, z] },
-		{ type: 'box', name: NAMES.lintel, color: stone, roughness: 0.85, size: [2.6, 0.36, 0.5], pos: [x, 3.18, z] },
-		// 30: the lantern throws the kit's `sparkles` particles (one emitter) — the entrance reads
-		// as the way in from across the hall
-		{ type: 'sphere', name: NAMES.lantern, color: glow, emissive: glow, emissiveIntensity: 2.4, r: 0.16, pos: [x, 2.75, z], shadow: false, particles: 'sparkles' },
-		{ type: 'light', name: NAMES.light, color: glow, intensity: 9, distance: 10, pos: [x, 2.6, z] },
+		// P4: the arch stands UNDER the Kit's vault (2.32 m) — at 3.2 m its lintel vanished into it
+		{ type: 'box', name: NAMES.left, color: stone, roughness: 0.85, size: [0.36, 2, 0.36], pos: [x - 1.1, 1, z] },
+		{ type: 'box', name: NAMES.right, color: stone, roughness: 0.85, size: [0.36, 2, 0.36], pos: [x + 1.1, 1, z] },
+		{ type: 'box', name: NAMES.lintel, color: stone, roughness: 0.85, size: [2.6, 0.26, 0.5], pos: [x, 2.13, z] },
+		// 30: the lantern throws the kit's `sparkles` particles (one emitter, P4: a small, slow halo
+		// — the full preset sprayed star sprites across the spawn's view)
+		{ type: 'sphere', name: NAMES.lantern, color: glow, emissive: glow, emissiveIntensity: 2.4, r: 0.14, pos: [x, 1.78, z], shadow: false, particles: { preset: 'sparkles', count: 26, radius: 0.16, speed: 0.12, sizeStart: 0.035, sizeEnd: 0.01, lifetime: 1.1 } },
+		{ type: 'light', name: NAMES.light, color: glow, intensity: 6, distance: 8, pos: [x, 1.7, z] },
 		// 30: the ground the dungeon stands on — the TEMPLATE's (the Kit's tiles top at +0.015, this
 		// sits between them and the editor grid at 0; a ground inside the Kit's own group stalled
 		// a third peer's page in the Kit's flight). Select-through: a click lands on the level
@@ -198,15 +199,16 @@ export function realmsHud() {
 					showWhile: 'playing',
 					input: 'game',
 					elements: [
-						{ id: 'hud-panel', kind: 'panel', anchor: 'top-left', x: 16, y: 64, w: 300, h: 150, z: 0, label: '', style: PANEL },
-						{ id: 'dr-gems', kind: 'text', anchor: 'top-left', x: 28, y: 72, w: 60, h: 34, z: 1, label: '0', style: { size: 26, weight: '700', color: '#39e0c0', align: 'left' } },
-						{ id: 'dr-need', kind: 'text', anchor: 'top-left', x: 88, y: 82, w: 220, h: 22, z: 1, label: '/ 0 needed', style: { size: 13, color: '#94a3b8', align: 'left' } },
-						{ id: 'dr-level', kind: 'text', anchor: 'top-left', x: 28, y: 110, w: 110, h: 20, z: 1, label: 'LEVEL 1', style: { size: 12, weight: '600', color: '#a5b4fc', align: 'left' } },
-						{ id: 'dr-levels', kind: 'text', anchor: 'top-left', x: 118, y: 110, w: 60, h: 20, z: 1, label: '/ 5', style: { size: 12, color: '#a5b4fc', align: 'left' } },
-						{ id: 'dr-player-count', kind: 'text', anchor: 'top-left', x: 180, y: 110, w: 130, h: 20, z: 1, label: '0 in the party', style: { size: 12, color: '#94a3b8', align: 'left' } },
-						{ id: 'dr-players', kind: 'list', anchor: 'top-left', x: 28, y: 134, w: 280, h: 34, z: 1, label: '', rows: [], style: { size: 11, color: '#c8d0dc', align: 'left', bg: 'transparent' } },
-						{ id: 'dr-objective', kind: 'list', anchor: 'top-left', x: 28, y: 170, w: 280, h: 36, z: 1, label: '', rows: [], style: { size: 12, color: '#86efac', align: 'left', bg: 'transparent' } },
-						{ id: 'dr-taken', kind: 'text', anchor: 'top-right', x: 16, y: 64, w: 200, h: 24, z: 1, label: '0 gems taken', style: { size: 12, color: '#c8d0dc', align: 'right' } },
+						// P4: one compact card, no gaps, nothing floating in a corner
+						{ id: 'hud-panel', kind: 'panel', anchor: 'top-left', x: 16, y: 16, w: 290, h: 132, z: 0, label: '', style: PANEL },
+						{ id: 'dr-gems', kind: 'text', anchor: 'top-left', x: 28, y: 22, w: 44, h: 34, z: 1, label: '0', style: { size: 26, weight: '800', color: '#39e0c0', align: 'left' } },
+						{ id: 'dr-need', kind: 'text', anchor: 'top-left', x: 66, y: 32, w: 150, h: 20, z: 1, label: '/ 0 needed', style: { size: 13, color: '#94a3b8', align: 'left' } },
+						{ id: 'dr-level', kind: 'text', anchor: 'top-left', x: 28, y: 58, w: 56, h: 18, z: 1, label: 'LEVEL 1', style: { size: 12, weight: '700', color: '#a5b4fc', align: 'left' } },
+						{ id: 'dr-levels', kind: 'text', anchor: 'top-left', x: 82, y: 58, w: 30, h: 18, z: 1, label: '/ 5', style: { size: 12, weight: '700', color: '#a5b4fc', align: 'left' } },
+						{ id: 'dr-player-count', kind: 'text', anchor: 'top-left', x: 120, y: 58, w: 180, h: 18, z: 1, label: '0 in the party', style: { size: 12, color: '#94a3b8', align: 'left' } },
+						{ id: 'dr-objective', kind: 'list', anchor: 'top-left', x: 22, y: 80, w: 280, h: 20, z: 1, label: '', rows: [], rowHeight: 18, style: { size: 12, weight: '600', color: '#86efac', align: 'left', bg: 'transparent', pad: 0 } },
+						{ id: 'dr-players', kind: 'list', anchor: 'top-left', x: 22, y: 100, w: 280, h: 20, z: 1, label: '', rows: [], rowHeight: 18, style: { size: 11, color: '#c8d0dc', align: 'left', bg: 'transparent', pad: 0 } },
+						{ id: 'dr-taken', kind: 'text', anchor: 'top-left', x: 28, y: 122, w: 270, h: 18, z: 1, label: '0 gems taken', style: { size: 11, color: '#7c8698', align: 'left' } },
 						{ id: 'play-hint', kind: 'text', anchor: 'bottom-center', x: 0, y: 12, w: 560, h: 20, z: 1, label: 'WASD walk · walk over gems · stand on the unsealed portal together · P pauses', style: { size: 11, color: '#c8d0dc', align: 'center' } }
 					]
 				},
@@ -258,12 +260,14 @@ export function realmsDef(entrance) {
 		env: {
 			preset: 'custom',
 			base: 'night',
-			exposure: 1.3,
+			// P4: INSIDE a dungeon — a dark ambient, a close fog that swallows the far corridors,
+			// no sun (the Kit's vault closes the sky in play); the torches make the light pools
+			exposure: 1.25,
 			background: { top: '#0d1430', bottom: '#4a3350' },
-			fog: { color: '#2e2438', near: 18, far: 64 },
+			fog: { color: '#0e0b10', near: 6, far: 30 },
 			ground: { color: '#2a2530', roughness: 1 },
-			sun: { color: '#b8c6ff', intensity: 1, dir: [0.35, 0.8, 0.25] },
-			hemi: { sky: '#a4acd8', ground: '#7a5c40', intensity: 2.4 }
+			sun: null,
+			hemi: { sky: '#4a4f6e', ground: '#5a4030', intensity: 0.9 }
 		},
 		// the dungeon is WALKED on its own raster: click interaction, grounded, no sim
 		physics: { play: { interaction: 'click', grounded: true, simOnPlay: false } },

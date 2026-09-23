@@ -28,33 +28,25 @@
 	"env": {
 		"preset": "custom",
 		"base": "night",
-		"exposure": 1.3,
+		"exposure": 1.25,
 		"background": {
 			"top": "#0d1430",
 			"bottom": "#4a3350"
 		},
 		"fog": {
-			"color": "#2e2438",
-			"near": 18,
-			"far": 64
+			"color": "#0e0b10",
+			"near": 6,
+			"far": 30
 		},
 		"ground": {
 			"color": "#2a2530",
 			"roughness": 1
 		},
-		"sun": {
-			"color": "#b8c6ff",
-			"intensity": 1,
-			"dir": [
-				0.35,
-				0.8,
-				0.25
-			]
-		},
+		"sun": null,
 		"hemi": {
-			"sky": "#a4acd8",
-			"ground": "#7a5c40",
-			"intensity": 2.4
+			"sky": "#4a4f6e",
+			"ground": "#5a4030",
+			"intensity": 0.9
 		}
 	},
 	"physics": {
@@ -1444,9 +1436,9 @@
 							"kind": "panel",
 							"anchor": "top-left",
 							"x": 16,
-							"y": 64,
-							"w": 300,
-							"h": 150,
+							"y": 16,
+							"w": 290,
+							"h": 132,
 							"z": 0,
 							"label": "",
 							"style": {
@@ -1460,14 +1452,14 @@
 							"kind": "text",
 							"anchor": "top-left",
 							"x": 28,
-							"y": 72,
-							"w": 60,
+							"y": 22,
+							"w": 44,
 							"h": 34,
 							"z": 1,
 							"label": "0",
 							"style": {
 								"size": 26,
-								"weight": "700",
+								"weight": "800",
 								"color": "#39e0c0",
 								"align": "left"
 							}
@@ -1476,10 +1468,10 @@
 							"id": "dr-need",
 							"kind": "text",
 							"anchor": "top-left",
-							"x": 88,
-							"y": 82,
-							"w": 220,
-							"h": 22,
+							"x": 66,
+							"y": 32,
+							"w": 150,
+							"h": 20,
 							"z": 1,
 							"label": "/ 0 needed",
 							"style": {
@@ -1493,14 +1485,14 @@
 							"kind": "text",
 							"anchor": "top-left",
 							"x": 28,
-							"y": 110,
-							"w": 110,
-							"h": 20,
+							"y": 58,
+							"w": 56,
+							"h": 18,
 							"z": 1,
 							"label": "LEVEL 1",
 							"style": {
 								"size": 12,
-								"weight": "600",
+								"weight": "700",
 								"color": "#a5b4fc",
 								"align": "left"
 							}
@@ -1509,14 +1501,15 @@
 							"id": "dr-levels",
 							"kind": "text",
 							"anchor": "top-left",
-							"x": 118,
-							"y": 110,
-							"w": 60,
-							"h": 20,
+							"x": 82,
+							"y": 58,
+							"w": 30,
+							"h": 18,
 							"z": 1,
 							"label": "/ 5",
 							"style": {
 								"size": 12,
+								"weight": "700",
 								"color": "#a5b4fc",
 								"align": "left"
 							}
@@ -1525,10 +1518,10 @@
 							"id": "dr-player-count",
 							"kind": "text",
 							"anchor": "top-left",
-							"x": 180,
-							"y": 110,
-							"w": 130,
-							"h": 20,
+							"x": 120,
+							"y": 58,
+							"w": 180,
+							"h": 18,
 							"z": 1,
 							"label": "0 in the party",
 							"style": {
@@ -1538,55 +1531,60 @@
 							}
 						},
 						{
-							"id": "dr-players",
+							"id": "dr-objective",
 							"kind": "list",
 							"anchor": "top-left",
-							"x": 28,
-							"y": 134,
+							"x": 22,
+							"y": 80,
 							"w": 280,
-							"h": 34,
+							"h": 20,
 							"z": 1,
 							"label": "",
 							"rows": [],
+							"rowHeight": 18,
+							"style": {
+								"size": 12,
+								"weight": "600",
+								"color": "#86efac",
+								"align": "left",
+								"bg": "transparent",
+								"pad": 0
+							}
+						},
+						{
+							"id": "dr-players",
+							"kind": "list",
+							"anchor": "top-left",
+							"x": 22,
+							"y": 100,
+							"w": 280,
+							"h": 20,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"rowHeight": 18,
 							"style": {
 								"size": 11,
 								"color": "#c8d0dc",
 								"align": "left",
-								"bg": "transparent"
-							}
-						},
-						{
-							"id": "dr-objective",
-							"kind": "list",
-							"anchor": "top-left",
-							"x": 28,
-							"y": 170,
-							"w": 280,
-							"h": 36,
-							"z": 1,
-							"label": "",
-							"rows": [],
-							"style": {
-								"size": 12,
-								"color": "#86efac",
-								"align": "left",
-								"bg": "transparent"
+								"bg": "transparent",
+								"pad": 0
 							}
 						},
 						{
 							"id": "dr-taken",
 							"kind": "text",
-							"anchor": "top-right",
-							"x": 16,
-							"y": 64,
-							"w": 200,
-							"h": 24,
+							"anchor": "top-left",
+							"x": 28,
+							"y": 122,
+							"w": 270,
+							"h": 18,
 							"z": 1,
 							"label": "0 gems taken",
 							"style": {
-								"size": 12,
-								"color": "#c8d0dc",
-								"align": "right"
+								"size": 11,
+								"color": "#7c8698",
+								"align": "left"
 							}
 						},
 						{
@@ -1826,12 +1824,12 @@
 			"roughness": 0.85,
 			"size": [
 				0.36,
-				3,
+				2,
 				0.36
 			],
 			"pos": [
 				52.4,
-				1.5,
+				1,
 				-1.5
 			]
 		},
@@ -1842,12 +1840,12 @@
 			"roughness": 0.85,
 			"size": [
 				0.36,
-				3,
+				2,
 				0.36
 			],
 			"pos": [
 				54.6,
-				1.5,
+				1,
 				-1.5
 			]
 		},
@@ -1858,12 +1856,12 @@
 			"roughness": 0.85,
 			"size": [
 				2.6,
-				0.36,
+				0.26,
 				0.5
 			],
 			"pos": [
 				53.5,
-				3.18,
+				2.13,
 				-1.5
 			]
 		},
@@ -1873,24 +1871,32 @@
 			"color": 6809849,
 			"emissive": 6809849,
 			"emissiveIntensity": 2.4,
-			"r": 0.16,
+			"r": 0.14,
 			"pos": [
 				53.5,
-				2.75,
+				1.78,
 				-1.5
 			],
 			"shadow": false,
-			"particles": "sparkles"
+			"particles": {
+				"preset": "sparkles",
+				"count": 26,
+				"radius": 0.16,
+				"speed": 0.12,
+				"sizeStart": 0.035,
+				"sizeEnd": 0.01,
+				"lifetime": 1.1
+			}
 		},
 		{
 			"type": "light",
 			"name": "Arch light",
 			"color": 6809849,
-			"intensity": 9,
-			"distance": 10,
+			"intensity": 6,
+			"distance": 8,
 			"pos": [
 				53.5,
-				2.6,
+				1.7,
 				-1.5
 			]
 		},

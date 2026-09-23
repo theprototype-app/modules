@@ -415,6 +415,10 @@ What cost time in 30-visuals-mod (football, dungeon-realms, waves):
   stamp: bridge it with a zero-second Delay, exactly like a HUD Button.
 - **Particle emitters are capped (8 per scene).** Put presets on a few objects that read —
   portals, a lantern — never one per torch; a torch flame glows (emissive > 1 + bloom) instead.
+- **A ceiling the editor never sees**: one single-sided plane facing DOWN is culled from above
+  (the editor, a card) and closes the sky from inside; show it only while playing. The Dungeon
+  Kit's vault does this, and its capped point lights move to the torches nearest the player
+  (the COUNT never changes, so nothing recompiles) — a few lights light every torch you pass.
 - **The default AO radius (1.5) smears over big flat planes** (colour blotches on a stadium
   floor, a dungeon's tiles): 0.6-0.8 with intensity ~1.5 reads clean.
 - Measure the look, do not describe it: the centre half of a 1540x774 play frame, Rec.709 luma,

@@ -27,7 +27,7 @@ export function run(check) {
 	check(def.env.preset === 'custom' && def.env.exposure >= 0.9 && def.env.background?.top && def.env.ground, 'the standard shell: a custom sky (gradient + ground), exposure >= 0.9');
 	check(def.post.effects.map((e) => e.kind).join() === 'ao,tonemapping,bloom,smaa', '  post AO -> AgX -> bloom -> SMAA');
 	check(!!def.view && def.thumb.camera === NAMES.card && def.objects.some((o) => o.type === 'camera' && o.name === NAMES.card), '  view + thumb.camera (a camera object in the def)');
-	check(def.objects.some((o) => o.name === NAMES.lantern && o.particles === 'sparkles'), '  a kit particle preset where it reads (the arch lantern)');
+	check(def.objects.some((o) => o.name === NAMES.lantern && (o.particles === 'sparkles' || o.particles?.preset === 'sparkles')), '  a kit particle preset where it reads (the arch lantern)');
 	const ground = def.objects.find((o) => o.name === NAMES.ground);
 	check(!!ground && ground.pos[1] > 0 && ground.pos[1] < 0.015 && ground.size[0] >= 200 && ground.pick === 'through', 'a real ground over the editor grid and under the Kit\'s tiles (select-through)');
 	check(JSON.stringify(realmsDef({ x: 10, z: -2 })) === JSON.stringify(def), 'the def is deterministic');
