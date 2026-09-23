@@ -45,6 +45,8 @@ promise from core.
 | 33 | the VR trigger has no editor mode — a `{modes}` game piece still eats it in the headset editor | every clickable module | no — owed on device; modules already pass `modes`, so the fix is core-only |
 | 34 | `registerListedGroup` cannot ask to be PICKED by the Edit select | `dungeon`, `sabers` | yes — the Kit registers as an INTERACTIVE group (joining every tap's raycast) |
 | 35 | a module cannot read the editor's click mode (`api.editorMode()`) | `car`, `essentials` | yes — hints say "press I (Interact)" blind |
+| 36 | no **model loader** on the api (`api.loadModel(url)` / `api.GLTFLoader`) — the detailed ask is "30. No model loader" below | `waves` (30b, 30c) | yes (30c) — `build-gltf.mjs` bundles three's GLTFLoader + SkeletonUtils against a shim of the RUNTIME three (`globalThis.__wavesTHREE`), imported from a blob: +45 kB per module that does it, and it must track core's three version by hand |
+| 37 | no way to **hide an object's look without touching it** (a module-drawn stand-in: a rigged figure over a capsule enemy) | `waves` (30c) | yes — the object's meshes hop render layers (30 in the game, helper 1 in Edit); `visible` would be saved/sent. Undone only while the module runs: disabling Waves mid-session leaves the capsules on layer 30 until a reload (#29's dispose hook would close it) |
 
 ---
 
@@ -703,6 +705,9 @@ Explorer import takes), or `api.GLTFLoader`.
 **Meanwhile:** the Waves guns are built from primitives (src/models.js); the enemies are the
 template's capsule groups.
 
+**30c:** worked around in the module (row #36): Waves 2.1.0 bundles three's own loader against a
+shim of `api.THREE` and ships Meshy guns, rigged walking enemies and a crystal inside its zip.
+
 ## Roadmap 30b (30b-waves) — felt again
 
 - **#27** (`api.game` cannot tell `menu` from `over`): the results panel must not fire on Quit or
@@ -714,3 +719,13 @@ template's capsule groups.
 - A per-player HUD Button's stamp IS readable by a module (`api.flow.triggerStamp` on the
   `hudbutton` node, `perPlayer: true`): the Waves Loadout / Options screens need no new seam —
   an alternative to #22's Delay bridge for local choices.
+
+## Roadmap 30c (30c-game-assets) — felt again
+
+- **#36** (no model loader): see above — solved in the module, at the cost of a build step and a
+  hand-kept three version (three 0.185.1 = core's). `api.loadModel` is feature-detected first.
+- **#37 / #29** (a stand-in look, no dispose hook): the figure trick needs the object's own meshes
+  hidden without a replicated fact; layers do it, but only a dispose hook could put them back when
+  the module is switched off mid-session.
+- A figure's hit flash needs its OWN materials: a SkeletonUtils clone shares them with the source,
+  so `assets.instance()` clones the materials per figure (textures stay shared).

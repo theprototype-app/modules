@@ -22,6 +22,8 @@ import { registerWeapon } from './weapon.js';
 import { registerPowers } from './powers.js';
 import { registerSession, resultLines } from './session.js';
 import { registerMenu } from './menu.js';
+import { createAssets } from './assets.js';
+import { registerAvatars } from './avatars.js';
 
 /** 30b: the module's own scene-root group — the headset board, later the gun and the shots.
  * LOCAL content: never in objectsGroup, never saved, never sent. */
@@ -30,7 +32,7 @@ export const ROOT = 'waves-module';
 export default {
 	id: 'waves',
 	name: 'Waves',
-	version: '2.0.0',
+	version: '2.1.0',
 	description:
 		'A VR wave shooter on the health module: a gun in your hand, five levels of grunts, runners and tanks walking from the portals to your crystal, a loadout of guns and abilities — every wave derived on every peer, no authority.',
 
@@ -51,7 +53,11 @@ export default {
 		const prefs = createPrefs(api);
 		const feel = createFeel(api, prefs);
 		const juice = createJuice(api, root);
-		const fx = registerFx(api, engine, juice, feel);
+		// 30c: the Meshy guns, enemies and crystal (lazy: the primitive look until each is in)
+		const assets = createAssets(api);
+		/** @type {ReturnType<typeof registerAvatars> | null} */
+		let avatars = null;
+		const fx = registerFx(api, engine, juice, feel, (uuid) => avatars?.of(uuid) ?? null);
 		// attached on first sight of the scene (a module may register before it exists); if core
 		// re-parents it (30b C1 hangs module content on the world rig) it is left where it is
 		api.registerFrameTask(() => {
@@ -59,7 +65,15 @@ export default {
 		});
 		api.registerSystemGroup?.(ROOT);
 		const start = registerStart(api, root);
-		const weapon = registerWeapon(api, engine, root, juice, prefs, feel);
+		const weapon = registerWeapon(api, engine, root, juice, prefs, feel, assets);
+		avatars = registerAvatars(api, engine, root, assets);
+		// the models load once a Waves arena is in the scene (not for a module merely installed)
+		let preloaded = false;
+		api.registerFrameTask(() => {
+			if (preloaded || !engine.all().length) return;
+			preloaded = true;
+			assets.preload();
+		});
 		const powers = registerPowers(api, engine, root, prefs, feel);
 		let spawnSet = false;
 		const session = registerSession(api, engine, juice, feel, prefs, start);
@@ -142,6 +156,8 @@ export default {
 				powers,
 				session,
 				menu,
+				assets,
+				avatars,
 				hud: arenaHud,
 				hudGraph,
 				snapshot: () =>

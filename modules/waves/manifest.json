@@ -1,9 +1,18 @@
 {
 	"id": "waves",
 	"name": "Waves",
-	"version": "2.0.0",
+	"version": "2.1.0",
 	"format": 1,
 	"description": "A VR wave shooter on the health module: a gun in your hand, five levels of grunts, runners and tanks walking from the portals to your crystal, a loadout of guns and abilities - every wave derived on every peer, no authority.",
 	"entry": "module.js",
-	"files": ["module.js"]
+	"files": [
+		"module.js",
+		"assets/gun-blaster.glb",
+		"assets/gun-scatter.glb",
+		"assets/gun-beam.glb",
+		"assets/enemy-grunt.glb",
+		"assets/enemy-runner.glb",
+		"assets/enemy-tank.glb",
+		"assets/crystal.glb"
+	]
 }

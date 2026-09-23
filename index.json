@@ -280,8 +280,8 @@
 	{
 		"id": "waves",
 		"name": "Waves",
-		"version": "2.0.0",
-		"description": "A VR wave shooter in a sunset arena: a gun in your hand (Blaster, Scatter or Beam) and an ability on your grip (Shield, Slow-mo or Pulse); five levels of grunts, runners and tanks march out of the portals toward your crystal - shoot them down before they breach it. Menu, how to play, loadout and options reachable in VR; best run saved; derived on every peer. Needs the health module.",
+		"version": "2.1.0",
+		"description": "A VR wave shooter in a sunset arena: a sci-fi gun in your hand (Blaster, Scatter or Beam) and an ability on your grip (Shield, Slow-mo or Pulse); five levels of walking robot grunts, runners and tanks march out of the portals toward your crystal - shoot them down before they breach it. Menu, how to play, loadout and options reachable in VR; best run saved; derived on every peer. Needs the health module.",
 		"author": "theprototype-app",
 		"source": "modules/waves",
 		"zip": "waves.zip",

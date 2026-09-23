@@ -109,7 +109,7 @@ export function wavesDef() {
 		license: 'CC0-1.0',
 		author: 'theprototype',
 		tags: ['vr', 'co-op', 'shooter', 'survival'],
-		modules: [{ id: 'health', version: '1.0.0' }, { id: 'waves', version: '2.0.0' }],
+		modules: [{ id: 'health', version: '1.0.0' }, { id: 'waves', version: '2.1.0' }],
 		installModules: ['health', 'waves'],
 		// 30: a warm sunset arena — a gradient sky, horizon fog, the sun low BEHIND the player's
 		// spawn (so the enemies walking in are lit from the front), a real ground to the horizon

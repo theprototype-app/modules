@@ -1,3 +1,5 @@
 node_modules/
 *.zip
 .DS_Store
+modules/waves/src/gltf/loader.chunk
+modules/waves/src/gltf/three-shim.gen.js
