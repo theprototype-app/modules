@@ -265,7 +265,7 @@ h.run(async () => {
 	// 6. THE DEF + HUD, and the manager
 	// =====================================================================
 	const def = await A.page.evaluate(() => ({ screens: window.__waves.hud().scene.screens.map((s) => s.id), graph: window.__waves.hudGraph({ name: 'enemy', playerName: 'me' }).nodes.length }));
-	h.check(def.screens.join() === 'menu,hud,over' && def.graph === 11, 'the HUD def: menu / hud / over, an eleven-node driver graph');
+	h.check(def.screens.join() === 'menu,hud,pause,over' && def.graph === 21, 'the HUD def: menu / hud / pause / over, a 21-node driver graph (30: + the P pause rows)');
 	await setPlay(A, null);
 	await A.page.waitForTimeout(400);
 	await openToolbox(A);

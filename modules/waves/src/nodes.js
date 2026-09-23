@@ -46,6 +46,16 @@ export function registerNodes(api, engine) {
 				]
 			},
 			{
+				// 30: the goal's crystal glows with a 0..1 value (fx.js) — the player's health
+				type: 'wavescore',
+				label: 'Goal Core',
+				defaults: { value: 1, floor: 0.15, spin: 0.6 },
+				params: [
+					{ key: 'floor', kind: 'range', min: 0, max: 1, step: 0.05 },
+					{ key: 'spin', kind: 'range', min: 0, max: 4, step: 0.1 }
+				]
+			},
+			{
 				type: 'wavesevent',
 				label: 'Waves Event',
 				defaults: { name: DEFAULTS.name, event: 'wave' },

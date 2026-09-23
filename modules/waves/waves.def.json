@@ -25,8 +25,36 @@
 		"waves"
 	],
 	"env": {
-		"preset": "sunset",
-		"exposure": 0.9
+		"preset": "custom",
+		"base": "sunset",
+		"exposure": 1.15,
+		"background": {
+			"top": "#2a3d6e",
+			"bottom": "#f2a478"
+		},
+		"fog": {
+			"color": "#d69a86",
+			"near": 34,
+			"far": 120
+		},
+		"ground": {
+			"color": "#5a4c44",
+			"roughness": 0.95
+		},
+		"sun": {
+			"color": "#ffd2a8",
+			"intensity": 1.8,
+			"dir": [
+				0.35,
+				0.55,
+				0.75
+			]
+		},
+		"hemi": {
+			"sky": "#b8c8f0",
+			"ground": "#6a4a3a",
+			"intensity": 1.1
+		}
 	},
 	"physics": {
 		"knock": {
@@ -40,6 +68,44 @@
 			"grounded": true,
 			"simOnPlay": true
 		}
+	},
+	"post": {
+		"enabled": true,
+		"effects": [
+			{
+				"id": "ao",
+				"kind": "ao",
+				"enabled": true,
+				"params": {
+					"aoRadius": 0.6,
+					"intensity": 1.2
+				}
+			},
+			{
+				"id": "tone",
+				"kind": "tonemapping",
+				"enabled": true,
+				"params": {
+					"mode": "AGX"
+				}
+			},
+			{
+				"id": "bloom",
+				"kind": "bloom",
+				"enabled": true,
+				"params": {
+					"intensity": 0.8,
+					"luminanceThreshold": 0.8
+				}
+			},
+			{
+				"id": "aa",
+				"kind": "smaa",
+				"enabled": true,
+				"params": {}
+			}
+		],
+		"changedAt": 0
 	},
 	"graphs": {
 		"scene": {
@@ -836,6 +902,187 @@
 						"limit": 8
 					},
 					"class": "w-[150px]"
+				},
+				{
+					"id": "wh11",
+					"type": "keypress",
+					"position": {
+						"x": 60,
+						"y": 1840
+					},
+					"data": {
+						"label": "keypress",
+						"code": "KeyP",
+						"edge": "down",
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh12",
+					"type": "hudscreen",
+					"position": {
+						"x": 280,
+						"y": 1840
+					},
+					"data": {
+						"label": "hudscreen",
+						"screen": "pause",
+						"action": "toggle"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh13",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 1940
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "resume-btn"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh14",
+					"type": "hudscreen",
+					"position": {
+						"x": 280,
+						"y": 1940
+					},
+					"data": {
+						"label": "hudscreen",
+						"screen": "pause",
+						"action": "hide"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh15",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 2040
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "restart-btn"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh16",
+					"type": "setgamestate",
+					"position": {
+						"x": 280,
+						"y": 2040
+					},
+					"data": {
+						"label": "setgamestate",
+						"state": "playing",
+						"outcome": "",
+						"reset": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh17",
+					"type": "hudscreen",
+					"position": {
+						"x": 500,
+						"y": 2040
+					},
+					"data": {
+						"label": "hudscreen",
+						"screen": "pause",
+						"action": "hide"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh18",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 2140
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "quit-btn"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh19",
+					"type": "setgamestate",
+					"position": {
+						"x": 280,
+						"y": 2140
+					},
+					"data": {
+						"label": "setgamestate",
+						"state": "menu",
+						"outcome": "",
+						"reset": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh20",
+					"type": "hudscreen",
+					"position": {
+						"x": 500,
+						"y": 2140
+					},
+					"data": {
+						"label": "hudscreen",
+						"screen": "pause",
+						"action": "hide"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wc0",
+					"type": "healthvalue",
+					"position": {
+						"x": 60,
+						"y": 2340
+					},
+					"data": {
+						"label": "healthvalue",
+						"name": "me",
+						"read": "fraction"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wc1",
+					"type": "wavescore",
+					"position": {
+						"x": 280,
+						"y": 2340
+					},
+					"data": {
+						"label": "wavescore",
+						"floor": 0.15,
+						"spin": 0.6
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wc2",
+					"type": "objectselector",
+					"position": {
+						"x": 500,
+						"y": 2340
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Goal core"
+					},
+					"class": "w-[150px]"
 				}
 			],
 			"edges": [
@@ -1114,6 +1361,53 @@
 					"source": "wh8",
 					"target": "wh9",
 					"targetHandle": "value"
+				},
+				{
+					"id": "e-wh11-wh12.trigger",
+					"source": "wh11",
+					"target": "wh12",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh13-wh14.trigger",
+					"source": "wh13",
+					"target": "wh14",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh15-wh16.trigger",
+					"source": "wh15",
+					"target": "wh16",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh15-wh17.trigger",
+					"source": "wh15",
+					"target": "wh17",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh18-wh19.trigger",
+					"source": "wh18",
+					"target": "wh19",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh18-wh20.trigger",
+					"source": "wh18",
+					"target": "wh20",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wc0-wc1.value",
+					"source": "wc0",
+					"target": "wc1",
+					"targetHandle": "value"
+				},
+				{
+					"id": "e-wc1-wc2",
+					"source": "wc1",
+					"target": "wc2"
 				}
 			]
 		}
@@ -1135,14 +1429,29 @@
 							"anchor": "center",
 							"x": 0,
 							"y": 0,
-							"w": 460,
-							"h": 340,
+							"w": 480,
+							"h": 360,
 							"z": 0,
 							"label": "",
 							"style": {
-								"bg": "rgba(24, 20, 30, 0.92)",
-								"radius": 16,
-								"border": "1px solid rgba(220, 120, 120, 0.25)"
+								"bg": "rgba(22, 18, 28, 0.92)",
+								"radius": 18,
+								"border": "1px solid rgba(255, 140, 100, 0.3)"
+							}
+						},
+						{
+							"id": "menu-stripe",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": -176,
+							"w": 480,
+							"h": 8,
+							"z": 1,
+							"label": "",
+							"style": {
+								"bg": "#ff7a4a",
+								"radius": 4
 							}
 						},
 						{
@@ -1150,16 +1459,16 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": -120,
-							"w": 400,
-							"h": 54,
+							"y": -122,
+							"w": 420,
+							"h": 56,
 							"z": 1,
 							"label": "WAVES",
 							"style": {
-								"size": 40,
-								"weight": "700",
+								"size": 46,
+								"weight": "800",
 								"color": "#ff9c6b",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -1171,11 +1480,11 @@
 							"w": 420,
 							"h": 44,
 							"z": 1,
-							"label": "Hold the goal. Every wave brings more enemies; the round ends when the last one falls.",
+							"label": "Hold the crystal. Every wave brings more enemies through the portals; the round ends when the last one falls.",
 							"style": {
 								"size": 14,
 								"color": "#e6dede",
-								"align": "center"
+								"align": "left"
 							},
 							"wrap": true
 						},
@@ -1184,18 +1493,18 @@
 							"kind": "button",
 							"anchor": "center",
 							"x": 0,
-							"y": 10,
-							"w": 220,
-							"h": 48,
+							"y": 8,
+							"w": 420,
+							"h": 54,
 							"z": 1,
 							"label": "Start",
 							"enabled": true,
 							"style": {
-								"size": 16,
-								"weight": "600",
-								"bg": "#c94a4a",
+								"size": 20,
+								"weight": "700",
+								"bg": "#d9533f",
 								"color": "#ffffff",
-								"radius": 10
+								"radius": 12
 							}
 						},
 						{
@@ -1203,16 +1512,33 @@
 							"kind": "list",
 							"anchor": "center",
 							"x": 0,
-							"y": 90,
+							"y": 92,
 							"w": 420,
-							"h": 80,
+							"h": 76,
 							"z": 1,
 							"label": "",
 							"rows": [],
 							"style": {
 								"size": 12,
 								"color": "#d6c8c8",
-								"align": "center"
+								"align": "left",
+								"bg": "transparent"
+							}
+						},
+						{
+							"id": "menu-hint",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": 150,
+							"w": 420,
+							"h": 20,
+							"z": 1,
+							"label": "Knock them down: walk into them or grab and throw  ·  P pauses",
+							"style": {
+								"size": 11,
+								"color": "#9b8f8f",
+								"align": "left"
 							}
 						}
 					]
@@ -1224,20 +1550,36 @@
 					"input": "game",
 					"elements": [
 						{
+							"id": "wv-banner",
+							"kind": "panel",
+							"anchor": "top-center",
+							"x": 0,
+							"y": 10,
+							"w": 150,
+							"h": 68,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(22, 18, 28, 0.78)",
+								"radius": 14,
+								"border": "1px solid rgba(255, 140, 100, 0.25)"
+							}
+						},
+						{
 							"id": "wv-wave",
 							"kind": "text",
 							"anchor": "top-center",
 							"x": 0,
 							"y": 14,
-							"w": 320,
+							"w": 122,
 							"h": 34,
 							"z": 1,
 							"label": "Wave 1",
 							"style": {
-								"size": 22,
-								"weight": "700",
+								"size": 24,
+								"weight": "800",
 								"color": "#ff9c6b",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -1246,14 +1588,31 @@
 							"anchor": "top-center",
 							"x": 0,
 							"y": 48,
-							"w": 320,
+							"w": 122,
 							"h": 24,
 							"z": 1,
 							"label": "",
 							"style": {
 								"size": 14,
 								"color": "#e6dede",
-								"align": "center"
+								"align": "left"
+							}
+						},
+						{
+							"id": "wv-hp-label",
+							"kind": "text",
+							"anchor": "bottom-center",
+							"x": 0,
+							"y": 46,
+							"w": 340,
+							"h": 18,
+							"z": 1,
+							"label": "HEALTH",
+							"style": {
+								"size": 10,
+								"weight": "700",
+								"color": "#c8e6cc",
+								"align": "left"
 							}
 						},
 						{
@@ -1262,8 +1621,8 @@
 							"anchor": "bottom-center",
 							"x": 0,
 							"y": 24,
-							"w": 320,
-							"h": 18,
+							"w": 340,
+							"h": 20,
 							"z": 1,
 							"label": "",
 							"min": 0,
@@ -1273,8 +1632,8 @@
 							"showPercent": false,
 							"style": {
 								"color": "#6fcf7a",
-								"bg": "rgba(0,0,0,0.35)",
-								"radius": 9
+								"bg": "rgba(0,0,0,0.45)",
+								"radius": 10
 							}
 						},
 						{
@@ -1289,9 +1648,108 @@
 							"label": "",
 							"rows": [],
 							"style": {
-								"size": 12,
-								"color": "#d6c8c8",
-								"align": "right"
+								"size": 13,
+								"weight": "600",
+								"color": "#ffe0d0",
+								"align": "right",
+								"bg": "transparent"
+							}
+						}
+					]
+				},
+				{
+					"id": "pause",
+					"name": "Pause",
+					"input": "menu",
+					"elements": [
+						{
+							"id": "pause-panel",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 380,
+							"h": 300,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(22, 18, 28, 0.92)",
+								"radius": 18,
+								"border": "1px solid rgba(255, 140, 100, 0.3)"
+							}
+						},
+						{
+							"id": "pause-title",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -95,
+							"w": 260,
+							"h": 36,
+							"z": 1,
+							"label": "PAUSED",
+							"style": {
+								"size": 28,
+								"weight": "800",
+								"color": "#e6dede",
+								"align": "left"
+							}
+						},
+						{
+							"id": "resume-btn",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": -30,
+							"w": 260,
+							"h": 44,
+							"z": 1,
+							"label": "Resume",
+							"enabled": true,
+							"style": {
+								"size": 16,
+								"weight": "700",
+								"bg": "#3b7dd8",
+								"color": "#ffffff",
+								"radius": 12
+							}
+						},
+						{
+							"id": "restart-btn",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 24,
+							"w": 260,
+							"h": 44,
+							"z": 1,
+							"label": "Restart round",
+							"enabled": true,
+							"style": {
+								"size": 16,
+								"weight": "700",
+								"bg": "#d9533f",
+								"color": "#ffffff",
+								"radius": 12
+							}
+						},
+						{
+							"id": "quit-btn",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 78,
+							"w": 260,
+							"h": 44,
+							"z": 1,
+							"label": "Quit to menu",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
 							}
 						}
 					]
@@ -1308,14 +1766,14 @@
 							"anchor": "center",
 							"x": 0,
 							"y": 0,
-							"w": 460,
-							"h": 340,
+							"w": 480,
+							"h": 360,
 							"z": 0,
 							"label": "",
 							"style": {
-								"bg": "rgba(24, 20, 30, 0.92)",
-								"radius": 16,
-								"border": "1px solid rgba(220, 120, 120, 0.25)"
+								"bg": "rgba(22, 18, 28, 0.92)",
+								"radius": 18,
+								"border": "1px solid rgba(255, 140, 100, 0.3)"
 							}
 						},
 						{
@@ -1323,16 +1781,16 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": -120,
+							"y": -126,
 							"w": 420,
-							"h": 40,
+							"h": 44,
 							"z": 1,
 							"label": "ARENA CLEARED",
 							"style": {
-								"size": 30,
-								"weight": "700",
+								"size": 32,
+								"weight": "800",
 								"color": "#ff9c6b",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -1349,7 +1807,8 @@
 							"style": {
 								"size": 14,
 								"color": "#e6dede",
-								"align": "center"
+								"align": "center",
+								"bg": "transparent"
 							}
 						},
 						{
@@ -1366,7 +1825,8 @@
 							"style": {
 								"size": 12,
 								"color": "#d6c8c8",
-								"align": "center"
+								"align": "center",
+								"bg": "transparent"
 							}
 						},
 						{
@@ -1374,18 +1834,18 @@
 							"kind": "button",
 							"anchor": "center",
 							"x": 0,
-							"y": 115,
-							"w": 220,
-							"h": 44,
+							"y": 124,
+							"w": 260,
+							"h": 48,
 							"z": 1,
 							"label": "Again",
 							"enabled": true,
 							"style": {
 								"size": 16,
-								"weight": "600",
-								"bg": "#3b7dd8",
+								"weight": "700",
+								"bg": "#d9533f",
 								"color": "#ffffff",
-								"radius": 10
+								"radius": 12
 							}
 						}
 					]
@@ -1393,11 +1853,26 @@
 			]
 		}
 	},
+	"view": {
+		"pos": [
+			11,
+			10,
+			17
+		],
+		"target": [
+			0,
+			0,
+			-2
+		]
+	},
+	"thumb": {
+		"camera": "Card camera"
+	},
 	"objects": [
 		{
 			"type": "box",
 			"name": "Ground",
-			"color": 2830134,
+			"color": 8022624,
 			"size": [
 				30,
 				0.1,
@@ -1405,10 +1880,10 @@
 			],
 			"pos": [
 				0,
-				-0.05,
+				-0.035,
 				-2
 			],
-			"roughness": 0.95,
+			"roughness": 0.88,
 			"physics": {
 				"mode": "static",
 				"friction": 0.7
@@ -1417,7 +1892,8 @@
 		{
 			"type": "box",
 			"name": "Goal",
-			"color": 3898840,
+			"color": 3028290,
+			"bevel": 0.14,
 			"size": [
 				1.6,
 				1,
@@ -1428,6 +1904,8 @@
 				0.5,
 				6
 			],
+			"roughness": 0.5,
+			"metalness": 0.3,
 			"physics": {
 				"mode": "static"
 			}
@@ -1435,7 +1913,9 @@
 		{
 			"type": "box",
 			"name": "Spawn 1",
-			"color": 13191754,
+			"color": 16734794,
+			"emissive": 16726830,
+			"emissiveIntensity": 1.8,
 			"size": [
 				0.6,
 				0.1,
@@ -1443,9 +1923,10 @@
 			],
 			"pos": [
 				-6,
-				0.4,
+				0.62,
 				-10
 			],
+			"shadow": false,
 			"physics": {
 				"mode": "static"
 			}
@@ -1453,7 +1934,9 @@
 		{
 			"type": "box",
 			"name": "Spawn 2",
-			"color": 13191754,
+			"color": 16734794,
+			"emissive": 16726830,
+			"emissiveIntensity": 1.8,
 			"size": [
 				0.6,
 				0.1,
@@ -1461,9 +1944,10 @@
 			],
 			"pos": [
 				0,
-				0.4,
+				0.62,
 				-12
 			],
+			"shadow": false,
 			"physics": {
 				"mode": "static"
 			}
@@ -1471,7 +1955,9 @@
 		{
 			"type": "box",
 			"name": "Spawn 3",
-			"color": 13191754,
+			"color": 16734794,
+			"emissive": 16726830,
+			"emissiveIntensity": 1.8,
 			"size": [
 				0.6,
 				0.1,
@@ -1479,97 +1965,308 @@
 			],
 			"pos": [
 				6,
-				0.4,
+				0.62,
 				-10
 			],
+			"shadow": false,
 			"physics": {
 				"mode": "static"
 			}
 		},
 		{
-			"type": "box",
+			"type": "group",
 			"name": "Enemy 1",
-			"color": 16751723,
-			"size": [
-				0.8,
-				0.8,
-				0.8
-			],
 			"pos": [
 				-6,
-				0.4,
+				0.62,
 				-8
 			],
 			"physics": {
 				"mode": "dynamic",
 				"mass": 1,
-				"friction": 0.6
-			}
+				"friction": 0.6,
+				"collider": "capsule",
+				"freeze": {
+					"rx": true,
+					"rz": true
+				}
+			},
+			"children": [
+				{
+					"type": "capsule",
+					"name": "Enemy 1 body",
+					"r": 0.32,
+					"h": 0.5,
+					"pos": [
+						0,
+						0,
+						0
+					],
+					"color": 16747100,
+					"roughness": 0.45,
+					"clearcoat": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 1 visor",
+					"size": [
+						0.44,
+						0.11,
+						0.2
+					],
+					"bevel": 0.04,
+					"pos": [
+						0,
+						0.2,
+						0.2
+					],
+					"color": 8255999,
+					"emissive": 8255999,
+					"emissiveIntensity": 2.2,
+					"roughness": 0.2,
+					"shadow": false
+				},
+				{
+					"type": "box",
+					"name": "Enemy 1 belt",
+					"size": [
+						0.66,
+						0.06,
+						0.66
+					],
+					"bevel": 0.03,
+					"pos": [
+						0,
+						-0.12,
+						0
+					],
+					"color": 3809840,
+					"roughness": 0.6
+				}
+			]
 		},
 		{
-			"type": "box",
+			"type": "group",
 			"name": "Enemy 2",
-			"color": 16751723,
-			"size": [
-				0.8,
-				0.8,
-				0.8
-			],
 			"pos": [
 				-4.5,
-				0.4,
+				0.62,
 				-8
 			],
 			"physics": {
 				"mode": "dynamic",
 				"mass": 1,
-				"friction": 0.6
-			}
+				"friction": 0.6,
+				"collider": "capsule",
+				"freeze": {
+					"rx": true,
+					"rz": true
+				}
+			},
+			"children": [
+				{
+					"type": "capsule",
+					"name": "Enemy 2 body",
+					"r": 0.32,
+					"h": 0.5,
+					"pos": [
+						0,
+						0,
+						0
+					],
+					"color": 16747100,
+					"roughness": 0.45,
+					"clearcoat": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 2 visor",
+					"size": [
+						0.44,
+						0.11,
+						0.2
+					],
+					"bevel": 0.04,
+					"pos": [
+						0,
+						0.2,
+						0.2
+					],
+					"color": 8255999,
+					"emissive": 8255999,
+					"emissiveIntensity": 2.2,
+					"roughness": 0.2,
+					"shadow": false
+				},
+				{
+					"type": "box",
+					"name": "Enemy 2 belt",
+					"size": [
+						0.66,
+						0.06,
+						0.66
+					],
+					"bevel": 0.03,
+					"pos": [
+						0,
+						-0.12,
+						0
+					],
+					"color": 3809840,
+					"roughness": 0.6
+				}
+			]
 		},
 		{
-			"type": "box",
+			"type": "group",
 			"name": "Enemy 3",
-			"color": 16751723,
-			"size": [
-				0.8,
-				0.8,
-				0.8
-			],
 			"pos": [
 				-3,
-				0.4,
+				0.62,
 				-8
 			],
 			"physics": {
 				"mode": "dynamic",
 				"mass": 1,
-				"friction": 0.6
-			}
+				"friction": 0.6,
+				"collider": "capsule",
+				"freeze": {
+					"rx": true,
+					"rz": true
+				}
+			},
+			"children": [
+				{
+					"type": "capsule",
+					"name": "Enemy 3 body",
+					"r": 0.32,
+					"h": 0.5,
+					"pos": [
+						0,
+						0,
+						0
+					],
+					"color": 16747100,
+					"roughness": 0.45,
+					"clearcoat": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 3 visor",
+					"size": [
+						0.44,
+						0.11,
+						0.2
+					],
+					"bevel": 0.04,
+					"pos": [
+						0,
+						0.2,
+						0.2
+					],
+					"color": 8255999,
+					"emissive": 8255999,
+					"emissiveIntensity": 2.2,
+					"roughness": 0.2,
+					"shadow": false
+				},
+				{
+					"type": "box",
+					"name": "Enemy 3 belt",
+					"size": [
+						0.66,
+						0.06,
+						0.66
+					],
+					"bevel": 0.03,
+					"pos": [
+						0,
+						-0.12,
+						0
+					],
+					"color": 3809840,
+					"roughness": 0.6
+				}
+			]
 		},
 		{
-			"type": "box",
+			"type": "group",
 			"name": "Enemy 4",
-			"color": 16751723,
-			"size": [
-				0.8,
-				0.8,
-				0.8
-			],
 			"pos": [
 				-1.5,
-				0.4,
+				0.62,
 				-8
 			],
 			"physics": {
 				"mode": "dynamic",
 				"mass": 1,
-				"friction": 0.6
-			}
+				"friction": 0.6,
+				"collider": "capsule",
+				"freeze": {
+					"rx": true,
+					"rz": true
+				}
+			},
+			"children": [
+				{
+					"type": "capsule",
+					"name": "Enemy 4 body",
+					"r": 0.32,
+					"h": 0.5,
+					"pos": [
+						0,
+						0,
+						0
+					],
+					"color": 16747100,
+					"roughness": 0.45,
+					"clearcoat": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 4 visor",
+					"size": [
+						0.44,
+						0.11,
+						0.2
+					],
+					"bevel": 0.04,
+					"pos": [
+						0,
+						0.2,
+						0.2
+					],
+					"color": 8255999,
+					"emissive": 8255999,
+					"emissiveIntensity": 2.2,
+					"roughness": 0.2,
+					"shadow": false
+				},
+				{
+					"type": "box",
+					"name": "Enemy 4 belt",
+					"size": [
+						0.66,
+						0.06,
+						0.66
+					],
+					"bevel": 0.03,
+					"pos": [
+						0,
+						-0.12,
+						0
+					],
+					"color": 3809840,
+					"roughness": 0.6
+				}
+			]
 		},
 		{
 			"type": "box",
 			"name": "Home",
 			"color": 7327610,
+			"emissive": 4173397,
+			"emissiveIntensity": 0.8,
 			"size": [
 				1,
 				0.1,
@@ -1583,6 +2280,731 @@
 			"physics": {
 				"mode": "static"
 			}
+		},
+		{
+			"type": "group",
+			"name": "Arena",
+			"physics": {
+				"mode": "static",
+				"collider": "custom",
+				"colliderVerts": [
+					-15,
+					-0.049999999999999996,
+					-20,
+					-15,
+					-0.049999999999999996,
+					20,
+					15,
+					-0.049999999999999996,
+					-20,
+					15,
+					-0.049999999999999996,
+					20,
+					-15,
+					0.01,
+					-20,
+					-15,
+					0.01,
+					20,
+					15,
+					0.01,
+					-20,
+					15,
+					0.01,
+					20
+				]
+			},
+			"children": [
+				{
+					"type": "icosahedron",
+					"name": "Goal core",
+					"r": 0.42,
+					"detail": 0,
+					"pos": [
+						0,
+						1.75,
+						6
+					],
+					"color": 7336959,
+					"emissive": 3793151,
+					"emissiveIntensity": 3,
+					"roughness": 0.15,
+					"metalness": 0.1,
+					"flatShading": true,
+					"shadow": false
+				},
+				{
+					"type": "light",
+					"name": "Core light",
+					"color": 3793151,
+					"intensity": 6,
+					"distance": 9,
+					"pos": [
+						0,
+						1.8,
+						6
+					]
+				},
+				{
+					"type": "ring",
+					"name": "Defend ring",
+					"r": 3.2,
+					"inner": 3.05,
+					"pos": [
+						0,
+						0.02,
+						6
+					],
+					"rot": [
+						-1.5707963267948966,
+						0,
+						0
+					],
+					"color": 3793151,
+					"emissive": 3793151,
+					"emissiveIntensity": 1.4,
+					"shadow": false,
+					"pick": "through"
+				},
+				{
+					"type": "ring",
+					"name": "Defend ring inner",
+					"r": 1.6,
+					"inner": 1.52,
+					"pos": [
+						0,
+						0.02,
+						6
+					],
+					"rot": [
+						-1.5707963267948966,
+						0,
+						0
+					],
+					"color": 3793151,
+					"emissive": 3793151,
+					"emissiveIntensity": 1.1,
+					"shadow": false,
+					"pick": "through"
+				},
+				{
+					"type": "box",
+					"name": "Pylon WN",
+					"size": [
+						0.22,
+						1.6,
+						0.22
+					],
+					"bevel": 0.05,
+					"pos": [
+						-1.35,
+						0.8,
+						4.65
+					],
+					"color": 2830912,
+					"roughness": 0.5,
+					"metalness": 0.3
+				},
+				{
+					"type": "box",
+					"name": "Pylon EN",
+					"size": [
+						0.22,
+						1.6,
+						0.22
+					],
+					"bevel": 0.05,
+					"pos": [
+						1.35,
+						0.8,
+						4.65
+					],
+					"color": 2830912,
+					"roughness": 0.5,
+					"metalness": 0.3
+				},
+				{
+					"type": "box",
+					"name": "Pylon WS",
+					"size": [
+						0.22,
+						1.6,
+						0.22
+					],
+					"bevel": 0.05,
+					"pos": [
+						-1.35,
+						0.8,
+						7.35
+					],
+					"color": 2830912,
+					"roughness": 0.5,
+					"metalness": 0.3
+				},
+				{
+					"type": "box",
+					"name": "Pylon ES",
+					"size": [
+						0.22,
+						1.6,
+						0.22
+					],
+					"bevel": 0.05,
+					"pos": [
+						1.35,
+						0.8,
+						7.35
+					],
+					"color": 2830912,
+					"roughness": 0.5,
+					"metalness": 0.3
+				},
+				{
+					"type": "torus",
+					"name": "Portal 1",
+					"r": 0.85,
+					"tube": 0.07,
+					"pos": [
+						-6,
+						1.05,
+						-10
+					],
+					"rot": [
+						0,
+						0.3587706702705722,
+						0
+					],
+					"color": 16734794,
+					"emissive": 16726830,
+					"emissiveIntensity": 2.4,
+					"roughness": 0.3,
+					"shadow": false,
+					"particles": {
+						"preset": "sparkles",
+						"colorStart": "#ffd0c0",
+						"colorEnd": "#ff3b2e",
+						"radius": 0.6,
+						"count": 60
+					}
+				},
+				{
+					"type": "ring",
+					"name": "Portal floor 1",
+					"r": 0.9,
+					"inner": 0.72,
+					"pos": [
+						-6,
+						0.02,
+						-10
+					],
+					"rot": [
+						-1.5707963267948966,
+						0,
+						0
+					],
+					"color": 16734794,
+					"emissive": 16726830,
+					"emissiveIntensity": 1.2,
+					"shadow": false,
+					"pick": "through"
+				},
+				{
+					"type": "plane",
+					"name": "Lane 1",
+					"size": [
+						0.32,
+						12.988007490635061
+					],
+					"pos": [
+						-3.4037919578266504,
+						0.016,
+						-3.0767785542044015
+					],
+					"rot": [
+						-1.5707963267948966,
+						0,
+						3.5003633238603653
+					],
+					"color": 16738890,
+					"emissive": 16730670,
+					"emissiveIntensity": 0.2,
+					"opacity": 0.3,
+					"shadow": false,
+					"pick": "through"
+				},
+				{
+					"type": "torus",
+					"name": "Portal 2",
+					"r": 0.85,
+					"tube": 0.07,
+					"pos": [
+						0,
+						1.05,
+						-12
+					],
+					"rot": [
+						0,
+						0,
+						0
+					],
+					"color": 16734794,
+					"emissive": 16726830,
+					"emissiveIntensity": 2.4,
+					"roughness": 0.3,
+					"shadow": false,
+					"particles": {
+						"preset": "sparkles",
+						"colorStart": "#ffd0c0",
+						"colorEnd": "#ff3b2e",
+						"radius": 0.6,
+						"count": 60
+					}
+				},
+				{
+					"type": "ring",
+					"name": "Portal floor 2",
+					"r": 0.9,
+					"inner": 0.72,
+					"pos": [
+						0,
+						0.02,
+						-12
+					],
+					"rot": [
+						-1.5707963267948966,
+						0,
+						0
+					],
+					"color": 16734794,
+					"emissive": 16726830,
+					"emissiveIntensity": 1.2,
+					"shadow": false,
+					"pick": "through"
+				},
+				{
+					"type": "plane",
+					"name": "Lane 2",
+					"size": [
+						0.32,
+						13.9
+					],
+					"pos": [
+						0,
+						0.016,
+						-4.1499999999999995
+					],
+					"rot": [
+						-1.5707963267948966,
+						0,
+						3.141592653589793
+					],
+					"color": 16738890,
+					"emissive": 16730670,
+					"emissiveIntensity": 0.2,
+					"opacity": 0.3,
+					"shadow": false,
+					"pick": "through"
+				},
+				{
+					"type": "torus",
+					"name": "Portal 3",
+					"r": 0.85,
+					"tube": 0.07,
+					"pos": [
+						6,
+						1.05,
+						-10
+					],
+					"rot": [
+						0,
+						-0.3587706702705722,
+						0
+					],
+					"color": 16734794,
+					"emissive": 16726830,
+					"emissiveIntensity": 2.4,
+					"roughness": 0.3,
+					"shadow": false,
+					"particles": {
+						"preset": "sparkles",
+						"colorStart": "#ffd0c0",
+						"colorEnd": "#ff3b2e",
+						"radius": 0.6,
+						"count": 60
+					}
+				},
+				{
+					"type": "ring",
+					"name": "Portal floor 3",
+					"r": 0.9,
+					"inner": 0.72,
+					"pos": [
+						6,
+						0.02,
+						-10
+					],
+					"rot": [
+						-1.5707963267948966,
+						0,
+						0
+					],
+					"color": 16734794,
+					"emissive": 16726830,
+					"emissiveIntensity": 1.2,
+					"shadow": false,
+					"pick": "through"
+				},
+				{
+					"type": "plane",
+					"name": "Lane 3",
+					"size": [
+						0.32,
+						12.988007490635061
+					],
+					"pos": [
+						3.4037919578266504,
+						0.016,
+						-3.0767785542044015
+					],
+					"rot": [
+						-1.5707963267948966,
+						0,
+						2.782821983319221
+					],
+					"color": 16738890,
+					"emissive": 16730670,
+					"emissiveIntensity": 0.2,
+					"opacity": 0.3,
+					"shadow": false,
+					"pick": "through"
+				},
+				{
+					"type": "ring",
+					"name": "Home ring",
+					"r": 0.8,
+					"inner": 0.68,
+					"pos": [
+						0,
+						0.02,
+						9
+					],
+					"rot": [
+						-1.5707963267948966,
+						0,
+						0
+					],
+					"color": 7327610,
+					"emissive": 7327610,
+					"emissiveIntensity": 1.2,
+					"shadow": false,
+					"pick": "through"
+				},
+				{
+					"type": "plane",
+					"name": "Outer floor",
+					"size": [
+						300,
+						300
+					],
+					"pos": [
+						0,
+						0.008,
+						-2
+					],
+					"rot": [
+						-1.5707963267948966,
+						0,
+						0
+					],
+					"color": 5917764,
+					"roughness": 0.95,
+					"pick": "through"
+				},
+				{
+					"type": "cylinder",
+					"name": "Mesa 1",
+					"r": 9.24,
+					"r2": 11,
+					"h": 14,
+					"pos": [
+						23.050576119584484,
+						7,
+						72.51624615179726
+					],
+					"color": 6965828,
+					"roughness": 0.95,
+					"pick": "through"
+				},
+				{
+					"type": "cylinder",
+					"name": "Mesa 2",
+					"r": 12.6,
+					"r2": 15,
+					"h": 20,
+					"pos": [
+						81.99107712565205,
+						10,
+						39.73084317115311
+					],
+					"color": 6965828,
+					"roughness": 0.95,
+					"pick": "through"
+				},
+				{
+					"type": "cylinder",
+					"name": "Mesa 3",
+					"r": 7.56,
+					"r2": 9,
+					"h": 10,
+					"pos": [
+						66.24100613811902,
+						5,
+						-24.630269680445235
+					],
+					"color": 6965828,
+					"roughness": 0.95,
+					"pick": "through"
+				},
+				{
+					"type": "cylinder",
+					"name": "Mesa 4",
+					"r": 10.92,
+					"r2": 13,
+					"h": 17,
+					"pos": [
+						44.333117976645916,
+						8.5,
+						-75.69243278972947
+					],
+					"color": 6965828,
+					"roughness": 0.95,
+					"pick": "through"
+				},
+				{
+					"type": "cylinder",
+					"name": "Mesa 5",
+					"r": 8.4,
+					"r2": 10,
+					"h": 12,
+					"pos": [
+						-18.91004154998551,
+						6,
+						-73.54306625088012
+					],
+					"color": 6965828,
+					"roughness": 0.95,
+					"pick": "through"
+				},
+				{
+					"type": "cylinder",
+					"name": "Mesa 6",
+					"r": 14.28,
+					"r2": 17,
+					"h": 22,
+					"pos": [
+						-77.73632555111898,
+						11,
+						-56.60827492066057
+					],
+					"color": 6965828,
+					"roughness": 0.95,
+					"pick": "through"
+				},
+				{
+					"type": "cylinder",
+					"name": "Mesa 7",
+					"r": 10.08,
+					"r2": 12,
+					"h": 15,
+					"pos": [
+						-78.59620900994659,
+						7.5,
+						12.920989553806061
+					],
+					"color": 6965828,
+					"roughness": 0.95,
+					"pick": "through"
+				},
+				{
+					"type": "cylinder",
+					"name": "Mesa 8",
+					"r": 6.72,
+					"r2": 8,
+					"h": 11,
+					"pos": [
+						-45.451197926807154,
+						5.5,
+						53.84074325273797
+					],
+					"color": 6965828,
+					"roughness": 0.95,
+					"pick": "through"
+				},
+				{
+					"type": "box",
+					"name": "Border north",
+					"size": [
+						30,
+						0.5,
+						0.3
+					],
+					"pos": [
+						0,
+						0.25,
+						-21.85
+					],
+					"color": 2764600,
+					"roughness": 0.7
+				},
+				{
+					"type": "box",
+					"name": "Border north trim",
+					"size": [
+						30.01,
+						0.04,
+						0.31
+					],
+					"pos": [
+						0,
+						0.52,
+						-21.85
+					],
+					"color": 16742970,
+					"emissive": 16738858,
+					"emissiveIntensity": 1.6,
+					"shadow": false
+				},
+				{
+					"type": "box",
+					"name": "Border south",
+					"size": [
+						30,
+						0.5,
+						0.3
+					],
+					"pos": [
+						0,
+						0.25,
+						17.85
+					],
+					"color": 2764600,
+					"roughness": 0.7
+				},
+				{
+					"type": "box",
+					"name": "Border south trim",
+					"size": [
+						30.01,
+						0.04,
+						0.31
+					],
+					"pos": [
+						0,
+						0.52,
+						17.85
+					],
+					"color": 16742970,
+					"emissive": 16738858,
+					"emissiveIntensity": 1.6,
+					"shadow": false
+				},
+				{
+					"type": "box",
+					"name": "Border west",
+					"size": [
+						0.3,
+						0.5,
+						39.4
+					],
+					"pos": [
+						-14.85,
+						0.25,
+						-2
+					],
+					"color": 2764600,
+					"roughness": 0.7
+				},
+				{
+					"type": "box",
+					"name": "Border west trim",
+					"size": [
+						0.31,
+						0.04,
+						39.41
+					],
+					"pos": [
+						-14.85,
+						0.52,
+						-2
+					],
+					"color": 16742970,
+					"emissive": 16738858,
+					"emissiveIntensity": 1.6,
+					"shadow": false
+				},
+				{
+					"type": "box",
+					"name": "Border east",
+					"size": [
+						0.3,
+						0.5,
+						39.4
+					],
+					"pos": [
+						14.85,
+						0.25,
+						-2
+					],
+					"color": 2764600,
+					"roughness": 0.7
+				},
+				{
+					"type": "box",
+					"name": "Border east trim",
+					"size": [
+						0.31,
+						0.04,
+						39.41
+					],
+					"pos": [
+						14.85,
+						0.52,
+						-2
+					],
+					"color": 16742970,
+					"emissive": 16738858,
+					"emissiveIntensity": 1.6,
+					"shadow": false
+				},
+				{
+					"type": "light",
+					"name": "Arena fill",
+					"kind": "hemisphere",
+					"color": 16767416,
+					"groundColor": 4206634,
+					"intensity": 0.6,
+					"pos": [
+						0,
+						8,
+						-2
+					]
+				},
+				{
+					"type": "camera",
+					"name": "Card camera",
+					"pos": [
+						11,
+						9,
+						15
+					],
+					"lookAt": [
+						-1,
+						0,
+						-5
+					],
+					"fov": 50
+				}
+			]
 		}
 	]
 }

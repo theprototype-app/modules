@@ -13,6 +13,7 @@ import { registerNodes } from './nodes.js';
 import { registerToolbox } from './toolbox.js';
 import { arenaHud, hudGraph } from './hud.js';
 import { DEFAULTS } from './curve.js';
+import { registerFx } from './fx.js';
 
 export default {
 	id: 'waves',
@@ -29,6 +30,7 @@ export default {
 		}
 		const engine = createWavesEngine(api);
 		registerNodes(api, engine);
+		const fx = registerFx(api, engine);
 		const toolbox = registerToolbox(api, engine);
 
 		api.hud.registerDebugLine(() => {
@@ -63,6 +65,7 @@ export default {
 			/** @type {any} */ (window).__waves = {
 				api,
 				engine,
+				fx,
 				toolbox,
 				hud: arenaHud,
 				hudGraph,

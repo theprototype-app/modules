@@ -147,6 +147,8 @@ export function spawnFor(i, points, fallback) {
 export function runEntry(r) {
 	return {
 		at: r.at,
+		// 30: the round's stamp, the entry's identity when known (absent on an old entry)
+		...(typeof r.round === 'number' ? { round: r.round } : {}),
 		waves: r.waves,
 		reached: r.reached,
 		cleared: !!r.cleared,
@@ -154,10 +156,12 @@ export function runEntry(r) {
 	};
 }
 
-/** append idempotently (an entry with the same `at` is the same run), capped, newest last
+/** append idempotently, capped, newest last: an entry of the same ROUND (or, for entries with
+ * no round, the same `at`) is the same run and is replaced
  * @param {any} log @param {ReturnType<typeof runEntry>} entry @param {number} cap */
 export function appendRun(log, entry, cap = 50) {
-	const list = Array.isArray(log) ? log.filter((e) => e && e.at !== entry.at) : [];
+	const same = (/** @type {any} */ e) => (typeof entry.round === 'number' && e.round === entry.round) || e.at === entry.at;
+	const list = Array.isArray(log) ? log.filter((e) => e && !same(e)) : [];
 	list.push(entry);
 	return list.slice(-cap);
 }
