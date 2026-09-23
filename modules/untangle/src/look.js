@@ -140,6 +140,9 @@ export function makeBackplate(THREE, R) {
 	gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
 	const grid = new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0x1e2a3d, transparent: true, opacity: 0.8 }));
 	grid.name = 'untangle-grid';
+	// decoration: a LineSegments picks within Raycaster.params.Line.threshold (1 m by default),
+	// so the grid would win every ray near the board — core's Edit pick, Interact's click
+	grid.raycast = () => {};
 	grid.position.z = -R * 0.055;
 	group.add(grid);
 	// TubeGeometry needs a 3D curve: handed the 2D Shape it builds its frames from Vector2

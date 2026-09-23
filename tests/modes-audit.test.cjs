@@ -74,7 +74,13 @@ function pageLib() {
 		}
 		if (spec.midi != null) return mesh.userData?.midi === spec.midi;
 		if (spec.anyMidi) return typeof mesh.userData?.midi === 'number';
-		if (spec.userKey) return !!mesh.userData?.[spec.userKey] || !!mesh.parent?.userData?.[spec.userKey];
+		if (spec.userKey) {
+			const u = mesh.userData?.[spec.userKey] || mesh.parent?.userData?.[spec.userKey];
+			if (!u) return false;
+			// e.g. a Dungeon Realms portal that is not the way DOWN (on floor 0 that is a no-op)
+			for (const [k, v] of Object.entries(spec.userExcept ?? {})) if (u?.[k] === v) return false;
+			return true;
+		}
 		return true;
 	};
 	/** the mesh to aim at: the first visible mesh under the root that satisfies the spec */
@@ -267,7 +273,10 @@ function pageLib() {
 		return {
 			sent: (window.__auditSent ?? []).filter((m) => !/look|cursor|presence|ping|heartbeat|camera|clock|avatar|pose|lock|select|^move|nodesync/i.test(m.type + ':' + (m.op ?? ''))).length,
 			pulses,
-			toasts: (read('toastStore') ?? []).length
+			toasts: (read('toastStore') ?? []).length,
+			// every toast also lands in the notification HISTORY; a card can be dismissed before
+			// the read (the play tap's toast was gone 900 ms later), the history entry cannot
+			noted: (read('notifications') ?? []).slice(-1)[0]?.id ?? null
 		};
 	};
 	return {
@@ -640,7 +649,9 @@ const MODULES = [
 					{ label: 'Entrance plinth', uuid: plinth },
 					{ label: 'portals + gems', group: 'dungeon-realms', userKey: 'portal', listLabel: 'Dungeon Realms', children: true }
 				],
-				interact: { target: { group: 'dungeon-realms', userKey: 'portal' } }
+				// after Start (the 30 template's HUD menu) the first portal found is floor 0's way
+				// DOWN, whose click is a no-op travel — aim at one that is not
+				interact: { target: { group: 'dungeon-realms', userKey: 'portal', userExcept: { kind: 'down' } } }
 			};
 		}
 	},
@@ -963,8 +974,13 @@ async function checkPlay(page, spec) {
 	const started = await page.evaluate(() => {
 		let free;
 		window.__stores.playPointerFree.subscribe((v) => (free = v))();
-		if (free) window.__stores.gameState.setGameState('playing');
-		return free;
+		if (!free) return false;
+		// the REAL Start button when the menu has one (a module's own start rides it — Dungeon
+		// Realms claims a slot and starts its round there), else the state write
+		const start = [...document.querySelectorAll('#hud-layer button')].find((b) => /^\s*start/i.test(b.textContent || ''));
+		if (start) start.click();
+		else window.__stores.gameState.setGameState('playing');
+		return true;
 	});
 	if (started) await page.waitForTimeout(800);
 	const target = p.playTarget ?? p.target;

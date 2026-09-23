@@ -457,6 +457,8 @@ function makeBackplate(THREE, R) {
   gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(lines, 3));
   const grid = new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 1976893, transparent: true, opacity: 0.8 }));
   grid.name = "untangle-grid";
+  grid.raycast = () => {
+  };
   grid.position.z = -R * 0.055;
   group.add(grid);
   const outline = roundedRect(THREE, h, R * 0.16).getSpacedPoints(200);

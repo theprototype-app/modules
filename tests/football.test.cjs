@@ -349,7 +349,12 @@ run(async () => {
 	// 30: in play the template's HUD shows the score as the scoreboard's own numbers (Football
 	// Value nodes the def wires; this recipe graph has none) — the Records rows it renders are
 	// the sheet; the RED x — y BLUE list sits on the over screen
+	// core 1.17 draws a GAME's screens only in Play (the editor shows a game chip instead) — this
+	// flight drives the round from the editor, so it reads the HUD through the preview eye, the
+	// inert picture the HUD editor uses (harmless on 1.16, where the HUD always drew)
+	await A.page.evaluate(() => window.__stores.hudDocs?.hudPreviewInViewport?.set(true));
 	await eventually(() => A.page.locator('#hud-layer').textContent(), (t) => /\(BLUE\) — \d+ goals/.test(t ?? ''), '16.9 the DOM HUD renders the Records sheet while playing (B\'s row)');
+	await A.page.evaluate(() => window.__stores.hudDocs?.hudPreviewInViewport?.set(false));
 	// a HUD Button press (perPlayer) reaches the Match Button through its `press` input
 	await A.page.evaluate(() => window.__stores.flowRuntime.fireHudButton('fb-join-blue'));
 	await eventually(() => snap(B.page), (s) => s?.slots.blue.includes(A.id) && !s.slots.red.includes(A.id), '16.10 A joined blue through the HUD button (hudbutton -> fbbutton.press)');

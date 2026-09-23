@@ -146,7 +146,34 @@ run(async () => {
 		controls.update();
 	});
 	await A.page.waitForTimeout(400);
-	const pose0 = await cameraPose(A.page);
+	let pose0 = await cameraPose(A.page);
+
+	// ---- 0. core 1.17: in EDIT the board is inert (an Edit click selects; api.editorMode) -----
+	const hasModes = await A.page.evaluate(() => typeof window.__stores.objectActions?.setEditorMode === 'function');
+	if (hasModes) {
+		await A.page.evaluate(() => window.__stores.objectActions.setEditorMode('edit'));
+		const e0 = await state(A.page);
+		await drag(A.page, await dotPx(A.page, 0), await boardPx(A.page, [0.5, 0.45]));
+		await A.page.waitForTimeout(300);
+		const e1 = await state(A.page);
+		check(e1.carried === -1 && e1.positions[0][0] === e0.positions[0][0] && e1.positions[0][1] === e0.positions[0][1],
+			'0.1 in EDIT a press-drag on a dot moves nothing (the board stands down; carried ' + e1.carried + ')');
+		// the editor drags below are INTERACT (the I key) — the board's own mode
+		await A.page.evaluate(() => window.__stores.objectActions.setEditorMode('interact'));
+		await A.page.evaluate(() => window.__stores.objectActions.deselectObject?.());
+		// the Edit drag above orbits the camera (by design): let its damping settle, then re-frame
+		await A.page.waitForTimeout(2500);
+		await A.page.evaluate(() => {
+			let cam, controls;
+			window.__stores.globalCamera.subscribe((v) => (cam = v))();
+			window.__stores.orbitControls.subscribe((v) => (controls = v))();
+			cam.position.set(0, 1.6, 3.2);
+			controls.target.set(0, 1.6, 0);
+			controls.update();
+		});
+		await A.page.waitForTimeout(600);
+		pose0 = await cameraPose(A.page);
+	}
 
 	// ---- 1. press-drag-release -------------------------------------------------------------
 	const s0 = await state(A.page);
