@@ -98,7 +98,8 @@ export function makeVRBar(THREE, radius) {
 			g.roundRect?.(x + pad, pad, cw - 2 * pad, H - 2 * pad, 18);
 			if (!g.roundRect) g.rect(x + pad, pad, cw - 2 * pad, H - 2 * pad);
 			g.fill();
-			g.fillStyle = k === hover && c.enabled ? '#0f172a' : c.enabled ? '#e5e9f0' : 'rgba(229,233,240,0.35)';
+			// the level cell is a READOUT even when it cannot start anything: full-strength text
+			g.fillStyle = k === hover && c.enabled ? '#0f172a' : c.enabled || c.id === 'level' ? '#e5e9f0' : 'rgba(229,233,240,0.35)';
 			g.font = 'bold ' + (c.id === 'level' ? 44 : 52) + 'px system-ui, sans-serif';
 			g.textAlign = 'center';
 			g.textBaseline = 'middle';

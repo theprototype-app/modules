@@ -102,6 +102,29 @@ const boardFrame = (page) =>
 		return { c: c.toArray(), n: n.toArray(), r: r.toArray(), faceQ, away };
 	});
 
+/** SHOTS=<dir>: a head-on picture of the board at a moment (evidence; never asserted) */
+async function shot(page, name) {
+	if (!process.env.SHOTS) return;
+	await page.evaluate(() => {
+		const THREE = window.__stores.THREE;
+		const w = (p) => new THREE.Vector3(...window.__untangle.boardWorld(p));
+		const c = window.__untangle.state().mode === '3d' ? new THREE.Vector3(...window.__untangle.globeHold().centre) : w([0, 0]);
+		const n = window.__untangle.state().mode === '3d' ? new THREE.Vector3(0, 0, 1) : w([1, 0]).sub(w([0, 0])).cross(w([0, 1]).sub(w([0, 0]))).normalize();
+		let cam, controls;
+		window.__stores.globalCamera.subscribe((v) => (cam = v))();
+		window.__stores.orbitControls.subscribe((v) => (controls = v))();
+		// the camera backs off with the board's WORLD size (a held globe may be scaled 2x)
+		const size = c.distanceTo(window.__untangle.state().mode === '3d' ? new THREE.Vector3(...window.__untangle.boardWorld([0, 1, 0])) : w([0, 1]));
+		const eye = c.clone().addScaledVector(n, Math.max(4.2, size * 4.2)).add(new THREE.Vector3(0, -0.3, 0));
+		cam.position.copy(eye);
+		controls.target.copy(c.clone().add(new THREE.Vector3(0, -0.35, 0)));
+		controls.update();
+	});
+	await page.waitForTimeout(400);
+	require('fs').mkdirSync(process.env.SHOTS, { recursive: true });
+	await page.screenshot({ path: require('path').join(process.env.SHOTS, name + '.png') });
+}
+
 run(async () => {
 	const browser = await launch({ args: AUDIO_ARGS });
 	const A = await setupPage(browser, 'A', { audio: true, context: { viewport: { width: W, height: H } } });
@@ -194,6 +217,7 @@ run(async () => {
 	}
 	await A.page.waitForTimeout(150);
 	const v3 = await state(A.page);
+	await shot(A.page, 'v-dot-carried-by-laser');
 	check(v3.carried === 0 && near(v3.positions[0], T), 'V.4 while the trigger is held the dot follows the hand\'s ray to (' + T + ') (' + v3.positions[0].map((v) => v.toFixed(3)) + ')');
 	await eventually(() => state(B.page), (s) => near(s.positions[0], T, 0.2), 'V.5 B sees the drag previews');
 	await setHands(A.page, { right: await aimPose(A.page, R0, tW, false) });
@@ -442,6 +466,7 @@ run(async () => {
 	await A.page.waitForTimeout(150);
 	const m2 = await bar();
 	check(m2.visible, 'M.2 in VR Interact the bar shows under the board');
+	await shot(A.page, 'm-level-bar-hover-next');
 	check(m2.hover === 2, 'M.3 the laser on ▶ lights it (hover ' + m2.hover + ')');
 	const unlocked = await A.page.evaluate(() => window.__untangle.progress()['2d'].unlocked);
 	check(unlocked === 13 && m2.cells[2].enabled, 'M.3b (premise) level 13 is unlocked (unlocked ' + unlocked + '), so ▶ is live on 12');
@@ -560,6 +585,7 @@ run(async () => {
 	await A.page.waitForTimeout(80);
 	const look1 = await A.page.evaluate(() => ({ s: window.__untangle.globeHold().scale, r: window.__untangle.look().dotRadius }));
 	check(look1.s > look0.s * 1.3, 'G.5 stick forward on the holding hand grows the globe (scale ' + look0.s.toFixed(2) + ' -> ' + look1.s.toFixed(2) + ')');
+	await shot(A.page, 'g-globe-held-scaled');
 	check(Math.abs(look1.r / look0.r - look1.s / look0.s) < 1e-3, 'G.6 the dots grew in proportion (dot radius x' + (look1.r / look0.r).toFixed(3) + ')');
 	// the OTHER hand grabs a dot while the globe is held, and carries it across the moving globe
 	const front = await A.page.evaluate((lh) => {
