@@ -270,6 +270,10 @@ Three that are easy to miss:
   exact mesh that was hit. Return `true` to consume the click (no selection).
   On desktop it runs only in the modes you name (§6) — by default Interact and Play,
   never the editor's select click.
+  It fires on the trigger's `select` — the RELEASE. For a DRAG in VR (press, carry while
+  held, release) poll `api.vrHand(hand)` in a frame task instead (both hands' world poses +
+  trigger), consume core's trailing select in the handler, and pass `{sweep: false}` so a
+  held trigger sweeping across your pieces does not click them — untangle's `vrdrag.js`.
 - **`claimInput('keys' | 'locomotion')` pauses the editor's own consumers** so
   your WASD does not also fly the camera. Always release it when your mode ends,
   including on error paths.

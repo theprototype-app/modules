@@ -144,6 +144,15 @@ run(async () => {
 	const pops = solved.filter((n) => n === 'pop').length;
 	check(solved.filter((n) => n === 'success').length === 1 && solved.indexOf('success') < solved.indexOf('levelup'), 'S.7 ONE success, before the levelup (' + [...new Set(solved)].join(',') + ')');
 	check(pops === 0, 'S.8 the solve path (authoritative drops) makes no pick pops');
+	// a 30b core (C6 + announce): the solve bursts sparkles and says it in the big banner
+	const caps = await A.page.evaluate(() => window.__untangle.caps());
+	console.log('  core seams: ' + JSON.stringify(caps));
+	if (caps.effects) check(solved.includes('burst:sparkle'), 'S.8b (30b core) the solve fires an api.effects sparkle burst at the board');
+	if (caps.announce) {
+		check(solved.includes('announce:Level 12 solved'), 'S.8c (30b core) the solve announces "Level 12 solved"');
+		const banner = await A.page.evaluate(() => document.querySelector('#game-announce')?.textContent ?? '');
+		check(/Level 12 solved/.test(banner), 'S.8d (30b core) the desktop banner shows it ("' + banner.trim().slice(0, 40) + '")');
+	}
 	await eventually(() => B.page.evaluate(() => window.__untangle.sfx()), (s) => s.log.includes('success'), 'S.9 B (lockstep) hears its own success chime');
 	await B.page.waitForTimeout(900);
 	const bSfx = await B.page.evaluate(() => window.__untangle.sfx());
@@ -318,6 +327,9 @@ run(async () => {
 		window.__stores.worldRig.subscribe((v) => (rig = v))();
 		window.__stores.globalScene.subscribe((v) => (scene = v))();
 		const g = scene.getObjectByName('untangle-module');
+		// a core with the world root (30b-vr-modes P5) has already hung the board inside the rig
+		const coreRoot = scene.getObjectByName('module-world-root');
+		const homed = coreRoot ? g.parent === coreRoot && coreRoot.parent === rig : null;
 		const n = window.__untangle.state().positions.length;
 		const before = [...Array(n)].map((_, i) => window.__untangle.dotWorld(i));
 		const identity = rig.position.length() < 1e-9 && Math.abs(rig.quaternion.w) > 1 - 1e-9 && Math.abs(rig.scale.x - 1) < 1e-9;
@@ -329,9 +341,11 @@ run(async () => {
 		await new Promise((r) => setTimeout(r, 300)); // frames run: nothing may pull it back
 		const after = [...Array(n)].map((_, i) => window.__untangle.dotWorld(i));
 		const err = Math.max(...before.map((p, i) => new THREE.Vector3(...p).applyMatrix4(rig.matrixWorld).distanceTo(new THREE.Vector3(...after[i]))));
-		return { identity, parentIsRig: g.parent === rig, err };
+		return { identity, parentIsRig: g.parent === rig, err, coreRoot: !!coreRoot, homed };
 	});
 	check(w1.identity, 'W.0b (premise) the world rig starts at identity on a desktop');
+	console.log('  core world root (30b-vr-modes P5): ' + w1.coreRoot);
+	if (w1.coreRoot) check(w1.homed, 'W.0c (30b core) the board (rebuilt many times by now) hangs under the core\'s module-world-root inside the rig');
 	check(w1.parentIsRig && w1.err < 1e-6, 'W.1 hung under the turned, moved and 1.3x-scaled world rig, every dot follows it (max error ' + w1.err.toExponential(1) + ' m)');
 	// a REAL mouse drag on the turned board, the camera OBLIQUE to it (head-on, every point of
 	// a view ray maps to the same board x,y, so a drag on the wrong plane would still land)

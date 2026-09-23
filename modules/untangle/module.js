@@ -1241,6 +1241,10 @@ function makeSfx(api, env = {}) {
       if (on) api.music.play("puzzle", { volume: MUSIC_VOLUME });
       else api.music.stop?.();
     },
+    /** record a non-sound moment (the solve's burst / banner) in the same log @param {string} entry */
+    note(entry) {
+      log.push(entry);
+    },
     /** what the flights read: the log, the fallback voices sounding, whether music is on */
     stats: () => ({ log: [...log], live, contexts: ac ? 1 : 0, music: musicOn, core: hasCoreSfx(api) })
   };
@@ -1544,8 +1548,8 @@ var EXPIRE_FRAMES = 40;
 var index_default = {
   id: "untangle",
   name: "Untangle",
-  version: "2.1.0",
-  description: "Drag the dots until no edges cross \u2014 on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device); replicated, board pose, level and readouts as flow nodes.",
+  version: "2.2.0",
+  description: "Drag the dots until no edges cross \u2014 on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device). In VR: grab dots with the trigger, hold/turn/scale the globe with one hand while the other moves dots, a level bar under the board. Replicated; board pose, level and readouts as flow nodes.",
   /** @param {any} api */
   register(api) {
     const THREE = api.THREE;
@@ -1828,8 +1832,11 @@ var index_default = {
     function celebrate(unlocked, fromMe) {
       const centre = worldOf(new THREE.Vector3(0, 0, 0));
       sfx.play("success", centre);
-      if (centre && typeof api.effects?.burst === "function") api.effects.burst(centre, { kind: "sparkle", color: "#3ee08f", count: 48 });
-      if (typeof api.announce === "function") api.announce("Level " + level + " solved", { sub: mode === "3d" ? "Globe" : void 0, color: "#3ee08f" });
+      if (centre && typeof api.effects?.burst === "function" && api.effects.burst(centre, { kind: "sparkle", color: "#3ee08f", count: 48 })) sfx.note("burst:sparkle");
+      if (typeof api.announce === "function") {
+        api.announce("Level " + level + " solved", { sub: mode === "3d" ? "Globe" : void 0, color: "#3ee08f" });
+        sfx.note("announce:Level " + level + " solved");
+      }
       if (fromMe && vrHandLast && api.isVR?.()) sfx.haptic("success", vrHandLast);
       if (unlocked) setTimeout(() => sfx.play("levelup", centre), 650);
     }
@@ -2458,6 +2465,8 @@ var index_default = {
       vrBarCell: (k) => vrBar ? vrBar.mesh.localToWorld(vrBar.cellLocal(k)).toArray() : null,
       /** 30b: every board sound / haptic asked for, the local voices still sounding, the music */
       sfx: () => sfx.stats(),
+      /** 30b: which of the Quest round's core seams this core has (feature-detected) */
+      caps: () => ({ sounds: typeof api.music?.play === "function", announce: typeof api.announce === "function", effects: typeof api.effects?.burst === "function", hapticPattern: typeof api.hapticPattern === "function", vrHand: typeof api.vrHand === "function" }),
       clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),
       /** P1: what the board is drawn with, as numbers a flight can assert */
       look: () => {

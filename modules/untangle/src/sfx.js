@@ -137,6 +137,10 @@ export function makeSfx(api, env = {}) {
 			if (on) api.music.play('puzzle', { volume: MUSIC_VOLUME });
 			else api.music.stop?.();
 		},
+		/** record a non-sound moment (the solve's burst / banner) in the same log @param {string} entry */
+		note(entry) {
+			log.push(entry);
+		},
 		/** what the flights read: the log, the fallback voices sounding, whether music is on */
 		stats: () => ({ log: [...log], live, contexts: ac ? 1 : 0, music: musicOn, core: hasCoreSfx(api) })
 	};

@@ -1,9 +1,9 @@
 {
 	"id": "untangle",
 	"name": "Untangle",
-	"version": "2.1.0",
+	"version": "2.2.0",
 	"format": 1,
-	"description": "Untangle the graph: drag the dots until no edges cross, on a flat 2D board or around a 3D globe (great-circle arcs). 30 levels per mode that unlock as you solve them, progress and best times kept on your device, reset any time. Procedural and replicated, with generative audio - board pose, level and readouts as flow nodes.",
+	"description": "Untangle the graph: drag the dots until no edges cross, on a flat 2D board or around a 3D globe (great-circle arcs). 30 levels per mode that unlock as you solve them, progress and best times kept on your device, reset any time. In VR: grab dots with the trigger (laser or tip), hold, turn and scale the globe with one hand while the other moves dots, a laser-reachable level bar, haptics. Procedural and replicated, with game sounds and quiet puzzle music - board pose, level and readouts as flow nodes.",
 	"entry": "module.js",
 	"files": ["module.js"]
 }
