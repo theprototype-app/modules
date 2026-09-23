@@ -3,7 +3,7 @@
 **2.1.0 (30c): real models.** The three guns are Meshy-made sci-fi guns held at the grip, and
 the grunts, runners and tanks are rigged robots that WALK (a walk clip played at the speed they
 really move, a flinch when hit, a fall when they die), with a Meshy crystal on the tower. The
-models ride inside the zip (`assets/`, 6.4 MB); every rule, hit volume and name is the 30b one.
+models ride inside the zip (`assets/`, 6.6 MB); every rule, hit volume and name is the 30b one.
 See [The models](#the-models-30c).
 
 **2.0.0 (30b): the template is a shooter.** A gun rides your controller (desktop: the view,
@@ -196,13 +196,15 @@ from every peer) — the size curve is the difficulty curve.
 | `assets/gun-beam.glb` | the Beam: coil ring emitter, magenta orb | 2.6k | 0.67 MB |
 | `assets/enemy-grunt.glb` | a stocky orange robot, cyan visor — walk / run / hit / death | 7.2k, 24 joints | 1.37 MB |
 | `assets/enemy-runner.glb` | a lean lime sprinter, red visor — runs | 7.3k, 24 joints | 1.29 MB |
-| `assets/enemy-tank.glb` | a violet brute, yellow visor — walks heavy | 7.3k, 24 joints | 1.30 MB |
+| `assets/enemy-tank.glb` | a gunmetal + brass brute, violet chest, yellow visor — walks heavy | 7.3k, 24 joints | 1.54 MB |
 | `assets/crystal.glb` | the defended crystal (its own emission map) | 0.8k | 0.57 MB |
 
 Made with Meshy.ai through the budgeted pipeline (`packs` repo `tools/meshy`, requester
 `30c-game-assets`): text-to-3D preview → keep → PBR refine; the enemies auto-rigged (`rig`, 5 cr —
 Meshy's walking + running clips) plus `animate` (Hit Reaction + Shot and Fall Backward, 3 cr each),
-merged by `meshy-rigged` (clips by bone name, the refine's normal + roughness maps put back).
+merged by `meshy-rigged` (clips by bone name, the refine's normal + roughness maps put back, the
+rig's self-lit emissive dropped). The tank's first paint carried a number-like shoulder badge (no
+text/logos): a 10 cr retexture with the original UVs, swapped onto the same rig (`--retexture`).
 Guns and crystal through `meshy-post` (30 cm / 1.1 m, barrel down −Z, 1024² JPEG).
 
 **How they stand in.** The enemy OBJECTS are untouched: names, capsule bodies, health chains —
@@ -210,11 +212,14 @@ a shot still meets the capsule. A figure (a SkeletonUtils clone with its own mat
 hit flash paints one enemy) follows its object every frame under the module's own root group
 (`waves-module`, never in objectsGroup — never saved, never sent), faces the goal, and plays its
 walk clip at `speed / clipSpeed` (figures.js `walkRate`; a shove backwards does not walk).
-While a figure shows, the object's own meshes hop to render layer 30 in the game (the weapon's
-raycaster enables it) and to core's helper layer 1 in Edit (the editor still sees and picks the
-capsule; the card camera sees the figure). A layer, not `visible`: GLTFExporter never writes
-layers, so autosave and a late join keep the primitives, and a peer without the models sees
-them. A death plays where it fell (~1.4 s), sinks, and frees the figure for the enemy's next
+While a figure shows, the object's own meshes are hidden for the length of each RENDER only: the
+scene's `onBeforeRender` hops them to layer 30 (no camera draws it), its `onAfterRender` puts them
+back. Outside a render they are exactly the authored meshes on layer 0 — which matters, because
+the `.tpscene` save and a late join are `toJSON`, and `toJSON` WRITES layers (a persistent hop
+saved 41 enemy meshes onto the helper layer in a first try). So a save, a raycast (the shot
+still meets the capsule), the editor's pick (click a figure: the enemy is selected) all see the
+30b enemy; only the frame shows the figure. `visible` was never an option (a replicated fact).
+The card renders the module root too (`thumb.sceneGroups`), over the capsules. A death plays where it fell (~1.4 s), sinks, and frees the figure for the enemy's next
 life. The Meshy crystal follows the `Goal core` and dims with it. Any model that fails to load
 leaves that thing's 30b primitive in place.
 

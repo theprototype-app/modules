@@ -7,7 +7,6 @@
 
 import { gunOf, trigger, idleHand, pelletDirs, gunHands } from './guns.js';
 import { buildGun, gunFromAsset } from './models.js';
-import { STAND_IN_LAYER } from './figures.js';
 import { aimRay, createEdges, inGame } from './vr.js';
 
 /** where the gun sits in the controller's frame: the grip a little behind and under the aim */
@@ -122,10 +121,9 @@ export function registerWeapon(api, engine, root, juice, prefs, feel, assets = n
 	}
 
 	// ---- the shot ------------------------------------------------------------------------------
+	// 30c: an enemy's own meshes stay its hit volume under a Meshy figure — they leave layer 0
+	// only inside a render, so this ray (cast from a frame task) meets them as always
 	const raycaster = new THREE.Raycaster();
-	// 30c: an enemy's own meshes are its hit volume, and while its Meshy figure shows they sit
-	// on the stand-in layer — the shot still meets them there
-	raycaster.layers.enable(STAND_IN_LAYER);
 	/** every ancestor visible? (a hidden enemy, a hidden group's child: not there) @param {any} o */
 	const shown = (o) => {
 		for (let c = o; c; c = c.parent) if (c.visible === false) return false;

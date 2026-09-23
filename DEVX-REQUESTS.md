@@ -46,7 +46,7 @@ promise from core.
 | 34 | `registerListedGroup` cannot ask to be PICKED by the Edit select | `dungeon`, `sabers` | yes — the Kit registers as an INTERACTIVE group (joining every tap's raycast) |
 | 35 | a module cannot read the editor's click mode (`api.editorMode()`) | `car`, `essentials` | yes — hints say "press I (Interact)" blind |
 | 36 | no **model loader** on the api (`api.loadModel(url)` / `api.GLTFLoader`) — the detailed ask is "30. No model loader" below | `waves` (30b, 30c) | yes (30c) — `build-gltf.mjs` bundles three's GLTFLoader + SkeletonUtils against a shim of the RUNTIME three (`globalThis.__wavesTHREE`), imported from a blob: +45 kB per module that does it, and it must track core's three version by hand |
-| 37 | no way to **hide an object's look without touching it** (a module-drawn stand-in: a rigged figure over a capsule enemy) | `waves` (30c) | yes — the object's meshes hop render layers (30 in the game, helper 1 in Edit); `visible` would be saved/sent. Undone only while the module runs: disabling Waves mid-session leaves the capsules on layer 30 until a reload (#29's dispose hook would close it) |
+| 37 | no way to **hide an object's look without touching it** (a module-drawn stand-in: a rigged figure over a capsule enemy) | `waves` (30c) | yes — the object's meshes hop off layer 0 only between the scene's `onBeforeRender` and `onAfterRender` (chained). A persistent hop is NOT safe: the .tpscene save is `toJSON`, which writes layers. The card (author script) renders a `toJSON` clone, so there the capsules show under the figures. Ask: a per-object `userData.renderHidden` core honours in its renders only |
 
 ---
 
@@ -724,8 +724,8 @@ shim of `api.THREE` and ships Meshy guns, rigged walking enemies and a crystal i
 
 - **#36** (no model loader): see above — solved in the module, at the cost of a build step and a
   hand-kept three version (three 0.185.1 = core's). `api.loadModel` is feature-detected first.
-- **#37 / #29** (a stand-in look, no dispose hook): the figure trick needs the object's own meshes
-  hidden without a replicated fact; layers do it, but only a dispose hook could put them back when
-  the module is switched off mid-session.
+- **#37** (a stand-in look): the figure trick needs the object's own meshes hidden without a saved
+  or replicated fact; a render-scoped layer hop does it (nothing outlives a render, so switching the
+  module off mid-session leaves nothing behind either).
 - A figure's hit flash needs its OWN materials: a SkeletonUtils clone shares them with the source,
   so `assets.instance()` clones the materials per figure (textures stay shared).

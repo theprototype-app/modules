@@ -3,16 +3,18 @@
 // it already has (the engine places the enemies every frame on every peer), so nothing is sent.
 //
 // The enemy OBJECT is untouched — its name, its capsule body, the hit volume a shot meets, the
-// health it carries. While its figure shows, the object's own meshes hop off layer 0 (see
-// figures.js STAND_IN_LAYER — a layer, never `visible`/materials, so nothing about it can be
-// saved or sent). The figures live under the module's scene-root group, never in objectsGroup.
+// health it carries. While its figure shows, the object's own meshes leave layer 0 for the
+// length of each RENDER only (the scene's onBeforeRender hops them to figures.js STAND_IN_LAYER,
+// its onAfterRender puts them back): outside a render they are exactly the 30b meshes, so a
+// save (.tpscene is toJSON — it WRITES layers), a late join, a raycast, the editor's pick all
+// see the capsule; only the frame shows the figure instead. The figures live under the module's
+// scene-root group, never in objectsGroup.
 // The clips: `walk`/`run` (Meshy's rig), `hit` and `death` (the animation library) when the
 // file has them — a figure without a clip still slides upright, never breaks.
 
 import { CORE } from './look.js';
 import {
 	STAND_IN_LAYER,
-	HELPER_LAYER,
 	figureOf,
 	footDrop,
 	fitScale,
@@ -24,7 +26,6 @@ import {
 	sinkDepth,
 	deathOver
 } from './figures.js';
-import { inGame } from './vr.js';
 
 /**
  * @param {any} api
@@ -44,8 +45,8 @@ export function registerAvatars(api, engine, root, assets) {
 	 *   hitUntil: number, object: any}} Figure */
 	/** @type {Map<string, Figure>} enemy uuid -> its figure */
 	const figures = new Map();
-	/** objects whose meshes hopped, and the layer they sit on @type {Map<any, number>} */
-	const hopped = new Map();
+	/** the objects a figure stands in for right now (their meshes hide DURING a render) @type {Set<any>} */
+	const standing = new Set();
 	/** @type {{model: any, scale: number, source: any, mats: any[]} | null} */
 	let crystal = null;
 	let enabled = true;
@@ -73,25 +74,53 @@ export function registerAvatars(api, engine, root, assets) {
 		_m.decompose(object.position, object.quaternion, object.scale);
 	}
 
-	/**
-	 * Hop an object's own meshes to `layer` (or back to 0 with null) — enable/disable, never
-	 * `set`: core's outline pass marks a selected object with a layer bit of its own.
-	 * @param {any} object @param {number | null} layer
-	 */
-	function hop(object, layer) {
-		const was = hopped.get(object);
-		if (was === layer || (was === undefined && layer === null)) return;
-		object.traverse((/** @type {any} */ o) => {
-			if (!o.isMesh || !o.layers) return;
-			if (was !== undefined) o.layers.disable(was);
-			if (layer === null) o.layers.enable(0);
-			else {
+	/** stand in for `object` (its meshes hide while the scene renders) or stop @param {any} object @param {boolean} on */
+	function hop(object, on) {
+		if (on) standing.add(object);
+		else standing.delete(object);
+	}
+
+	// ---- the render-scoped hide: hop the stood-in meshes off layer 0 around each render ------
+	// (enable/disable, never `set`: core's outline pass marks a selection with a bit of its own)
+	/** @type {any[]} the meshes hopped for the render in flight */
+	const hidden = [];
+	function hideStandIns() {
+		// the module switched off (core's dispose takes its root group out of the scene) or the
+		// figures' group gone: the hook outlives the module, so it must hide nothing then
+		if (!enabled || !root.parent || group.parent !== root) return;
+		for (const object of standing)
+			object.traverse((/** @type {any} */ o) => {
+				if (!o.isMesh || !o.layers?.isEnabled?.(0)) return;
 				o.layers.disable(0);
-				o.layers.enable(layer);
-			}
-		});
-		if (layer === null) hopped.delete(object);
-		else hopped.set(object, layer);
+				o.layers.enable(STAND_IN_LAYER);
+				hidden.push(o);
+			});
+	}
+	function showStandIns() {
+		for (const o of hidden) {
+			o.layers.disable(STAND_IN_LAYER);
+			o.layers.enable(0);
+		}
+		hidden.length = 0;
+	}
+	/** @type {any} */
+	let hooked = null;
+	/** chain onto the scene's own render hooks (once per scene; a new scene is hooked again) */
+	function hookScene() {
+		const scene = api.scene?.();
+		if (!scene || hooked === scene) return;
+		const before = scene.onBeforeRender;
+		const after = scene.onAfterRender;
+		scene.onBeforeRender = function (/** @type {any[]} */ ...a) {
+			before?.apply(this, a);
+			showStandIns(); // a nested render (a pass inside a pass) never double-hops
+			hideStandIns();
+		};
+		scene.onAfterRender = function (/** @type {any[]} */ ...a) {
+			showStandIns();
+			after?.apply(this, a);
+		};
+		hooked = scene;
 	}
 
 	/** @param {string} uuid @param {string} kind @returns {Figure | null} */
@@ -181,7 +210,7 @@ export function registerAvatars(api, engine, root, assets) {
 		const t = clock();
 		const dt = Math.min(0.1, Math.max(0, t - lastT));
 		lastT = t;
-		const game = inGame(api);
+		hookScene();
 		const objects = api.objectsGroup();
 		refreshInverse();
 		/** @type {Map<string, any>} one pass over the scene, not a search per enemy */
@@ -199,7 +228,7 @@ export function registerAvatars(api, engine, root, assets) {
 					if (f) group.remove(f.model);
 					f = enabled ? make(e.uuid, e.kind) : null;
 					if (!f) {
-						hop(object, null);
+						hop(object, false);
 						continue;
 					}
 					figures.set(e.uuid, f);
@@ -213,7 +242,7 @@ export function registerAvatars(api, engine, root, assets) {
 				if (f.dyingAt !== null && deathOver(t - f.dyingAt)) revive(f);
 				const dying = f.dyingAt !== null;
 				const show = enabled && figureShown({ visible: !!object.visible, y: wp[1], dying });
-				hop(object, show ? (game ? STAND_IN_LAYER : HELPER_LAYER) : null);
+				hop(object, show);
 				f.model.visible = show;
 				if (!show) {
 					f.last = null;
@@ -253,20 +282,19 @@ export function registerAvatars(api, engine, root, assets) {
 		for (const [uuid, f] of figures)
 			if (!seen.has(uuid)) {
 				group.remove(f.model);
-				if (f.object) hop(f.object, null);
+				if (f.object) hop(f.object, false);
 				figures.delete(uuid);
 			}
-		crystalFrame(game);
+		crystalFrame();
 	}
 
 	// ---- the crystal: the Meshy crystal where the Goal core spins, glowing as it glows -------
-	/** @param {boolean} game */
-	function crystalFrame(game) {
+	function crystalFrame() {
 		// the core found once (a search of the arena per frame is waste); again after a clear
 		const core = crystal?.source?.parent ? crystal.source : api.objectsGroup()?.getObjectByName?.(CORE);
 		if (!core || !enabled) {
 			if (crystal) crystal.model.visible = false;
-			if (crystal?.source) hop(crystal.source, null);
+			if (crystal?.source) hop(crystal.source, false);
 			return;
 		}
 		if (!crystal || crystal.source !== core) {
@@ -302,7 +330,7 @@ export function registerAvatars(api, engine, root, assets) {
 			crystal = { model, scale: fitScale(size.y, r * 2.6), source: core, mats };
 			group.add(model);
 		}
-		hop(core, game ? STAND_IN_LAYER : HELPER_LAYER);
+		hop(core, true);
 		core.updateMatrixWorld?.(true);
 		core.matrixWorld.decompose(_p, _q, _s);
 		const k = crystal.scale;
@@ -325,9 +353,10 @@ export function registerAvatars(api, engine, root, assets) {
 		}
 	});
 	api.onSceneClear(() => {
+		showStandIns();
 		for (const f of figures.values()) group.remove(f.model);
 		figures.clear();
-		hopped.clear();
+		standing.clear();
 		if (crystal) group.remove(crystal.model);
 		crystal = null;
 	});
@@ -344,17 +373,17 @@ export function registerAvatars(api, engine, root, assets) {
 			if (!enabled) {
 				for (const f of figures.values()) {
 					f.model.visible = false;
-					if (f.object) hop(f.object, null);
+					if (f.object) hop(f.object, false);
 				}
 				if (crystal) {
 					crystal.model.visible = false;
-					hop(crystal.source, null);
+					hop(crystal.source, false);
 				}
 			}
 		},
 		enabled: () => enabled,
-		/** the layer an enemy object's meshes sit on right now (0 = its own look) @param {any} object */
-		layerOf: (object) => hopped.get(object) ?? 0
+		/** does a figure stand in for `object` (its meshes hidden while the scene renders)? @param {any} object */
+		standsIn: (object) => standing.has(object)
 	};
 }
 

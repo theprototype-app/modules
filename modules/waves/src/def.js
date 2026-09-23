@@ -8,7 +8,7 @@
 
 import { arenaHud, hudGraph } from './hud.js';
 import { arenaRecipe } from './toolbox.js';
-import { arenaObjects, enemyObject, standHeight, CORE, CARD_CAMERA } from './look.js';
+import { arenaObjects, enemyObject, standHeight, CORE, CARD_CAMERA, MODULE_ROOT } from './look.js';
 import { kindOf } from './curve.js';
 
 /**
@@ -141,7 +141,8 @@ export function wavesDef() {
 		hud: arenaHud(),
 		// the editor opens high over the home end; the card is the arena's corner camera
 		view: { pos: [11, 10, 17], target: [0, 0, -2] },
-		thumb: { camera: CARD_CAMERA },
+		// 30c: the card shows the Meshy figures (they live under the module's own root)
+		thumb: { camera: CARD_CAMERA, sceneGroups: [MODULE_ROOT] },
 		objects
 	};
 }

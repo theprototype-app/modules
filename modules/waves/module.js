@@ -1272,6 +1272,7 @@ function hudGraph(o) {
 }
 
 // modules/waves/src/look.js
+var MODULE_ROOT = "waves-module";
 var CORE = "Goal core";
 var FLASH = { seconds: 0.18, peak: 3.5 };
 function flashLevel(age) {
@@ -1914,7 +1915,6 @@ function createFeel(api, prefs) {
 
 // modules/waves/src/figures.js
 var STAND_IN_LAYER = 30;
-var HELPER_LAYER = 1;
 var FIGURES = Object.freeze({
   grunt: Object.freeze({ walk: "walk", clipSpeed: 1.1, height: 1.2 }),
   runner: Object.freeze({ walk: "run", clipSpeed: 2.6, height: 1.05 }),
@@ -2164,7 +2164,6 @@ function registerWeapon(api, engine, root, juice, prefs, feel, assets = null) {
     return new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromRotationMatrix(basis), new THREE.Vector3(1, 1, 1));
   }
   const raycaster = new THREE.Raycaster();
-  raycaster.layers.enable(STAND_IN_LAYER);
   const shown = (o) => {
     for (let c = o; c; c = c.parent) if (c.visible === false) return false;
     return true;
@@ -2865,7 +2864,7 @@ function registerAvatars(api, engine, root, assets) {
   root.add(group);
   const clock = () => performance.now() / 1e3;
   const figures = /* @__PURE__ */ new Map();
-  const hopped = /* @__PURE__ */ new Map();
+  const standing = /* @__PURE__ */ new Set();
   let crystal = null;
   let enabled = true;
   const stats = { made: 0, hits: 0, deaths: 0, walking: 0 };
@@ -2885,20 +2884,44 @@ function registerAvatars(api, engine, root, assets) {
     _m.premultiply(_inv);
     _m.decompose(object.position, object.quaternion, object.scale);
   }
-  function hop(object, layer) {
-    const was = hopped.get(object);
-    if (was === layer || was === void 0 && layer === null) return;
-    object.traverse((o) => {
-      if (!o.isMesh || !o.layers) return;
-      if (was !== void 0) o.layers.disable(was);
-      if (layer === null) o.layers.enable(0);
-      else {
+  function hop(object, on) {
+    if (on) standing.add(object);
+    else standing.delete(object);
+  }
+  const hidden = [];
+  function hideStandIns() {
+    if (!enabled || !root.parent || group.parent !== root) return;
+    for (const object of standing)
+      object.traverse((o) => {
+        if (!o.isMesh || !o.layers?.isEnabled?.(0)) return;
         o.layers.disable(0);
-        o.layers.enable(layer);
-      }
-    });
-    if (layer === null) hopped.delete(object);
-    else hopped.set(object, layer);
+        o.layers.enable(STAND_IN_LAYER);
+        hidden.push(o);
+      });
+  }
+  function showStandIns() {
+    for (const o of hidden) {
+      o.layers.disable(STAND_IN_LAYER);
+      o.layers.enable(0);
+    }
+    hidden.length = 0;
+  }
+  let hooked = null;
+  function hookScene() {
+    const scene = api.scene?.();
+    if (!scene || hooked === scene) return;
+    const before = scene.onBeforeRender;
+    const after = scene.onAfterRender;
+    scene.onBeforeRender = function(...a) {
+      before?.apply(this, a);
+      showStandIns();
+      hideStandIns();
+    };
+    scene.onAfterRender = function(...a) {
+      showStandIns();
+      after?.apply(this, a);
+    };
+    hooked = scene;
   }
   function make(uuid, kind) {
     const inst = assets.instance(kind);
@@ -2976,7 +2999,7 @@ function registerAvatars(api, engine, root, assets) {
     const t = clock();
     const dt = Math.min(0.1, Math.max(0, t - lastT));
     lastT = t;
-    const game = inGame(api);
+    hookScene();
     const objects = api.objectsGroup();
     refreshInverse();
     const byUuid = /* @__PURE__ */ new Map();
@@ -2992,7 +3015,7 @@ function registerAvatars(api, engine, root, assets) {
           if (f) group.remove(f.model);
           f = enabled ? make(e.uuid, e.kind) : null;
           if (!f) {
-            hop(object, null);
+            hop(object, false);
             continue;
           }
           figures.set(e.uuid, f);
@@ -3005,7 +3028,7 @@ function registerAvatars(api, engine, root, assets) {
         if (f.dyingAt !== null && deathOver(t - f.dyingAt)) revive(f);
         const dying = f.dyingAt !== null;
         const show = enabled && figureShown({ visible: !!object.visible, y: wp[1], dying });
-        hop(object, show ? game ? STAND_IN_LAYER : HELPER_LAYER : null);
+        hop(object, show);
         f.model.visible = show;
         if (!show) {
           f.last = null;
@@ -3043,16 +3066,16 @@ function registerAvatars(api, engine, root, assets) {
     for (const [uuid, f] of figures)
       if (!seen.has(uuid)) {
         group.remove(f.model);
-        if (f.object) hop(f.object, null);
+        if (f.object) hop(f.object, false);
         figures.delete(uuid);
       }
-    crystalFrame(game);
+    crystalFrame();
   }
-  function crystalFrame(game) {
+  function crystalFrame() {
     const core = crystal?.source?.parent ? crystal.source : api.objectsGroup()?.getObjectByName?.(CORE);
     if (!core || !enabled) {
       if (crystal) crystal.model.visible = false;
-      if (crystal?.source) hop(crystal.source, null);
+      if (crystal?.source) hop(crystal.source, false);
       return;
     }
     if (!crystal || crystal.source !== core) {
@@ -3084,7 +3107,7 @@ function registerAvatars(api, engine, root, assets) {
       crystal = { model, scale: fitScale(size.y, r * 2.6), source: core, mats };
       group.add(model);
     }
-    hop(core, game ? STAND_IN_LAYER : HELPER_LAYER);
+    hop(core, true);
     core.updateMatrixWorld?.(true);
     core.matrixWorld.decompose(_p, _q, _s);
     const k = crystal.scale;
@@ -3105,9 +3128,10 @@ function registerAvatars(api, engine, root, assets) {
     }
   });
   api.onSceneClear(() => {
+    showStandIns();
     for (const f of figures.values()) group.remove(f.model);
     figures.clear();
-    hopped.clear();
+    standing.clear();
     if (crystal) group.remove(crystal.model);
     crystal = null;
   });
@@ -3123,22 +3147,22 @@ function registerAvatars(api, engine, root, assets) {
       if (!enabled) {
         for (const f of figures.values()) {
           f.model.visible = false;
-          if (f.object) hop(f.object, null);
+          if (f.object) hop(f.object, false);
         }
         if (crystal) {
           crystal.model.visible = false;
-          hop(crystal.source, null);
+          hop(crystal.source, false);
         }
       }
     },
     enabled: () => enabled,
-    /** the layer an enemy object's meshes sit on right now (0 = its own look) @param {any} object */
-    layerOf: (object) => hopped.get(object) ?? 0
+    /** does a figure stand in for `object` (its meshes hidden while the scene renders)? @param {any} object */
+    standsIn: (object) => standing.has(object)
   };
 }
 
 // modules/waves/src/index.js
-var ROOT = "waves-module";
+var ROOT = MODULE_ROOT;
 var index_default = {
   id: "waves",
   name: "Waves",

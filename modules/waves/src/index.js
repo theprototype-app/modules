@@ -23,11 +23,12 @@ import { registerPowers } from './powers.js';
 import { registerSession, resultLines } from './session.js';
 import { registerMenu } from './menu.js';
 import { createAssets } from './assets.js';
+import { MODULE_ROOT } from './look.js';
 import { registerAvatars } from './avatars.js';
 
 /** 30b: the module's own scene-root group — the headset board, later the gun and the shots.
  * LOCAL content: never in objectsGroup, never saved, never sent. */
-export const ROOT = 'waves-module';
+export const ROOT = MODULE_ROOT;
 
 export default {
 	id: 'waves',

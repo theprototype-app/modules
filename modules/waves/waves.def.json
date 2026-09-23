@@ -4266,7 +4266,10 @@
 		]
 	},
 	"thumb": {
-		"camera": "Card camera"
+		"camera": "Card camera",
+		"sceneGroups": [
+			"waves-module"
+		]
 	},
 	"objects": [
 		{

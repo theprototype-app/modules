@@ -6,13 +6,13 @@
 
 import { ENEMY_LOOKS } from './look.js';
 
-/** the render layer a stood-in primitive hops to while its figure shows (in a game). Core's
- * cameras render layer 0 (the editor adds 1, its helper layer); 31 is core's overload guard.
- * A layer, not `visible`: GLTFExporter (autosave, the late-join snapshot) never writes layers,
- * so a saved scene always keeps its primitives, and a peer without the models still sees them */
+/** the render layer a stood-in primitive hops to for the length of each RENDER while its figure
+ * shows — no camera draws it (core's cameras draw 0, the editor adds its helper layer 1; 31 is
+ * core's overload guard). Only during a render: the .tpscene save is toJSON, which WRITES
+ * layers, so outside a render the meshes must be exactly the scene's (never `visible` either:
+ * that is a replicated fact) */
 export const STAND_IN_LAYER = 30;
-/** core's helper layer: in EDIT the stand-in rides here — the editor still sees and picks the
- * capsule (it is the hit volume), a card camera or thumbnail (layer 0 only) sees the figure */
+/** core's helper layer (the editor draws it) — the stand-in must never land there */
 export const HELPER_LAYER = 1;
 
 /**
