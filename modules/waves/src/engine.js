@@ -12,10 +12,12 @@
 // waves node fires no `wave`/`over` event and appends no log entry here — those moments
 // were somebody else's to witness.
 
-import { curveOf, sizeOf, killsOf, waveOf, aliveIn, usedIn, healsBefore, enemyPosition, spawnFor, runEntry, appendRun, clamp, DEFAULTS, KINDS, kindOf, setbackOf } from './curve.js';
+import { curveOf, sizeOf, killsOf, waveOf, aliveIn, usedIn, healsBefore, enemyPosition, spawnFor, runEntry, appendRun, clamp, DEFAULTS, KINDS, kindOf, setbackOf, pushedBy, appendFx, fxOf } from './curve.js';
 
 const SWEEP = 0.1;
 const LOG_PREFIX = 'waves:';
+/** 30b: the round's ability events (Slow-mo windows, Pulse shoves) — a replicated game var */
+const FX_PREFIX = 'waves:fx:';
 /** the game shell stamps its round in session milliseconds; the trigger log and
  * api.now() are seconds of day — one conversion, here @param {number} ms */
 const toSeconds = (ms) => (ms / 1000) % 86400;
@@ -189,7 +191,11 @@ export function createWavesEngine(api) {
 		const round = roundSeen.get(node.id) ?? null;
 		const goalUuid = selectorInto(g, node, 'goal');
 		const goalObject = objectOf(goalUuid);
+		// 30b: the abilities' events of THIS round (a joiner reads the same variable)
+		const fx = running ? fxOf(api.game.getVar(FX_PREFIX + name, null), round) : [];
 		return {
+			fx,
+			slows: fx.filter((/** @type {any} */ e) => e?.k === 'slow'),
 			id: node.id,
 			name,
 			curve,
@@ -271,7 +277,8 @@ export function createWavesEngine(api) {
 						now: now(),
 						speed: s.speed * kind.speed,
 						stagger: s.stagger,
-						setback: setbackOf(hitsOf(e), e.heals, e.max, kind.knock)
+						setback: setbackOf(hitsOf(e), e.heals, e.max, kind.knock) + pushedBy(e.uuid, s.fx, s.waveStart, now()),
+						slows: s.slows
 					})
 				);
 				e.pos = object.position.toArray();
@@ -357,6 +364,23 @@ export function createWavesEngine(api) {
 		const seen = seenHits.get(uuid);
 		if (seen) seenHits.set(uuid, { hits: hitsOf(e), kills: killsOf(hitsOf(e), e.max) });
 		return { landed, killed, enemy: e };
+	}
+
+	/**
+	 * 30b: an ability's REPLICATED event (Slow-mo, Pulse) into the running round's list — the
+	 * one write, from the player who used it; every peer's walk reads it back.
+	 * @param {any} event {k: 'slow', at, until} | {k: 'push', at, d: {uuid: metres}}
+	 * @returns {boolean}
+	 */
+	function addFx(event) {
+		const s = [...state.values()].find((x) => x.running);
+		if (!s || typeof s.round !== 'number') return false;
+		const key = FX_PREFIX + s.name;
+		api.game.setVar(key, appendFx(api.game.getVar(key, null), s.round, event));
+		// this peer sees it at once (the next sweep would anyway)
+		s.fx = fxOf(api.game.getVar(key, null), s.round);
+		s.slows = s.fx.filter((/** @type {any} */ e) => e?.k === 'slow');
+		return true;
 	}
 
 	/** @param {{kind: 'hurt' | 'death', uuid: string, pos: number[], enemy: any, mine: boolean}} ev */
@@ -516,6 +540,7 @@ export function createWavesEngine(api) {
 		sweep,
 		targets,
 		hit,
+		addFx,
 		/** @param {(e: {kind: 'hurt' | 'death', uuid: string, pos: number[], enemy: any, mine: boolean}) => void} fn */
 		onEnemy: (fn) => {
 			enemyListeners.add(fn);

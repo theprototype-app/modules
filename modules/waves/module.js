@@ -80,7 +80,8 @@ function kindOf(label) {
 function enemyPosition(p) {
   const speed = clamp(p.speed, 0.01, 100, DEFAULTS.speed);
   const stagger = clamp(p.stagger, 0, 60, DEFAULTS.stagger);
-  const t = p.now - p.waveStart - stagger * p.index;
+  const leave = p.waveStart + stagger * p.index;
+  const t = p.slows?.length ? warpedElapsed(leave, p.now, p.slows) : p.now - leave;
   if (!(t > 0)) return p.start.slice();
   const dx = p.goal[0] - p.start[0];
   const dz = p.goal[2] - p.start[2];
@@ -89,6 +90,31 @@ function enemyPosition(p) {
   const along = Math.min(dist, Math.max(0, t * speed - Math.max(0, Number(p.setback) || 0)));
   const f = along / dist;
   return [p.start[0] + dx * f, p.start[1], p.start[2] + dz * f];
+}
+var SLOW_RATE = 0.4;
+function warpedElapsed(from, to, slows, rate = SLOW_RATE) {
+  if (!(to > from)) return to - from;
+  const w = (slows ?? []).map((x) => [Math.max(from, Number(x.at)), Math.min(to, Number(x.until))]).filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b) && b > a).sort((a, b) => a[0] - b[0]);
+  let slowed = 0;
+  let end = -Infinity;
+  for (const [a, b] of w) {
+    const s = Math.max(a, end);
+    if (b > s) slowed += b - s;
+    end = Math.max(end, b);
+  }
+  return to - from - (1 - rate) * slowed;
+}
+function pushedBy(uuid, events, since, now) {
+  let m = 0;
+  for (const e of events ?? []) if (e?.k === "push" && e.at >= since && e.at <= now) m += Number(e.d?.[uuid]) || 0;
+  return m;
+}
+function appendFx(held, round, event, cap = 40) {
+  const list = held && typeof held === "object" && held.round === round && Array.isArray(held.ev) ? held.ev : [];
+  return { round, ev: [...list, event].sort((a, b) => a.at - b.at).slice(-cap) };
+}
+function fxOf(held, round) {
+  return held && typeof held === "object" && held.round === round && Array.isArray(held.ev) ? held.ev : [];
 }
 function setbackOf(hits, heals, max, knock) {
   const taken = Math.max(0, Math.min(max, (Number(hits) || 0) - (Number(heals) || 0)));
@@ -119,6 +145,7 @@ function appendRun(log, entry, cap = 50) {
 // modules/waves/src/engine.js
 var SWEEP = 0.1;
 var LOG_PREFIX = "waves:";
+var FX_PREFIX = "waves:fx:";
 var toSeconds = (ms) => ms / 1e3 % 86400;
 var KILLS_ROW = "kills";
 var STASH_DEPTH = -30;
@@ -239,7 +266,10 @@ function createWavesEngine(api) {
     const round = roundSeen.get(node.id) ?? null;
     const goalUuid = selectorInto(g, node, "goal");
     const goalObject = objectOf(goalUuid);
+    const fx = running ? fxOf(api.game.getVar(FX_PREFIX + name, null), round) : [];
     return {
+      fx,
+      slows: fx.filter((e) => e?.k === "slow"),
       id: node.id,
       name,
       curve,
@@ -311,7 +341,8 @@ function createWavesEngine(api) {
             now: now(),
             speed: s.speed * kind.speed,
             stagger: s.stagger,
-            setback: setbackOf(hitsOf(e), e.heals, e.max, kind.knock)
+            setback: setbackOf(hitsOf(e), e.heals, e.max, kind.knock) + pushedBy(e.uuid, s.fx, s.waveStart, now()),
+            slows: s.slows
           })
         );
         e.pos = object.position.toArray();
@@ -376,6 +407,15 @@ function createWavesEngine(api) {
     const seen = seenHits.get(uuid);
     if (seen) seenHits.set(uuid, { hits: hitsOf(e), kills: killsOf(hitsOf(e), e.max) });
     return { landed, killed, enemy: e };
+  }
+  function addFx(event) {
+    const s = [...state.values()].find((x) => x.running);
+    if (!s || typeof s.round !== "number") return false;
+    const key = FX_PREFIX + s.name;
+    api.game.setVar(key, appendFx(api.game.getVar(key, null), s.round, event));
+    s.fx = fxOf(api.game.getVar(key, null), s.round);
+    s.slows = s.fx.filter((e) => e?.k === "slow");
+    return true;
   }
   function emitEnemy(ev) {
     for (const fn of enemyListeners) {
@@ -506,6 +546,7 @@ function createWavesEngine(api) {
     sweep,
     targets,
     hit,
+    addFx,
     /** @param {(e: {kind: 'hurt' | 'death', uuid: string, pos: number[], enemy: any, mine: boolean}) => void} fn */
     onEnemy: (fn) => {
       enemyListeners.add(fn);
@@ -522,7 +563,8 @@ function createWavesEngine(api) {
 // modules/waves/src/nodes.js
 var READS = ["wave", "left", "size", "waves", "done"];
 var EVENTS = ["wave", "over", "start"];
-function registerNodes(api, engine) {
+var PLAYER_READS = ["ability", "heat"];
+function registerNodes(api, engine, player = {}) {
   api.registerNodeGroup({
     group: "Waves",
     items: [
@@ -562,6 +604,14 @@ function registerNodes(api, engine) {
         ]
       },
       {
+        // 30b: THIS player's gun and ability, for the HUD's bars (a local value: each
+        // peer shows its own charge and heat)
+        type: "wavesplayer",
+        label: "Waves Player",
+        defaults: { read: "ability" },
+        params: [{ key: "read", kind: "select", options: PLAYER_READS }]
+      },
+      {
         type: "wavesevent",
         label: "Waves Event",
         defaults: { name: DEFAULTS.name, event: "wave" },
@@ -598,6 +648,14 @@ function registerNodes(api, engine) {
     { vtype: "number" }
   );
   api.registerValueNode("wavesevent", () => 0, { vtype: "event" });
+  api.registerValueNode(
+    "wavesplayer",
+    (data) => {
+      const fn = player[String(data?.read ?? "ability")];
+      return typeof fn === "function" ? Number(fn()) || 0 : 0;
+    },
+    { vtype: "number" }
+  );
 }
 
 // modules/waves/src/toolbox.js
@@ -1491,6 +1549,9 @@ function gunHands(hand) {
   if (hand === "both") return ["right", "left"];
   return ["right"];
 }
+function abilityHand(hand) {
+  return hand === "left" ? "right" : "left";
+}
 
 // modules/waves/src/prefs.js
 var ABILITY_IDS = Object.freeze(["shield", "slowmo", "pulse"]);
@@ -1848,6 +1909,175 @@ function registerWeapon(api, engine, root, juice, prefs, feel) {
   };
 }
 
+// modules/waves/src/abilities.js
+var ABILITIES = Object.freeze({
+  shield: Object.freeze({ id: "shield", name: "Shield", duration: 3, cooldown: 12, color: 3793151, sound: "ring", blurb: "Blocks all damage for 3 s." }),
+  slowmo: Object.freeze({ id: "slowmo", name: "Slow-mo", duration: 4, cooldown: 16, color: 9076223, sound: "whoosh", blurb: "Enemies at 40% speed for 4 s." }),
+  pulse: Object.freeze({ id: "pulse", name: "Pulse", duration: 0.45, cooldown: 8, color: 16765514, sound: "kick", radius: 6, push: 3.2, blurb: "A shockwave shoves nearby enemies back." })
+});
+function abilityOf(id) {
+  return (
+    /** @type {any} */
+    ABILITIES[String(id)] ?? ABILITIES.pulse
+  );
+}
+var freshCharge = () => ({ readyAt: -Infinity, activeUntil: -Infinity, id: "" });
+function use(a, s, t) {
+  if (t < s.readyAt) return { ok: false, state: s };
+  return { ok: true, state: { readyAt: t + a.cooldown, activeUntil: t + a.duration, id: a.id } };
+}
+function readiness(a, s, t) {
+  if (!(t < s.readyAt)) return 1;
+  return Math.max(0, Math.min(1, 1 - (s.readyAt - t) / a.cooldown));
+}
+var active = (s, t) => t < s.activeUntil;
+function pulseShoves(enemies, at, a) {
+  const out = {};
+  for (const e of enemies) {
+    if (!e.pos) continue;
+    const d = Math.hypot(e.pos[0] - at[0], e.pos[2] - at[2]);
+    if (d > a.radius) continue;
+    const m = a.push * (1 - 0.5 * (d / a.radius)) * (e.kind === "tank" ? 0.35 : 1);
+    out[e.uuid] = Math.round(m * 100) / 100;
+  }
+  return out;
+}
+
+// modules/waves/src/powers.js
+function registerPowers(api, engine, root, prefs, feel) {
+  const THREE = api.THREE;
+  const edges = createEdges();
+  let charge = freshCharge();
+  let wasReady = true;
+  const clock = () => performance.now() / 1e3;
+  const log = (
+    /** @type {{id: string, at: number, shoves?: number}[]} */
+    []
+  );
+  const glow = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+  const bubble = new THREE.Mesh(new THREE.IcosahedronGeometry(1.05, 2), glow(3793151, 0.14));
+  bubble.name = "Waves shield";
+  bubble.visible = false;
+  const bubbleEdges = new THREE.LineSegments(new THREE.EdgesGeometry(bubble.geometry), new THREE.LineBasicMaterial({ color: 8386303, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
+  bubble.add(bubbleEdges);
+  const wave = new THREE.Mesh(new THREE.TorusGeometry(1, 0.06, 8, 48).rotateX(Math.PI / 2), glow(16765514, 0.9));
+  wave.name = "Waves pulse";
+  wave.visible = false;
+  root.add(bubble, wave);
+  let waveAt = -Infinity;
+  let waveFrom = [0, 0, 0];
+  const placeWorld = (object, p) => {
+    const v = new THREE.Vector3(p[0], p[1], p[2]);
+    object.parent?.worldToLocal(v);
+    object.position.copy(v);
+  };
+  let keyPressed = false;
+  if (typeof window !== "undefined")
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.code !== "KeyQ" || e.repeat) return;
+        const t = (
+          /** @type {any} */
+          e.target
+        );
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName ?? ""))) return;
+        keyPressed = true;
+      },
+      true
+    );
+  const running = () => {
+    const cutoff = api.game.roundCutoff();
+    return typeof cutoff === "number" && Number.isFinite(cutoff) && api.game.roundUnderway();
+  };
+  function trigger2(hand) {
+    const a = abilityOf(prefs.get().ability);
+    const t = clock();
+    const r = use(a, charge, t);
+    if (!r.ok) {
+      feel.haptic("tap", hand);
+      return false;
+    }
+    charge = r.state;
+    wasReady = false;
+    const me = api.playerPosition?.() ?? [0, 1.6, 0];
+    const entry = { id: a.id, at: t, shoves: 0 };
+    if (a.id === "slowmo") {
+      const now = api.now();
+      engine.addFx({ k: "slow", at: now, until: now + a.duration });
+    } else if (a.id === "pulse") {
+      const enemies = engine.targets().map((e) => {
+        const o = api.objectsGroup()?.getObjectByProperty("uuid", e.uuid);
+        return { uuid: e.uuid, kind: e.kind, pos: o ? o.getWorldPosition(new THREE.Vector3()).toArray() : null };
+      });
+      const d = pulseShoves(enemies, me, a);
+      entry.shoves = Object.keys(d).length;
+      if (entry.shoves) engine.addFx({ k: "push", at: api.now(), d });
+      waveAt = t;
+      waveFrom = [me[0], Math.max(0.06, me[1] - 1.5), me[2]];
+      api.effects?.burst?.(waveFrom, { kind: "sparkle", color: "#ffd24a", count: 30 });
+    }
+    log.push(entry);
+    if (log.length > 20) log.shift();
+    feel.sound(a.sound, me);
+    feel.haptic(a.id === "pulse" ? "rumble" : "success", hand);
+    return true;
+  }
+  function frame() {
+    const t = clock();
+    const game = inGame(api) && running();
+    const vr = !!api.isVR?.();
+    const a = abilityOf(prefs.get().ability);
+    if (game) {
+      if (vr) {
+        const hand = abilityHand(prefs.get().hand);
+        const snap = api.vrHand?.(hand);
+        if (edges.edge("grip-" + hand, !!snap?.gripped)) trigger2(hand);
+      } else if (keyPressed) trigger2();
+    } else edges.clear();
+    keyPressed = false;
+    const ready = readiness(a, charge, t) >= 1;
+    if (ready && !wasReady && game) feel.haptic("heartbeat", abilityHand(prefs.get().hand));
+    wasReady = ready;
+    const shielded = game && charge.id === "shield" && active(charge, t);
+    bubble.visible = shielded;
+    if (shielded) {
+      placeWorld(bubble, api.playerPosition?.() ?? [0, 1.6, 0]);
+      const left = charge.activeUntil - t;
+      bubble.material.opacity = 0.1 + 0.06 * Math.sin(t * 9) * (left < 0.8 ? 2 : 1);
+      bubble.rotation.y = t * 0.6;
+    }
+    const age = (t - waveAt) / 0.45;
+    wave.visible = age >= 0 && age < 1;
+    if (wave.visible) {
+      placeWorld(wave, waveFrom);
+      const r = 0.3 + (abilityOf("pulse").radius - 0.3) * Math.sqrt(age);
+      wave.scale.set(r, 1 + 2 * (1 - age), r);
+      wave.material.opacity = 0.9 * (1 - age);
+    }
+  }
+  api.registerFrameTask(() => {
+    try {
+      frame();
+    } catch (error) {
+      console.warn("[waves] ability failed", error);
+    }
+  });
+  return {
+    trigger: trigger2,
+    log,
+    /** 0..1 charged (1 ready) */
+    readiness: () => readiness(abilityOf(prefs.get().ability), charge, clock()),
+    /** is THIS player shielded now — the damage rule reads it */
+    shielded: () => charge.id === "shield" && active(charge, clock()),
+    /** is a slow window on (anyone's) */
+    slowed: () => engine.all().some((s) => (s.slows ?? []).some((w) => api.now() >= w.at && api.now() < w.until)),
+    reset: () => {
+      charge = freshCharge();
+    }
+  };
+}
+
 // modules/waves/src/index.js
 var ROOT = "waves-module";
 var index_default = {
@@ -1862,7 +2092,8 @@ var index_default = {
       return;
     }
     const engine = createWavesEngine(api);
-    registerNodes(api, engine);
+    const player = {};
+    registerNodes(api, engine, player);
     const toolbox = registerToolbox(api, engine);
     const root = new api.THREE.Group();
     root.name = ROOT;
@@ -1876,7 +2107,18 @@ var index_default = {
     api.registerSystemGroup?.(ROOT);
     const start = registerStart(api, root);
     const weapon = registerWeapon(api, engine, root, juice, prefs, feel);
-    api.registerFrameTask(() => juice.frame());
+    const powers = registerPowers(api, engine, root, prefs, feel);
+    player.ability = () => powers.readiness();
+    player.heat = () => Math.max(...["right", "left", "desk"].map((h) => weapon.heatOf(h).heat));
+    let roundAt = api.game.roundCutoff();
+    api.registerFrameTask(() => {
+      juice.frame();
+      const r = api.game.roundCutoff();
+      if (r !== roundAt) {
+        roundAt = r;
+        powers.reset();
+      }
+    });
     api.hud.registerDebugLine(() => {
       const runs = engine.all();
       if (!runs.length) return null;
@@ -1912,6 +2154,7 @@ var index_default = {
         prefs,
         juice,
         weapon,
+        powers,
         hud: arenaHud,
         hudGraph,
         snapshot: () => engine.all().map((s) => ({

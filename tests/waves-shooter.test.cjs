@@ -84,10 +84,11 @@ const worldPos = (page, uuid) =>
 		const o = g.getObjectByProperty('uuid', u);
 		return o ? o.getWorldPosition(new window.__stores.THREE.Vector3()).toArray() : null;
 	}, uuid);
-/** aim `hand` from `from` at the enemy's LIVE position, hold the trigger `frames` frames, let go */
-const shootAt = (page, hand, from, uuid, frames = 2) =>
+/** aim `hand` from `from` at the enemy's LIVE position, hold the trigger `frames` frames (or,
+ * with `holdMs`, for that long by the clock — a frame count is load-dependent), let go */
+const shootAt = (page, hand, from, uuid, frames = 2, holdMs = 0) =>
 	page.evaluate(
-		({ hand, from, uuid, frames }) =>
+		({ hand, from, uuid, frames, holdMs }) =>
 			new Promise((resolve) => {
 				const T = window.__stores.THREE;
 				let g;
@@ -101,11 +102,14 @@ const shootAt = (page, hand, from, uuid, frames = 2) =>
 				};
 				aimNow(false);
 				let n = 0;
+				let pressedAt = 0;
 				const tick = () => {
 					n++;
-					if (n === 2) aimNow(true);
-					else if (n > 2 && n < 2 + frames) aimNow(true);
-					else if (n >= 2 + frames) {
+					if (n === 2) {
+						aimNow(true);
+						pressedAt = performance.now();
+					} else if (n > 2 && (holdMs ? performance.now() - pressedAt < holdMs : n < 2 + frames)) aimNow(true);
+					else if (n > 2) {
 						aimNow(false);
 						return setTimeout(resolve, 60);
 					} else aimNow(false);
@@ -113,7 +117,7 @@ const shootAt = (page, hand, from, uuid, frames = 2) =>
 				};
 				requestAnimationFrame(tick);
 			}),
-		{ hand, from, uuid, frames }
+		{ hand, from, uuid, frames, holdMs }
 	);
 /** record every sound and buzz the module asks for (the 30b core seams, stubbed on its api) */
 const recordFeel = (page) =>
@@ -266,10 +270,14 @@ h.run(async () => {
 		await shootAt(A.page, 'right', hand, burn.uuid, 50);
 		const after = await A.page.evaluate(() => ({ shots: window.__waves.weapon.stats.shots, heat: window.__waves.weapon.heatOf('right') }));
 		h.check(after.shots - before >= 4 && after.heat.heat > 0.2, '2.16 the Beam fires in ticks while held and heats (' + (after.shots - before) + ' ticks, heat ' + after.heat.heat.toFixed(2) + ')');
-		await shootAt(A.page, 'right', hand, burn.uuid, 200);
-		const hot = await A.page.evaluate(() => window.__waves.weapon.heatOf('right'));
-		const f3 = await feelLog(A.page);
-		h.check(hot.locked && f3.sounds.includes('fail'), '2.17 held too long it OVERHEATS and locks (heat ' + hot.heat.toFixed(2) + ', fail sound)');
+		// held 3.5 s it must overheat (1.0 at 0.42/s) — and, locked, cool and unlock again while
+		// still held; so count the overheats (one `fail` each) rather than read the end state
+		const fails0 = (await feelLog(A.page)).sounds.filter((x) => x === 'fail').length;
+		const ticks0 = await A.page.evaluate(() => window.__waves.weapon.stats.shots);
+		await shootAt(A.page, 'right', hand, burn.uuid, 0, 3500);
+		const fails1 = (await feelLog(A.page)).sounds.filter((x) => x === 'fail').length;
+		const ticks1 = await A.page.evaluate(() => window.__waves.weapon.stats.shots);
+		h.check(fails1 > fails0 && ticks1 - ticks0 < 3.5 / 0.12 - 4, '2.17 held too long it OVERHEATS and locks: a fail, and fewer ticks than a free 3.5 s burn (' + (ticks1 - ticks0) + ')');
 	} else h.check(false, '2.16 a walking target for the Beam');
 	await A.page.evaluate(() => window.__waves.prefs.set({ gun: 'blaster' }));
 
@@ -316,6 +324,123 @@ h.run(async () => {
 	});
 	await headset(A.page, true);
 	await A.page.waitForTimeout(300);
+
+	// =====================================================================
+	// 3. P2 — the ability in the other hand: Pulse, Slow-mo, Shield, the cooldown, Q
+	// =====================================================================
+	await headset(A.page, true);
+	await A.page.evaluate(() => window.__stores.isLocked.set(true));
+	await A.page.waitForTimeout(400);
+	if ((await gameState(A.page)) !== 'playing') {
+		await h.eventually(() => A.page.evaluate(() => window.__waves.start.visible()), (v) => v, '3.0 the board is back to start a new round');
+		const c2 = await boardCenter(A.page);
+		const e2 = await eye(A.page);
+		await pull(A.page, 'right', [e2[0] + 0.2, e2[1] - 0.4, e2[2] - 0.2], c2);
+		await h.eventually(() => gameState(A.page), (st) => st === 'playing', '3.0a a new round runs');
+	}
+	await h.eventually(() => targets(A.page), (t) => t.some((x) => x.walking), '3.0b a walking enemy', 20000);
+	const fxVar = (page) => page.evaluate(() => window.__stores.gameState.gameVar('waves:fx:enemy', null));
+	/** stand the player (as the module reads it) next to an enemy */
+	const standNear = (page, uuid, dz = 2) =>
+		page.evaluate(
+			({ u, dz }) => {
+				let g;
+				window.__stores.objectsGroup.subscribe((v) => (g = v))();
+				const api = window.__waves.api;
+				if (!api.__realPlayerPosition) api.__realPlayerPosition = api.playerPosition;
+				const at = g.getObjectByProperty('uuid', u).getWorldPosition(new window.__stores.THREE.Vector3());
+				api.playerPosition = () => [at.x, 1.6, at.z + dz];
+			},
+			{ u: uuid, dz }
+		);
+	const grip = async (page, hand) => {
+		await page.evaluate((hand) => (window.__hand[hand] = { ...(window.__hand[hand] ?? { position: [0, 1, 0], quaternion: [0, 0, 0, 1], trigger: false }), gripped: false }), hand);
+		await page.waitForTimeout(100);
+		await page.evaluate((hand) => (window.__hand[hand].gripped = true), hand);
+		await page.waitForTimeout(150);
+		await page.evaluate((hand) => (window.__hand[hand].gripped = false), hand);
+		await page.waitForTimeout(100);
+	};
+	await A.page.evaluate(() => {
+		window.__waves.prefs.set({ ability: 'pulse', hand: 'right' });
+		window.__waves.powers.reset();
+	});
+	const pushee = (await targets(A.page)).find((t) => t.walking);
+	await standNear(A.page, pushee.uuid, 2);
+	const q0 = await timedPos(A.page, pushee.uuid);
+	await grip(A.page, 'left');
+	const q1 = await timedPos(A.page, pushee.uuid);
+	const v1 = await fxVar(A.page);
+	const push = (v1?.ev ?? []).filter((e) => e.k === 'push').pop();
+	h.check(!!push && push.d[pushee.uuid] > 1, '3.1 the LEFT grip fires the Pulse: a replicated shove in the round\'s fx variable (' + JSON.stringify(push?.d ?? null) + ')');
+	h.check(q1.p[2] < q0.p[2] + 1.5 * (q1.t - q0.t) - 1, '3.2 the enemy is thrown back along its lane (z ' + q0.p[2].toFixed(2) + ' -> ' + q1.p[2].toFixed(2) + ')');
+	const n1 = (v1?.ev ?? []).length;
+	await grip(A.page, 'left');
+	h.check(((await fxVar(A.page))?.ev ?? []).length === n1, '3.3 a second grip inside the cooldown does nothing');
+	const charge = await A.page.evaluate(() => window.__waves.powers.readiness());
+	h.check(charge < 0.2, '3.4 the charge is spent and refilling (' + charge.toFixed(2) + ')');
+
+	// Slow-mo: the walk at 40%
+	await A.page.evaluate(() => {
+		window.__waves.prefs.set({ ability: 'slowmo' });
+		window.__waves.powers.reset();
+	});
+	await h.eventually(() => targets(A.page), (t) => t.some((x) => x.walking), '3.5a a walking enemy', 20000);
+	// the walker FARTHEST from the goal (z most negative): it will still be walking in 2 s
+	const walkers = [];
+	for (const t of (await targets(A.page)).filter((x) => x.walking)) walkers.push({ ...t, z: (await worldPos(A.page, t.uuid))[2] });
+	const slow = walkers.sort((a, b) => a.z - b.z)[0];
+	const a0 = await timedPos(A.page, slow.uuid);
+	await A.page.waitForTimeout(700);
+	const a1 = await timedPos(A.page, slow.uuid);
+	await grip(A.page, 'left');
+	const b0 = await timedPos(A.page, slow.uuid);
+	await A.page.waitForTimeout(700);
+	const b1 = await timedPos(A.page, slow.uuid);
+	const vFree = Math.hypot(a1.p[0] - a0.p[0], a1.p[2] - a0.p[2]) / (a1.t - a0.t);
+	const vSlow = Math.hypot(b1.p[0] - b0.p[0], b1.p[2] - b0.p[2]) / (b1.t - b0.t);
+	const slowEv = ((await fxVar(A.page))?.ev ?? []).filter((e) => e.k === 'slow').pop();
+	h.check(!!slowEv && Math.abs(slowEv.until - slowEv.at - 4) < 0.01, '3.5 Slow-mo writes a 4 s window into the round (replicated)');
+	h.check(vFree > 0.5 && vSlow > 0 && vSlow / vFree < 0.55 && vSlow / vFree > 0.25, '3.6 inside it the enemies walk at ~40% (' + vFree.toFixed(2) + ' -> ' + vSlow.toFixed(2) + ' m/s)');
+
+	// Shield: blocks for 3 s
+	await A.page.evaluate(() => {
+		window.__waves.prefs.set({ ability: 'shield' });
+		window.__waves.powers.reset();
+	});
+	await grip(A.page, 'left');
+	const sh = await A.page.evaluate(() => ({ on: window.__waves.powers.shielded(), bubble: window.__waves.root.getObjectByName('Waves shield')?.visible }));
+	h.check(sh.on && sh.bubble, '3.7 the Shield raises its bubble');
+	await A.page.waitForTimeout(3300);
+	h.check(!(await A.page.evaluate(() => window.__waves.powers.shielded())), '3.8 and drops it after 3 s');
+
+	// both hands armed: the ability stays on the LEFT grip; a gun in the left hand moves it right
+	await A.page.evaluate(() => {
+		window.__waves.prefs.set({ ability: 'pulse', hand: 'left' });
+		window.__waves.powers.reset();
+	});
+	const before3 = await A.page.evaluate(() => window.__waves.powers.log.length);
+	await grip(A.page, 'left');
+	const afterLeft = await A.page.evaluate(() => window.__waves.powers.log.length);
+	await grip(A.page, 'right');
+	const afterRight = await A.page.evaluate(() => window.__waves.powers.log.length);
+	h.check(afterLeft === before3 && afterRight === before3 + 1, '3.9 with the gun in the LEFT hand the ability moves to the RIGHT grip');
+	await A.page.evaluate(() => window.__waves.prefs.set({ hand: 'right' }));
+
+	// desktop: Q
+	await headset(A.page, false);
+	await A.page.evaluate(() => window.__waves.powers.reset());
+	const beforeQ = await A.page.evaluate(() => window.__waves.powers.log.length);
+	await A.page.keyboard.press('KeyQ');
+	await A.page.waitForTimeout(200);
+	h.check((await A.page.evaluate(() => window.__waves.powers.log.length)) === beforeQ + 1, '3.10 on a desktop Q fires the ability');
+	const stored = await A.page.evaluate(() => JSON.parse(localStorage.getItem('tp:mod:waves:prefs') ?? 'null'));
+	h.check(stored?.ability === 'pulse' && stored?.hand === 'right' && stored?.gun === 'blaster', '3.11 the loadout is remembered on this device (api.storage: ' + JSON.stringify(stored) + ')');
+	await A.page.evaluate(() => {
+		const api = window.__waves.api;
+		if (api.__realPlayerPosition) api.playerPosition = api.__realPlayerPosition;
+	});
+
 
 	await h.finish(browser);
 });

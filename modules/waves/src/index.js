@@ -19,6 +19,7 @@ import { createJuice } from './juice.js';
 import { createPrefs } from './prefs.js';
 import { createFeel } from './feel.js';
 import { registerWeapon } from './weapon.js';
+import { registerPowers } from './powers.js';
 
 /** 30b: the module's own scene-root group — the headset board, later the gun and the shots.
  * LOCAL content: never in objectsGroup, never saved, never sent. */
@@ -38,7 +39,9 @@ export default {
 			return;
 		}
 		const engine = createWavesEngine(api);
-		registerNodes(api, engine);
+		/** @type {Record<string, () => number>} the local reads of the Waves Player node */
+		const player = {};
+		registerNodes(api, engine, player);
 		const toolbox = registerToolbox(api, engine);
 
 		const root = new api.THREE.Group();
@@ -55,7 +58,19 @@ export default {
 		api.registerSystemGroup?.(ROOT);
 		const start = registerStart(api, root);
 		const weapon = registerWeapon(api, engine, root, juice, prefs, feel);
-		api.registerFrameTask(() => juice.frame());
+		const powers = registerPowers(api, engine, root, prefs, feel);
+		player.ability = () => powers.readiness();
+		player.heat = () => Math.max(...['right', 'left', 'desk'].map((h) => weapon.heatOf(h).heat));
+		// a new round starts every player's ability charged
+		let roundAt = api.game.roundCutoff();
+		api.registerFrameTask(() => {
+			juice.frame();
+			const r = api.game.roundCutoff();
+			if (r !== roundAt) {
+				roundAt = r;
+				powers.reset();
+			}
+		});
 
 		api.hud.registerDebugLine(() => {
 			const runs = engine.all();
@@ -96,6 +111,7 @@ export default {
 				prefs,
 				juice,
 				weapon,
+				powers,
 				hud: arenaHud,
 				hudGraph,
 				snapshot: () =>
