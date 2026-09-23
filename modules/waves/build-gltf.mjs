@@ -6,7 +6,7 @@
 // it imports the chunk from a blob). The shim lists exactly the names those files import.
 // Output: src/gltf/loader.chunk (text, embedded into module.js by esbuild's text loader).
 import { build } from 'esbuild';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,6 +27,8 @@ const shim =
 	'if (!T) throw new Error("waves: __wavesTHREE unset before the loader chunk");\n' +
 	[...names].sort().map((n) => `export const ${n} = T.${n};`).join('\n') +
 	'\n';
+// src/gltf holds only generated (gitignored) files, so a fresh clone has no such folder
+mkdirSync(join(here, 'src/gltf'), { recursive: true });
 const shimFile = join(here, 'src/gltf/three-shim.gen.js');
 writeFileSync(shimFile, shim);
 
