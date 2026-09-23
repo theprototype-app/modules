@@ -495,7 +495,7 @@ function djFrame(api, time) {
 export default {
 	id: 'music-dj',
 	name: 'Music DJ',
-	version: '0.1.0',
+	version: '0.1.1',
 	description: 'Two decks and a crossfader on the engine: drop a track on a deck, scrub the platter, ride the pitch, fade between them - every peer hears the same position.',
 	/** @param {any} api */
 	register(api) {
@@ -503,14 +503,19 @@ export default {
 		api.registerAudioDevice(deckSpec(api)).then((/** @type {string} */ kind) => (KINDS.deck = kind));
 		api.registerAudioDevice(crossfaderSpec(api)).then((/** @type {string} */ kind) => (KINDS.crossfader = kind));
 
-		api.registerClickHandler((/** @type {any} */ object) => {
-			const device = deviceRootOf(object);
-			const kind = device?.userData?.device?.kind;
-			if (!kind) return false;
-			if (kind === KINDS.deck) return clickDeck(api, device, object);
-			if (kind === KINDS.crossfader) return clickCrossfader(api, device, object);
-			return false;
-		});
+		// PLAY pieces (play/cue, the jog, the fader): Interact and Play. In Edit a click
+		// selects the deck, so the booth can be arranged like any other object.
+		api.registerClickHandler(
+			(/** @type {any} */ object) => {
+				const device = deviceRootOf(object);
+				const kind = device?.userData?.device?.kind;
+				if (!kind) return false;
+				if (kind === KINDS.deck) return clickDeck(api, device, object);
+				if (kind === KINDS.crossfader) return clickCrossfader(api, device, object);
+				return false;
+			},
+			{ modes: ['interact', 'play'] }
+		);
 		api.registerDropHandler?.((/** @type {any} */ hit, /** @type {any} */ item) => dropTrack(api, hit, item));
 		api.registerFrameTask((/** @type {number} */ time) => djFrame(api, time));
 

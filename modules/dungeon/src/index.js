@@ -31,6 +31,8 @@ export default {
 		const toolbox = registerToolbox(api, core);
 
 		api.registerSystemGroup(GROUP_NAME); // visible under the System filter
+		api.registerInteractiveGroup(GROUP_NAME); // 30: an Edit click on it selects its proxy
+		api.registerListedGroup?.(GROUP_NAME, { label: 'Dungeon' }); // 30: its object-list row
 		core.ensureGroup(); // the persistent group exists from the first frame
 
 		api.onMessage((data) => core.handleMessage(data));

@@ -6,6 +6,9 @@
 const GROUP_NAME = 'piano-module';
 const WHITE_MIDI = [60, 62, 64, 65, 67, 69, 71]; // C4..B4
 const BLACK_MIDI = { 0: 61, 1: 63, 3: 66, 4: 68, 5: 70 }; // after C, D, F, G, A
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+/** 'Key C4' — the name the object list's Module content section shows @param {number} midi */
+const keyName = (midi) => 'Key ' + NOTE_NAMES[midi % 12] + (Math.floor(midi / 12) - 1);
 
 /** @type {any} */ let apiRef = null;
 /** @type {any} */ let THREE = null; // api.THREE (user modules cannot import three)
@@ -61,12 +64,14 @@ function buildPiano(pos) {
 	WHITE_MIDI.forEach((midi, index) => {
 		const key = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.06, 0.9), whiteMaterial.clone());
 		key.position.set(index * 0.24, 0.9, 0);
+		key.name = keyName(midi);
 		key.userData.midi = midi;
 		group.add(key);
 	});
 	Object.entries(BLACK_MIDI).forEach(([afterWhite, midi]) => {
 		const key = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.07, 0.55), blackMaterial.clone());
 		key.position.set((+afterWhite + 0.5) * 0.24, 0.95, -0.17);
+		key.name = keyName(midi);
 		key.userData.midi = midi;
 		group.add(key);
 	});
@@ -76,6 +81,7 @@ function buildPiano(pos) {
 		new THREE.MeshStandardMaterial({ color: 0x5c3a21 })
 	);
 	body.position.set(3 * 0.24, 0.84, 0);
+	body.name = 'Body';
 	group.add(body);
 
 	scene.add(group);
@@ -92,14 +98,18 @@ function removePiano() {
 export default {
 	id: 'piano',
 	name: 'Piano',
-	version: '1.1.0',
+	version: '1.1.1',
 	description: 'One-octave synth keyboard - every peer hears and sees your notes.',
 	/** @param {any} api */
 	register(api) {
 		apiRef = api;
 		THREE = api.THREE;
 
+		// The keyboard is scene-root content (rebuilt from module state on every peer), so
+		// it is listed read-only in the object list's "Module content" section, and an Edit
+		// click on it selects that row's proxy. The name is an id; give the row a label.
 		api.registerInteractiveGroup(GROUP_NAME);
+		api.registerListedGroup?.(GROUP_NAME, { label: 'Piano (module)' });
 
 		api.registerMenu('Piano: spawn / remove', () => {
 			if (spawned) {
@@ -112,15 +122,20 @@ export default {
 			}
 		});
 
-		api.registerClickHandler((object) => {
-			const midi = object.userData?.midi;
-			if (midi == null || object.parent?.name !== GROUP_NAME) return false;
-			playNote(midi);
-			pressKey(midi);
-			api.haptic(0.6, 60);
-			api.send({ op: 'note', midi: midi });
-			return true;
-		});
+		// A key is a PLAY piece: it sounds in Interact and in Play, and an Edit click on it
+		// selects the piano instead (core 30's default, spelled out so it reads as a choice).
+		api.registerClickHandler(
+			(object) => {
+				const midi = object.userData?.midi;
+				if (midi == null || object.parent?.name !== GROUP_NAME) return false;
+				playNote(midi);
+				pressKey(midi);
+				api.haptic(0.6, 60);
+				api.send({ op: 'note', midi: midi });
+				return true;
+			},
+			{ modes: ['interact', 'play'] }
+		);
 
 		api.onMessage((data) => {
 			if (data.op === 'spawn') buildPiano(data.pos);

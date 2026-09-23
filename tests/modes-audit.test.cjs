@@ -558,7 +558,8 @@ const MODULES = [
 			await page.waitForTimeout(500);
 			return {
 				items: [{ label: 'the room', group: 'tutorial-room', part: '^tutorial-sign-', listLabel: 'Tutorial room', children: true }],
-				interact: { target: { group: 'tutorial-room', part: '^tutorial-plinth-select$' }, effect: sentOp('mark') }
+				// a plinth is the room's checklist of EDITOR lessons: it ticks in Edit too, by design
+				interact: { target: { group: 'tutorial-room', part: '^tutorial-plinth-select$' }, effect: sentOp('mark'), editRuns: true }
 			};
 		}
 	},
@@ -763,15 +764,20 @@ async function checkList(page, items) {
 	return cell(ok ? 'PASS' : 'FAIL', notes.join('; '));
 }
 
-/** frame the target and find a clean pixel; a covered one (a HUD card over the middle)
- * retries with the target slid across the view */
+/** frame the target and find a clean pixel the way a person would: a pixel covered by a
+ * HUD card (over the middle in the editor) retries with the target slid across the view,
+ * one blocked by other content (a pillar in front of a portal) from another side */
 async function frameAndAim(page, target, from) {
 	let aim = null;
-	for (const shift of [[0, 0], [0.45, 0], [-0.45, 0], [0, 0.3], [0.45, 0.3]]) {
-		await lib(page, 'frame', target, { from, shift });
-		await page.waitForTimeout(700);
-		aim = await lib(page, 'aim', target);
-		if (aim.ok || !/covered/.test(aim.why ?? '')) return aim;
+	const sides = [from ?? [0, 0.9, 1.4], [1.3, 0.9, 0.5], [-1.3, 0.9, 0.5], [0, 1.8, 0.35]];
+	for (const side of sides) {
+		for (const shift of [[0, 0], [0.45, 0], [-0.45, 0], [0, 0.3], [0.45, 0.3]]) {
+			await lib(page, 'frame', target, { from: side, shift });
+			await page.waitForTimeout(700);
+			aim = await lib(page, 'aim', target);
+			if (aim.ok) return aim;
+			if (!/covered/.test(aim.why ?? '')) break;
+		}
 	}
 	return aim;
 }
@@ -910,6 +916,8 @@ async function checkEditQuiet(page, spec) {
 	if (!spec.interact?.target) return cell('N-A', spec.interact?.na ?? 'no interactive part');
 	const r = await clickEffect(page, 'edit', spec.interact);
 	if (r.ok === null) return cell('FAIL', r.note);
+	// an editor TOOL ({modes} with 'edit') must act in Edit, and consume the click
+	if (spec.interact.editRuns) return cell(r.ok && !r.selected ? 'PASS' : 'FAIL', 'runs in Edit by design: ' + (r.ok ? '' : 'DID NOT RUN; ') + (r.selected ? 'ALSO SELECTED; ' : '') + r.note);
 	const quiet = !r.ok && r.selected;
 	return cell(quiet ? 'PASS' : 'FAIL', (r.ok ? 'INTERACTED in Edit: ' : '') + (r.selected ? '' : 'selected nothing; ') + r.note);
 }

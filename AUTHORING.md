@@ -115,7 +115,7 @@ file automatically, but **URL installs only fetch what `files` names**.
 | Field | Contract |
 |---|---|
 | `id` | **required**, must equal the folder name and the `id` in your entry file, and be unique across every module a user might install — it routes your messages |
-| `name`, `version` | **required**; `version` is what peers compare (see §6) |
+| `name`, `version` | **required**; `version` is what peers compare (see §7) |
 | `format` | the manifest format this module targets. The app supports `1`; a **higher** number makes the app ask the user to confirm before installing. Absent = 0 = installs silently |
 | `entry` | defaults to `module.js` |
 | `description` | shown on the card |
@@ -277,7 +277,21 @@ Three that are easy to miss:
 
 ---
 
-## 6. Versioning and compatibility
+## 6. Edit, Interact, Play
+
+### Content that is listed but never click-selectable
+
+Every module's content is in the object list (the scene tree, or its **Module content**
+section). These are the exceptions to "a click in Edit selects it", each with its reason:
+
+| Module | What | Why |
+|---|---|---|
+| `sabers` | the blades | a desk blade lies ALONG the pointer ray, so a click on it would be every click; listed (`Sabers`) and framed from the list |
+| `avatar`, `flow-toolkit` | — | no scene content of their own (possession acts on your object; node definitions only) |
+
+---
+
+## 7. Versioning and compatibility
 
 - Bump `version` in `manifest.json` **and** in the entry file's export — the
   entry's value is what peers compare. Keeping them equal is on you.
@@ -292,7 +306,7 @@ Three that are easy to miss:
 
 ---
 
-## 7. Testing your module
+## 8. Testing your module
 
 ### Live reload while you build
 
@@ -359,7 +373,7 @@ recipe and the `window.__stores` debug hook the checks read.
 
 ---
 
-## 8. Friction log
+## 9. Friction log
 
 Things that cost real time while writing the modules in this repo. Add to this
 list when something bites you.

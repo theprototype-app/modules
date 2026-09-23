@@ -1472,7 +1472,7 @@ var index_default = {
     const nodes = registerNodes(api, game);
     const hitSource = game.wireHits();
     const toolbox = registerToolbox(api, game, { hitSource: () => hitSource });
-    api.registerClickHandler((mesh) => nodes.clickButton(mesh));
+    api.registerClickHandler((mesh) => nodes.clickButton(mesh), { modes: ["interact", "play"] });
     api.onMessage((data) => game.handleMessage(data));
     api.registerStateSync({
       getState: () => game.getState(),
