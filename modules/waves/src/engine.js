@@ -12,7 +12,7 @@
 // waves node fires no `wave`/`over` event and appends no log entry here — those moments
 // were somebody else's to witness.
 
-import { curveOf, sizeOf, killsOf, waveOf, aliveIn, usedIn, healsBefore, enemyPosition, spawnFor, runEntry, appendRun, clamp, DEFAULTS } from './curve.js';
+import { curveOf, sizeOf, killsOf, waveOf, aliveIn, usedIn, healsBefore, enemyPosition, spawnFor, runEntry, appendRun, clamp, DEFAULTS, KINDS, kindOf, setbackOf } from './curve.js';
 
 const SWEEP = 0.1;
 const LOG_PREFIX = 'waves:';
@@ -20,6 +20,9 @@ const LOG_PREFIX = 'waves:';
  * api.now() are seconds of day — one conversion, here @param {number} ms */
 const toSeconds = (ms) => (ms / 1000) % 86400;
 const KILLS_ROW = 'kills';
+/** 30b: where an enemy waits while its wave does not use it, or once it is dead — under the
+ * ground, out of sight AND out of reach (a hidden body still collides) */
+const STASH_DEPTH = -30;
 
 /** @param {any} api */
 export function createWavesEngine(api) {
@@ -42,6 +45,17 @@ export function createWavesEngine(api) {
 	const healExpected = new Map();
 	/** the listeners the toolbox uses @type {Set<() => void>} */
 	const listeners = new Set();
+	/** 30b: health id -> the hit count THIS peer's shots should have made the counter show
+	 * (the counter republishes ~6/s; a second shot must not re-kill the dead or credit twice) */
+	const hitExpected = new Map();
+	/** 30b: enemy uuid -> {hits, kills} as last swept, for the hurt/death EDGES the juice reads */
+	const seenHits = new Map();
+	/** 30b: enemy uuid -> kills this peer already announced (its own shot's kill shows at once) */
+	const announcedKills = new Map();
+	/** 30b: the enemies THIS module hid (unused by the wave), so it restores exactly those */
+	const stashed = new Set();
+	/** 30b: hurt/death listeners @type {Set<(e: {kind: 'hurt' | 'death', uuid: string, pos: number[], enemy: any, mine: boolean}) => void>} */
+	const enemyListeners = new Set();
 
 	const now = () => api.now();
 	/** @param {string|null} uuid */
@@ -111,10 +125,15 @@ export function createWavesEngine(api) {
 			let heals = 0;
 			for (const id of healCounters) heals += Number(api.flow.nodeValue(id)) || 0;
 			const max = clamp(node.data?.max, 1, 1e6, 5);
+			// 30b: a shot lands on the damage node that feeds this enemy's hit counter
+			const damageId = damageCounters.flatMap((c) => into(g, c, 'pulse').filter((id) => g.byId.get(id)?.type === 'damage'))[0] ?? null;
+			const label = object?.name || (uuid ? uuid.slice(0, 8) + '…' : '(no target)');
 			out.push({
 				healthId: node.id,
 				uuid,
-				label: object?.name || (uuid ? uuid.slice(0, 8) + '…' : '(no target)'),
+				label,
+				kind: kindOf(label),
+				damageId,
 				max,
 				hits,
 				heals,
@@ -217,11 +236,21 @@ export function createWavesEngine(api) {
 		}
 	}
 
-	// ---- movement --------------------------------------------------------------------------
+	// ---- movement ----------------------------------------------------------------------------
+	/** the hits this enemy has taken as far as THIS peer knows: the counter, or more if its own
+	 * shots are still on their way into it @param {any} e */
+	const hitsOf = (e) => Math.max(e.hits, hitExpected.get(e.healthId) ?? 0);
+
+	/** @param {any} object @param {number[]} to */
+	function stash(object, to) {
+		object.position.fromArray(to);
+	}
+
 	/** @param {ReturnType<typeof derive>} s */
 	function moveSweep(s) {
 		const used = usedIn(s.wave, s.curve);
-		const alive = new Set(aliveIn(s.wave, s.enemies.map((e) => e.kills), s.curve));
+		const kills = s.enemies.map((e) => killsOf(hitsOf(e), e.max));
+		const alive = new Set(aliveIn(s.wave, kills, s.curve));
 		for (let k = 0; k < s.enemies.length; k++) {
 			const e = s.enemies[k];
 			const object = objectOf(e.uuid);
@@ -232,18 +261,133 @@ export function createWavesEngine(api) {
 			const walking = s.running && s.started && index >= 0 && alive.has(k) && s.goal;
 			if (walking && s.waveStart !== null) {
 				const start = spawnFor(index, s.spawns, home);
-				object.position.fromArray(enemyPosition({ start, goal: /** @type {number[]} */ (s.goal), waveStart: s.waveStart, index, now: now(), speed: s.speed, stagger: s.stagger }));
+				const kind = KINDS[e.kind] ?? KINDS.grunt;
+				object.position.fromArray(
+					enemyPosition({
+						start,
+						goal: /** @type {number[]} */ (s.goal),
+						waveStart: s.waveStart,
+						index,
+						now: now(),
+						speed: s.speed * kind.speed,
+						stagger: s.stagger,
+						setback: setbackOf(hitsOf(e), e.heals, e.max, kind.knock)
+					})
+				);
+				e.pos = object.position.toArray();
 			} else if (!s.running) {
 				// no run: everyone stands where the scene put them
 				object.position.fromArray(home);
-			} else if (index >= 0 && !alive.has(k) === false) {
-				// used, alive, but no goal: at its spawn point
+			} else if (index >= 0 && alive.has(k)) {
+				// used, alive, not walking yet (the gap between waves, or no goal): at its portal
 				object.position.fromArray(spawnFor(index, s.spawns, home));
+			} else {
+				// 30b: a run is on and this enemy is not in it (unused by this wave, or dead):
+				// under the ground, and hidden if the wave does not use it — so the arena holds
+				// only the wave, and nothing invisible stands in anyone's way
+				stash(object, [home[0], STASH_DEPTH, home[2]]);
+				if (index < 0 && object.visible) {
+					object.visible = false;
+					stashed.add(e.uuid);
+				}
+			}
+			if (index >= 0 && stashed.has(e.uuid)) {
+				object.visible = true;
+				stashed.delete(e.uuid);
 			}
 			object.updateMatrixWorld?.();
 		}
 		// a run that ended (or was abandoned) lets go of the parked poses once restored
-		if (!s.running) for (const e of s.enemies) parked.delete(e.uuid);
+		if (!s.running) {
+			for (const e of s.enemies) {
+				parked.delete(e.uuid);
+				if (stashed.has(e.uuid)) {
+					const object = objectOf(e.uuid);
+					if (object) object.visible = true;
+					stashed.delete(e.uuid);
+				}
+			}
+		}
+	}
+
+	// ---- 30b: shots -----------------------------------------------------------------------
+	/** the enemies a shot may hit right now: in a running, started wave, used by it, alive
+	 * (as this peer knows it) — never a parked or stashed one @returns {any[]} */
+	function targets() {
+		/** @type {any[]} */
+		const out = [];
+		for (const s of state.values()) {
+			if (!s.running) continue;
+			const used = usedIn(s.wave, s.curve);
+			for (const k of used) {
+				const e = s.enemies[k];
+				if (!e?.damageId || !e.uuid) continue;
+				const hp = e.max - Math.max(0, hitsOf(e) - e.heals);
+				if (hp <= 0) continue;
+				out.push({ ...e, hp, runId: s.id, walking: s.started });
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * THIS peer's shot hit enemy `uuid` for `n` points. The pulses REPLICATE (only this peer
+	 * saw its shot), exactly one per point, fired on the damage node that feeds the enemy's
+	 * hit counter — the counter every peer derives the enemy's health, the wave and the kill
+	 * from. Never more than the enemy has left (the overkill guard, against this peer's own
+	 * view). A killing shot credits this peer's own `kills` row (the health module's rule).
+	 * @param {string} uuid @param {number} n
+	 * @returns {{landed: number, killed: boolean, enemy: any} | null}
+	 */
+	function hit(uuid, n) {
+		const e = targets().find((x) => x.uuid === uuid);
+		if (!e) return null;
+		const landed = Math.max(0, Math.min(Math.floor(n), e.hp));
+		if (!landed) return null;
+		for (let i = 0; i < landed; i++) api.fireNodeTrigger('damage', (/** @type {any} */ _d, /** @type {string} */ id) => id === e.damageId);
+		hitExpected.set(e.healthId, hitsOf(e) + landed);
+		const killed = landed >= e.hp;
+		const pos = objectOf(uuid)?.getWorldPosition(new api.THREE.Vector3()).toArray() ?? e.pos ?? [0, 0, 0];
+		if (killed) {
+			api.peerVars.setMine(KILLS_ROW, api.peerVars.mine(KILLS_ROW, 0) + 1);
+			const kills = killsOf(hitsOf(e), e.max);
+			announcedKills.set(uuid, kills);
+			emitEnemy({ kind: 'death', uuid, pos, enemy: e, mine: true });
+		} else emitEnemy({ kind: 'hurt', uuid, pos, enemy: e, mine: true });
+		const seen = seenHits.get(uuid);
+		if (seen) seenHits.set(uuid, { hits: hitsOf(e), kills: killsOf(hitsOf(e), e.max) });
+		return { landed, killed, enemy: e };
+	}
+
+	/** @param {{kind: 'hurt' | 'death', uuid: string, pos: number[], enemy: any, mine: boolean}} ev */
+	function emitEnemy(ev) {
+		for (const fn of enemyListeners) {
+			try {
+				fn(ev);
+			} catch (error) {
+				console.warn('[waves] enemy listener failed', error);
+			}
+		}
+	}
+
+	/** the hurt/death EDGES of every enemy, from the swept counters — a peer's shot, a knock,
+	 * anyone's: the juice every peer shows. First sight (and a round's reset) never fires.
+	 * @param {ReturnType<typeof derive>} s */
+	function hurtSweep(s) {
+		for (const e of s.enemies) {
+			if (!e.uuid) continue;
+			const hits = hitsOf(e);
+			const kills = killsOf(hits, e.max);
+			const prev = seenHits.get(e.uuid);
+			seenHits.set(e.uuid, { hits, kills });
+			if (!prev || !s.running || hits <= prev.hits) continue;
+			const pos = objectOf(e.uuid)?.getWorldPosition(new api.THREE.Vector3()).toArray() ?? e.pos ?? [0, 0, 0];
+			if (kills > prev.kills) {
+				if ((announcedKills.get(e.uuid) ?? -1) >= kills) continue;
+				announcedKills.set(e.uuid, kills);
+				emitEnemy({ kind: 'death', uuid: e.uuid, pos, enemy: e, mine: false });
+			} else emitEnemy({ kind: 'hurt', uuid: e.uuid, pos, enemy: e, mine: false });
+		}
 	}
 
 	// ---- events + the run log --------------------------------------------------------------
@@ -300,6 +444,7 @@ export function createWavesEngine(api) {
 			state.set(node.id, s);
 			edges(s, firstSight);
 			healSweep(s);
+			hurtSweep(s);
 		}
 		for (const id of [...state.keys()])
 			if (!live.has(id)) {
@@ -313,6 +458,8 @@ export function createWavesEngine(api) {
 			for (const e of s.enemies) {
 				const expected = healExpected.get(e.healthId);
 				if (expected !== undefined && (e.heals >= expected || (e.heals === 0 && e.hits === 0))) healExpected.delete(e.healthId);
+				const shot = hitExpected.get(e.healthId);
+				if (shot !== undefined && (e.hits >= shot || (e.hits === 0 && !s.running))) hitExpected.delete(e.healthId);
 			}
 		for (const fn of listeners) fn();
 	}
@@ -353,6 +500,10 @@ export function createWavesEngine(api) {
 		runSeen.clear();
 		parked.clear();
 		healExpected.clear();
+		hitExpected.clear();
+		seenHits.clear();
+		announcedKills.clear();
+		stashed.clear();
 	}
 
 	return {
@@ -363,6 +514,13 @@ export function createWavesEngine(api) {
 		graphView,
 		runLog,
 		sweep,
+		targets,
+		hit,
+		/** @param {(e: {kind: 'hurt' | 'death', uuid: string, pos: number[], enemy: any, mine: boolean}) => void} fn */
+		onEnemy: (fn) => {
+			enemyListeners.add(fn);
+			return () => enemyListeners.delete(fn);
+		},
 		onChange: (/** @type {() => void} */ fn) => {
 			listeners.add(fn);
 			return () => listeners.delete(fn);

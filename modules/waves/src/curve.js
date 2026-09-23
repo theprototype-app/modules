@@ -112,10 +112,31 @@ export function healsBefore(i, n, c) {
 }
 
 /**
+ * 30b: THE ENEMY KINDS, read off the object's NAME (a pure rule every peer applies to the
+ * same replicated name): a Runner is fast and light, a Tank slow and heavy, anything else a
+ * Grunt. `speed` scales the walk, `knock` is how far one hit shoves it back (metres), `points`
+ * what a kill scores.
+ */
+export const KINDS = Object.freeze({
+	grunt: Object.freeze({ speed: 1, knock: 0.55, points: 100 }),
+	runner: Object.freeze({ speed: 1.8, knock: 0.8, points: 150 }),
+	tank: Object.freeze({ speed: 0.6, knock: 0.16, points: 400 })
+});
+/** @param {any} label @returns {'grunt' | 'runner' | 'tank'} */
+export function kindOf(label) {
+	const s = String(label ?? '');
+	if (/runner/i.test(s)) return 'runner';
+	if (/tank/i.test(s)) return 'tank';
+	return 'grunt';
+}
+
+/**
  * Where enemy `index` of a wave stands: it leaves `start` `stagger × index` seconds after
  * the wave starts and walks straight to `goal` at `speed`, then stays. Pure in (data,
  * time), so every peer places it identically with nothing sent.
- * @param {{start: number[], goal: number[], waveStart: number, index: number, now: number, speed: any, stagger: any}} p
+ * 30b: `setback` metres (the knockback its hits bought, itself a pure function of the hit
+ * counter) are taken off how far it has come — never behind its start, never past the goal.
+ * @param {{start: number[], goal: number[], waveStart: number, index: number, now: number, speed: any, stagger: any, setback?: number}} p
  * @returns {number[]}
  */
 export function enemyPosition(p) {
@@ -127,8 +148,16 @@ export function enemyPosition(p) {
 	const dz = p.goal[2] - p.start[2];
 	const dist = Math.hypot(dx, dz);
 	if (dist < 1e-6) return p.start.slice();
-	const f = Math.min(1, (t * speed) / dist);
+	const along = Math.min(dist, Math.max(0, t * speed - Math.max(0, Number(p.setback) || 0)));
+	const f = along / dist;
 	return [p.start[0] + dx * f, p.start[1], p.start[2] + dz * f];
+}
+
+/** 30b: the knockback an enemy's hits in THIS life buy: every hit since its last heal shoves
+ * it `knock` metres back along its lane @param {number} hits @param {number} heals @param {number} max @param {number} knock */
+export function setbackOf(hits, heals, max, knock) {
+	const taken = Math.max(0, Math.min(max, (Number(hits) || 0) - (Number(heals) || 0)));
+	return taken * Math.max(0, Number(knock) || 0);
 }
 
 /** distance on the ground plane @param {number[]} a @param {number[]} b */
