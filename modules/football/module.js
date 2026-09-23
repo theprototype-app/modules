@@ -4,17 +4,20 @@ var MODES = ["duel", "teams", "freeforall", "practice"];
 var WIN_BY = ["goals", "time", "either"];
 var SERVE = ["auto", "button"];
 var OWN_GOALS = ["count", "ignore"];
-var ACTIONS = ["none", "join-red", "join-blue", "spectate", "start", "new-match", "swap-sides", "serve"];
+var ACTIONS = ["none", "join-red", "join-blue", "spectate", "start", "new-match", "swap-sides", "serve", "rematch"];
+var TIE = ["golden", "draw"];
 var DEFAULT_RULES = {
   mode: "teams",
-  winBy: "goals",
+  winBy: "either",
   goalsToWin: 5,
   matchSeconds: 180,
   serve: "auto",
-  serveDelay: 2,
+  serveDelay: 3,
   ownGoals: "count",
-  serveSpeed: 3
+  serveSpeed: 0.5,
+  tie: "golden"
 };
+var CELEBRATE_SECONDS = 2.5;
 var MATCH_LOG_CAP = 50;
 var REST_DISTANCE = 0.03;
 var REST_SECONDS = 3;
@@ -37,7 +40,8 @@ function normalizeRules(raw) {
     serve: pick(r.serve, SERVE, d.serve),
     serveDelay: num(r.serveDelay, 0.5, 5, d.serveDelay),
     ownGoals: pick(r.ownGoals, OWN_GOALS, d.ownGoals),
-    serveSpeed: num(r.serveSpeed, 0.5, 10, d.serveSpeed)
+    serveSpeed: num(r.serveSpeed, 0.2, 10, d.serveSpeed),
+    tie: pick(r.tie, TIE, d.tie)
   };
 }
 function otherTeam(team) {
@@ -90,6 +94,13 @@ function freeVanished(slots, liveIds) {
 function swapSlots(slots) {
   return { red: [...slots.blue], blue: [...slots.red] };
 }
+function balancedTeam(slots, prefer = "red") {
+  const r = slots.red.length;
+  const b = slots.blue.length;
+  if (r < b) return "red";
+  if (b < r) return "blue";
+  return prefer === "blue" ? "blue" : "red";
+}
 function attributeGoal({ gateTeam, lastTouch, slots, mode, ownGoals }) {
   if (mode === "practice") return { team: null, by: null, own: false, counts: false, credit: null, reason: "practice" };
   const by = lastTouch?.by ?? null;
@@ -131,9 +142,10 @@ function matchOutcome({ score, rules, elapsed, playerGoals }) {
           tie = false;
         } else if (n === best.n) tie = true;
       }
+      if (tie && r.tie === "golden") return null;
       return { winner: best && !tie ? best.id : "draw", reason: "time" };
     }
-    if (score.red === score.blue) return { winner: "draw", reason: "time" };
+    if (score.red === score.blue) return r.tie === "golden" ? null : { winner: "draw", reason: "time" };
     return { winner: score.red > score.blue ? "red" : "blue", reason: "time" };
   }
   return null;
@@ -158,6 +170,60 @@ function serveImpulse(pos, centre, mass, speed, at) {
   const m = Math.max(0.01, mass || 1) * Math.max(0, speed);
   return [dir[0] * m, dir[1] * m, dir[2] * m];
 }
+function goldenGoal({ score, rules, elapsed, playerGoals }) {
+  const r = normalizeRules(rules);
+  if (r.mode === "practice" || r.tie !== "golden") return false;
+  if (r.winBy !== "time" && r.winBy !== "either") return false;
+  if (!(elapsed >= r.matchSeconds)) return false;
+  if (r.mode === "freeforall") {
+    const counts = Object.values(playerGoals ?? {});
+    const best = counts.length ? Math.max(...counts) : 0;
+    return counts.filter((n) => n === best).length !== 1;
+  }
+  return score.red === score.blue;
+}
+function matchPhase(s, now) {
+  if (!s.started) return s.outcome ? "over" : "menu";
+  if (s.celebrateUntil && now < s.celebrateUntil) return "celebrate";
+  if (s.serveAt) return "countdown";
+  return "live";
+}
+function countdownNumber(serveAt, now) {
+  if (!serveAt || now >= serveAt) return 0;
+  return Math.max(1, Math.ceil(serveAt - now - 1e-9));
+}
+function startKickTeam(at) {
+  return hash32(Math.floor(at * 1e3), "kickoff") >>> 16 & 1 ? "blue" : "red";
+}
+function kickoffImpulse(team, redGate, blueGate, mass, speed, at) {
+  const toward = team === "blue" ? blueGate : redGate;
+  const away = team === "blue" ? redGate : blueGate;
+  let ax = toward[0] - away[0];
+  let az = toward[2] - away[2];
+  const len = Math.hypot(ax, az);
+  if (len < 1e-6) {
+    ax = 0;
+    az = team === "blue" ? 1 : -1;
+  } else {
+    ax /= len;
+    az /= len;
+  }
+  const side = hash32(Math.floor(at * 1e3), "lean") >>> 16 & 1 ? 1 : -1;
+  const c = Math.cos(0.61);
+  const s = Math.sin(0.61) * side;
+  const dx = ax * c - az * s;
+  const dz = ax * s + az * c;
+  const m = Math.max(0.01, mass || 1) * Math.max(0, speed);
+  return [dx * m, 0, dz * m];
+}
+function playedSeconds(s, now) {
+  const base = Number(s.clockBase) || 0;
+  const since = Number(s.liveSince) || 0;
+  return base + (since ? Math.max(0, now - since) : 0);
+}
+function bannerScore(score) {
+  return "Red " + (score.red ?? 0) + " - " + (score.blue ?? 0) + " Blue";
+}
 function matchLogEntry({ at, score, winner, rows }) {
   return {
     at: Math.floor(at),
@@ -181,10 +247,101 @@ function scoreLine(score) {
   return "RED " + (score.red ?? 0) + " \u2014 " + (score.blue ?? 0) + " BLUE";
 }
 
+// modules/football/src/fx.js
+var LEGACY_SOUND = { goal: "bell", whistle: "chime", kick: "pop", click: "pluck", cheer: null, hit: null, success: "bell", fail: null };
+var LEGACY_HAPTIC = {
+  tap: [0.2, 20],
+  bump: [0.4, 35],
+  hit: [0.7, 45],
+  success: [0.8, 160],
+  fail: [0.5, 220],
+  rumble: [0.6, 400],
+  heartbeat: [0.5, 90]
+};
+var LOG_CAP = 80;
+function createFx(api) {
+  const calls = [];
+  const note = (kind, name, opts, native) => {
+    calls.push({ kind, name, ...opts === void 0 ? {} : { opts }, native });
+    while (calls.length > LOG_CAP) calls.shift();
+  };
+  const hasSfx = () => !!api.music && typeof api.music.play === "function";
+  return {
+    /**
+     * A big centred banner (C2): "GOAL!", "3", "RED WINS". Without api.announce a
+     * `toast: true` banner (a goal, a result) becomes a toast on desktop; a countdown
+     * digit is simply dropped (three toasts a second would be noise).
+     * @param {string} text @param {{sub?: string, ms?: number, color?: string, toast?: boolean}} [opts]
+     */
+    announce(text, opts = {}) {
+      const { toast, ...rest } = opts;
+      const native = typeof api.announce === "function";
+      note("announce", text, rest, native);
+      if (native) api.announce(text, rest);
+      else if (toast && !api.isVR?.()) api.toast?.(rest.sub ? text + "  " + rest.sub : text);
+    },
+    /** @param {string} name @param {number[]} [pos] world position */
+    sound(name, pos) {
+      const native = hasSfx();
+      note("sound", name, void 0, native);
+      if (native) api.playSound?.(name, pos);
+      else {
+        const legacy = (
+          /** @type {any} */
+          LEGACY_SOUND[name]
+        );
+        if (legacy) api.playSound?.(legacy, pos);
+      }
+    },
+    /** C6: a pooled particle burst at a WORLD position @param {number[]} pos @param {any} opts */
+    burst(pos, opts) {
+      const native = typeof api.effects?.burst === "function";
+      note("burst", opts?.kind ?? "sparkle", opts, native);
+      if (native) api.effects.burst(pos, opts);
+    },
+    /** C4: a named haptic preset (core makes it a no-op in Edit) @param {string} name @param {'left'|'right'} [hand] */
+    haptic(name, hand) {
+      const native = typeof api.hapticPattern === "function";
+      note("haptic", name, hand ? { hand } : void 0, native);
+      if (native) api.hapticPattern(name, hand);
+      else {
+        const pulse = (
+          /** @type {any} */
+          LEGACY_HAPTIC[name]
+        );
+        if (pulse && typeof api.haptic === "function") api.haptic(pulse[0], pulse[1], hand);
+      }
+    },
+    /** a raw pulse scaled by the caller (a kick's impulse) @param {number} intensity @param {number} ms @param {'left'|'right'} [hand] */
+    pulse(intensity, ms, hand) {
+      note("pulse", String(Math.round(intensity * 100) / 100), hand ? { hand } : void 0, typeof api.haptic === "function");
+      api.haptic?.(intensity, ms, hand);
+    },
+    /** C5 music: a procedural loop, LOCAL; core stops it on leaving Play/Interact @param {string} preset @param {any} [opts] */
+    music(preset, opts) {
+      const native = hasSfx();
+      note("music", preset, opts, native);
+      if (native) api.music.play(preset, opts);
+    },
+    stopMusic() {
+      const native = hasSfx();
+      note("music", "stop", void 0, native);
+      if (native) api.music.stop?.();
+    },
+    /** what the game asked for, oldest first (the flight's and the unit test's window) */
+    log: () => calls.map((c) => ({ ...c })),
+    clearLog: () => {
+      calls.length = 0;
+    }
+  };
+}
+
 // modules/football/src/game.js
 var LOG_VAR = "football";
+var TEAM_CSS = { red: "#e0524f", blue: "#4f86e6" };
 function createGame(api) {
   const THREE = api.THREE;
+  const fx = createFx(api);
   const state = {
     /** rules from the toolbox when no Match Rules node is alive */
     rulesOverride: (
@@ -211,6 +368,20 @@ function createGame(api) {
     ),
     /** @type {{winner: string, reason: string} | null} */
     outcome: null,
+    // 30b: the match flow (rules.js matchPhase) — all derived from op stamps
+    /** a goal's celebration runs until this synced second (0 = none) */
+    celebrateUntil: 0,
+    /** the gate (sensor uuid) the last goal went into — the ball rests there */
+    goalGate: "",
+    /** @type {'red'|'blue'} who takes the next kick-off */
+    kickTeam: (
+      /** @type {'red'|'blue'} */
+      "red"
+    ),
+    /** seconds played before the current live stretch; the clock stops between them */
+    clockBase: 0,
+    /** when the current live stretch began (0 = the clock is stopped) */
+    liveSince: 0,
     /** the last op stamp — a late joiner adopts the newer state */
     at: 0
   };
@@ -288,6 +459,11 @@ function createGame(api) {
     state.outcome = null;
     state.goals = 0;
     state.serveAt = at + rules().serveDelay;
+    state.celebrateUntil = 0;
+    state.goalGate = "";
+    state.kickTeam = startKickTeam(at);
+    state.clockBase = 0;
+    state.liveSince = 0;
     emit("start");
     fireEvent("start");
     api.game?.setState?.("playing", "");
@@ -303,6 +479,10 @@ function createGame(api) {
     state.lastTouch = null;
     state.outcome = null;
     state.serveAt = 0;
+    state.celebrateUntil = 0;
+    state.goalGate = "";
+    state.clockBase = 0;
+    state.liveSince = 0;
     emit("reset");
     fireEvent("reset");
     api.game?.setState?.("menu", "");
@@ -324,20 +504,30 @@ function createGame(api) {
     if (a.counts) state.goals++;
     if (a.by === me() && a.credit && api.peerVars?.setMine) api.peerVars.setMine(a.credit, api.peerVars.mine(a.credit, 0) + 1);
     state.lastTouch = null;
-    state.serveAt = rules().serve === "auto" ? at + rules().serveDelay : 0;
+    if (state.liveSince) state.clockBase += Math.max(0, at - state.liveSince);
+    state.liveSince = 0;
+    state.celebrateUntil = at + CELEBRATE_SECONDS;
+    state.goalGate = String(data.gate ?? "");
+    state.kickTeam = data.gateTeam === "blue" ? "blue" : "red";
+    state.serveAt = rules().serve === "auto" ? state.celebrateUntil + rules().serveDelay : 0;
     const gate = api.objectsGroup()?.getObjectByProperty("uuid", data.gate);
     const where = gate ? gate.getWorldPosition(new THREE.Vector3()).toArray() : void 0;
-    if (a.counts) api.playSound?.("ding", where);
+    presentGoal(a, where);
     emit("goal", a);
     fireEvent("goal");
     if (a.counts && a.team) fireEvent(a.team + "goal");
     return true;
   }
   function applyServeOp(data) {
-    stamp(data);
+    const at = stamp(data);
     state.serves++;
     state.serveAt = 0;
     state.lastTouch = null;
+    if (state.started && !state.liveSince) state.liveSince = at;
+    if (state.started && data.why !== "rest") {
+      fx.sound("whistle", ballWorld());
+      fx.announce("GO!", { ms: 700, color: TEAM_CSS[state.kickTeam] });
+    }
     emit("serve");
     fireEvent("serve");
     return true;
@@ -348,7 +538,11 @@ function createGame(api) {
     state.started = false;
     state.endedAt = at;
     state.serveAt = 0;
+    state.celebrateUntil = 0;
+    if (state.liveSince) state.clockBase += Math.max(0, at - state.liveSince);
+    state.liveSince = 0;
     state.outcome = { winner: String(data.winner ?? "draw"), reason: String(data.reason ?? "") };
+    presentOver();
     emit("over", state.outcome);
     fireEvent("over");
     api.game?.setState?.("over", outcomeText());
@@ -358,6 +552,26 @@ function createGame(api) {
     stamp(data);
     state.rulesOverride = normalizeRules(data.rules);
     emit("rules");
+    return true;
+  }
+  let spectating = false;
+  function myHalf() {
+    const p = typeof api.playerPosition === "function" ? api.playerPosition() : null;
+    const red = gateLocal("red");
+    const blue = gateLocal("blue");
+    if (!p || !red || !blue) return "red";
+    const d = (g) => Math.hypot(p[0] - g[0], p[2] - g[2]);
+    return d(red) <= d(blue) ? "red" : "blue";
+  }
+  function autoJoin() {
+    const mode = rules().mode;
+    if (spectating || mode === "freeforall" || mode === "practice") return false;
+    if (teamOf(state.slots, me())) return false;
+    const team = balancedTeam(state.slots, myHalf());
+    if (!canJoin(state.slots, team, me(), mode).ok) return false;
+    const data = { op: "slot", team, peerId: me(), name: nameOf(me()), at: now() };
+    applySlotOp(data);
+    api.send(data);
     return true;
   }
   function act(action) {
@@ -372,6 +586,7 @@ function createGame(api) {
           api.toast("Football: " + verdict.reason);
           return false;
         }
+        spectating = team === "none";
         const data = { op: "slot", team, peerId: me(), name: nameOf(me()), at };
         applySlotOp(data);
         api.send(data);
@@ -379,7 +594,8 @@ function createGame(api) {
       }
       case "start": {
         if (state.started) return false;
-        const data = { op: "start", at };
+        autoJoin();
+        const data = { op: "start", at: now() };
         applyStart(data);
         api.send(data);
         return true;
@@ -389,6 +605,10 @@ function createGame(api) {
         applyReset(data);
         api.send(data);
         return true;
+      }
+      case "rematch": {
+        act("new-match");
+        return act("start");
       }
       case "swap-sides": {
         const data = { op: "swap", at };
@@ -407,6 +627,33 @@ function createGame(api) {
     applyRulesOp(data);
     api.send(data);
   }
+  function localPos(uuid) {
+    const o = uuid ? api.objectsGroup()?.getObjectByProperty("uuid", uuid) : null;
+    return o ? o.position.toArray() : null;
+  }
+  function gateLocal(team) {
+    const uuid = Object.keys(config.gates).find((u) => config.gates[u].team === team);
+    return uuid ? localPos(uuid) : null;
+  }
+  function kickoffSpot() {
+    const red = gateLocal("red");
+    const blue = gateLocal("blue");
+    if (!red || !blue) return null;
+    return [(red[0] + blue[0]) / 2, (red[1] + blue[1]) / 2, (red[2] + blue[2]) / 2];
+  }
+  function ballWorld() {
+    const o = ball();
+    return o ? o.getWorldPosition(new THREE.Vector3()).toArray() : void 0;
+  }
+  function placeBall(spot) {
+    const o = ball();
+    if (!o || !spot || !api.physics?.running?.()) return false;
+    const p = o.position;
+    if (Math.hypot(p.x - spot[0], p.y - spot[1], p.z - spot[2]) < 0.02) return false;
+    api.moveObject?.(o.uuid, { pos: spot, rot: [0, 0, 0] });
+    return true;
+  }
+  let pendingNudge = null;
   function serve(why) {
     if (!isAuthority()) return false;
     const object = ball();
@@ -414,10 +661,20 @@ function createGame(api) {
     const at = now();
     const mass = Number(object.userData?.physics?.mass) || 1;
     const r = rules();
-    const centre = pitchCentre();
-    centre[1] = object.position.y;
-    const impulse = serveImpulse(object.position.toArray(), centre, mass, r.serveSpeed, at);
-    const pushed = api.physics.applyImpulse(object.uuid, impulse);
+    let pushed = false;
+    if (why === "rest") {
+      const centre = pitchCentre();
+      centre[1] = object.position.y;
+      pushed = api.physics.applyImpulse(object.uuid, serveImpulse(object.position.toArray(), centre, mass, Math.max(r.serveSpeed, 0.8), at));
+    } else {
+      const red = gateLocal("red") ?? [0, 0, -1];
+      const blue = gateLocal("blue") ?? [0, 0, 1];
+      placeBall(kickoffSpot() ?? object.position.toArray());
+      const impulse = kickoffImpulse(state.kickTeam, red, blue, mass, r.serveSpeed, at);
+      pushed = api.physics.applyImpulse(object.uuid, impulse);
+      pendingNudge = pushed ? null : { impulse, until: performance.now() + 1500 };
+      why = why === "button" ? "button" : "kickoff";
+    }
     const data = { op: "serve", at, why };
     applyServeOp(data);
     api.send(data);
@@ -439,6 +696,7 @@ function createGame(api) {
     if (!object) return;
     object.getWorldPosition(_pos);
     const group = api.objectsGroup();
+    const live = matchPhase(state, now()) === "live";
     for (const [uuid, gate] of Object.entries(config.gates)) {
       const sensor = group?.getObjectByProperty("uuid", uuid);
       if (!sensor) continue;
@@ -446,7 +704,7 @@ function createGame(api) {
       const isIn = _box.containsPoint(_pos);
       const was = !!inside[uuid];
       inside[uuid] = isIn;
-      if (!isIn || was || !state.started || state.serveAt) continue;
+      if (!isIn || was || !live) continue;
       const r = rules();
       const a = attributeGoal({ gateTeam: gate.team, lastTouch: state.lastTouch, slots: state.slots, mode: r.mode, ownGoals: r.ownGoals });
       const data = { op: "goal", gate: uuid, gateTeam: gate.team, team: a.team, by: a.by, own: a.own, counts: a.counts, credit: a.credit, at: now() };
@@ -461,7 +719,7 @@ function createGame(api) {
   let restSince = 0;
   function watchRest(t) {
     const object = ball();
-    if (!object || !state.started || state.serveAt) {
+    if (!object || matchPhase(state, now()) !== "live") {
       restPos = null;
       return;
     }
@@ -478,13 +736,28 @@ function createGame(api) {
   }
   function watchEnd() {
     if (!state.started) return;
-    const outcome = matchOutcome({ score: state.score, rules: rules(), elapsed: now() - state.startedAt, playerGoals: state.playerGoals });
+    if (matchPhase(state, now()) === "celebrate") return;
+    const outcome = matchOutcome({ score: state.score, rules: rules(), elapsed: elapsed() ?? 0, playerGoals: state.playerGoals });
     if (!outcome) return;
     const data = { op: "over", at: now(), ...outcome };
     applyOver(data);
     api.send(data);
     writeMatchLog();
   }
+  function driveBall() {
+    const phase2 = matchPhase(state, now());
+    if (phase2 === "celebrate") placeBall(localPos(state.goalGate) ?? kickoffSpot() ?? []);
+    else if (phase2 === "countdown") placeBall(kickoffSpot() ?? []);
+    else if (phase2 === "live" && state.celebrateUntil && placedFor !== state.celebrateUntil) {
+      placedFor = state.celebrateUntil;
+      if (rules().serve !== "auto") placeBall(kickoffSpot() ?? []);
+    }
+    if (pendingNudge) {
+      const o = ball();
+      if (!o || performance.now() > pendingNudge.until || api.physics.applyImpulse(o.uuid, pendingNudge.impulse)) pendingNudge = null;
+    }
+  }
+  let placedFor = 0;
   function writeMatchLog() {
     if (!api.game?.setVar || !api.game?.getVar) return;
     const rows = sheetRows().map((r) => ({ name: r.name, goals: r.goals }));
@@ -499,13 +772,30 @@ function createGame(api) {
   }
   function onHit(hit) {
     if (!hit || !config.ballUuid || hit.uuid !== config.ballUuid) return;
-    const by = String(hit.by ?? "");
+    const by = String(hit.by || (hit.local ? me() : ""));
     if (!by) return;
     const team = teamOf(state.slots, by);
     state.lastTouch = { by, team, at: Number(hit.at) || now() };
     if (by === me() && state.started && api.peerVars?.setMine) api.peerVars.setMine("touches", api.peerVars.mine("touches", 0) + 1);
     emit("touch", state.lastTouch);
-    if (by === me()) fireEvent("touch");
+    if (by === me()) {
+      fireEvent("touch");
+      if (hit.local !== false) touchedByMe();
+    }
+  }
+  function touchedByMe() {
+    if (!localActive()) return;
+    const phase2 = matchPhase(state, now());
+    if (phase2 === "menu") act("start");
+    else if (state.started && !teamOf(state.slots, me())) {
+      if (autoJoin()) state.lastTouch = { by: me(), team: teamOf(state.slots, me()), at: state.lastTouch?.at ?? now() };
+    }
+  }
+  function localActive() {
+    if (api.isPlaying?.()) return true;
+    const mode = typeof api.editorMode === "function" ? api.editorMode() : "edit";
+    if (mode === "interact") return true;
+    return !!api.isVR?.() && typeof api.setSpawn !== "function";
   }
   function wireHits() {
     if (typeof api.onHit === "function") {
@@ -521,6 +811,69 @@ function createGame(api) {
       return "__stores.knock";
     }
     return "none";
+  }
+  function presentGoal(a, where) {
+    if (!a.counts) {
+      fx.announce("NO GOAL", { sub: a.reason === "practice" ? "Practice \u2014 nothing counts" : "Own goals are ignored", ms: 1400, color: "#c8d0dc" });
+      fx.sound("whistle", where);
+      return;
+    }
+    const team = a.team;
+    const colour = team ? TEAM_CSS[team] : "#ffd45e";
+    let sub = bannerScore(state.score);
+    if (!team && a.by) sub = nameOf(a.by) + " \u2014 " + (state.playerGoals[a.by] ?? 0);
+    else if (a.by) sub = (a.own ? "Own goal by " : "") + nameOf(a.by) + " \xB7 " + bannerScore(state.score);
+    fx.announce(a.own ? "OWN GOAL!" : "GOAL!", { sub, ms: 2200, color: colour, toast: true });
+    fx.sound("goal", where);
+    fx.sound("cheer", where);
+    if (where) fx.burst(where, { kind: "confetti", color: colour, count: 90 });
+    const mine = teamOf(state.slots, me());
+    if (team && mine === team) fx.haptic("success");
+    else if (team && mine) fx.haptic("fail");
+    else if (!team && a.by === me()) fx.haptic("success");
+  }
+  function presentOver() {
+    const o = state.outcome;
+    if (!o) return;
+    const winner = o.winner;
+    const colour = winner === "red" || winner === "blue" ? TEAM_CSS[winner] : "#ffd45e";
+    const title = winner === "draw" ? "DRAW" : winner === "red" ? "RED WINS!" : winner === "blue" ? "BLUE WINS!" : nameOf(winner).toUpperCase() + " WINS!";
+    fx.sound("whistle", ballWorld());
+    fx.announce(title, { sub: bannerScore(state.score) + (goldenPlayed ? " \xB7 golden goal" : ""), ms: 3200, color: colour, toast: true });
+    if (winner !== "draw") fx.sound("cheer", ballWorld());
+    const mine = teamOf(state.slots, me());
+    if (mine && mine === winner) fx.haptic("success");
+    else if (mine && winner !== "draw") fx.haptic("fail");
+    else if (winner === me()) fx.haptic("success");
+  }
+  let shownCount = "";
+  let goldenPlayed = false;
+  let musicOn = false;
+  function presentTick() {
+    const t = now();
+    if (state.started && state.serveAt && matchPhase(state, t) === "countdown") {
+      const n = countdownNumber(state.serveAt, t);
+      const key = state.serveAt + ":" + n;
+      if (n > 0 && n <= 3 && key !== shownCount) {
+        shownCount = key;
+        const team = state.kickTeam;
+        fx.announce(String(n), { sub: (team === "red" ? "Red" : "Blue") + " kicks off", ms: 800, color: TEAM_CSS[team] });
+        fx.sound("click", ballWorld());
+      }
+    }
+    const golden2 = state.started && goldenGoal({ score: state.score, rules: rules(), elapsed: elapsed() ?? 0, playerGoals: state.playerGoals });
+    if (golden2 && !goldenPlayed) {
+      goldenPlayed = true;
+      fx.sound("whistle", ballWorld());
+      fx.announce("GOLDEN GOAL", { sub: "Level at full time \u2014 the next goal wins", ms: 2600, color: "#ffd45e", toast: true });
+    }
+    if (!state.started && !state.outcome) goldenPlayed = false;
+    const want = !!config.ballUuid && localActive();
+    if (want !== musicOn) {
+      musicOn = want;
+      if (want) fx.music("stadium", { volume: 0.55 });
+      else fx.stopMusic();
+    }
   }
   let firing = false;
   function fireEvent(kind) {
@@ -577,7 +930,12 @@ function createGame(api) {
       serves: state.serves,
       goals: state.goals,
       playerGoals: { ...state.playerGoals },
-      outcome: state.outcome ? { ...state.outcome } : null
+      outcome: state.outcome ? { ...state.outcome } : null,
+      celebrateUntil: state.celebrateUntil,
+      goalGate: state.goalGate,
+      kickTeam: state.kickTeam,
+      clockBase: state.clockBase,
+      liveSince: state.liveSince
     };
   }
   function applyState(remote) {
@@ -598,6 +956,11 @@ function createGame(api) {
     state.goals = Number(remote.goals) || 0;
     state.playerGoals = { ...remote.playerGoals ?? {} };
     state.outcome = remote.outcome ? { winner: String(remote.outcome.winner), reason: String(remote.outcome.reason ?? "") } : null;
+    state.celebrateUntil = Number(remote.celebrateUntil) || 0;
+    state.goalGate = String(remote.goalGate ?? "");
+    state.kickTeam = remote.kickTeam === "blue" ? "blue" : "red";
+    state.clockBase = Number(remote.clockBase) || 0;
+    state.liveSince = remote.clockBase == null && remote.liveSince == null ? state.startedAt : Number(remote.liveSince) || 0;
     lastOpLocal = true;
     emit("state");
   }
@@ -615,6 +978,11 @@ function createGame(api) {
     state.goals = 0;
     state.playerGoals = {};
     state.outcome = null;
+    state.celebrateUntil = 0;
+    state.goalGate = "";
+    state.kickTeam = "red";
+    state.clockBase = 0;
+    state.liveSince = 0;
     state.at = 0;
     config.gates = {};
     config.ballUuid = null;
@@ -631,8 +999,10 @@ function createGame(api) {
         emit("slots");
       }
     }
+    presentTick();
     if (!isAuthority()) return;
-    if (state.started && state.serveAt && now() >= state.serveAt) serve("auto");
+    if (state.started && state.serveAt && now() >= state.serveAt) serve("kickoff");
+    driveBall();
     watchGoals();
     watchRest(t);
     watchEnd();
@@ -664,8 +1034,10 @@ function createGame(api) {
       me: id === me()
     }));
   }
-  const left = () => state.started ? secondsLeft(rules(), now() - state.startedAt) : null;
-  const elapsed = () => state.started ? now() - state.startedAt : state.endedAt && state.startedAt ? state.endedAt - state.startedAt : null;
+  const elapsed = () => state.started || state.endedAt && state.startedAt ? playedSeconds(state, now()) : null;
+  const left = () => state.started ? secondsLeft(rules(), elapsed() ?? 0) : null;
+  const golden = () => state.started && goldenGoal({ score: state.score, rules: rules(), elapsed: elapsed() ?? 0, playerGoals: state.playerGoals });
+  const phase = () => matchPhase(state, now());
   return {
     state,
     config,
@@ -688,6 +1060,11 @@ function createGame(api) {
     writeMatchLog,
     secondsLeft: left,
     elapsed,
+    golden,
+    phase,
+    fx,
+    localActive,
+    kickoffSpot,
     scoreLine: () => scoreLine(state.score),
     outcomeText,
     pitchCentre,
@@ -1000,6 +1377,7 @@ function registerNodes(api, game) {
           { key: "serveDelay", kind: "range", min: 0.5, max: 5, step: 0.1 },
           { key: "serveSpeed", kind: "range", min: 0.5, max: 10, step: 0.1 },
           { key: "ownGoals", kind: "select", options: OWN_GOALS },
+          { key: "tie", kind: "select", options: TIE },
           { key: "apply", kind: "toggle" }
         ]
       },
@@ -1079,7 +1457,8 @@ function registerNodes(api, game) {
         serve: data.serve,
         serveDelay: data.serveDelay,
         serveSpeed: data.serveSpeed,
-        ownGoals: data.ownGoals
+        ownGoals: data.ownGoals,
+        tie: data.tie
       };
       if (JSON.stringify(game.config.rules) !== JSON.stringify(next)) game.config.rules = next;
       const wired = typeof data.ball === "string" && data.ball && data.ball !== "-None-" ? data.ball : null;
@@ -1157,7 +1536,9 @@ function registerNodes(api, game) {
     const score = [game.scoreLine(), touch, ...left == null ? [] : [Math.ceil(left) + "s left"], ...game.state.outcome ? [game.outcomeText()] : []];
     const log = game.matchLog().slice(-8).reverse().map((m) => "RED " + m.red + " \u2014 " + m.blue + " BLUE \xB7 " + m.winner);
     const clock = data.clockElement ? [matchClock(game.rules(), game.elapsed())] : [];
-    const ticker = data.tickerElement ? [touch] : [];
+    const phase = game.phase();
+    const line = game.golden() ? "GOLDEN GOAL \u2014 next goal wins" : phase === "countdown" ? (game.state.kickTeam === "blue" ? "Blue" : "Red") + " kicks off" : phase === "celebrate" ? "GOAL!" : touch;
+    const ticker = data.tickerElement ? [line] : [];
     const key = JSON.stringify([rows, score, log, clock, ticker]);
     if (key === lastRows) return;
     lastRows = key;
