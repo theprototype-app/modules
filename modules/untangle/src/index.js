@@ -35,8 +35,8 @@ const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defa
 export default {
 	id: 'untangle',
 	name: 'Untangle',
-	version: '2.0.0',
-	description: 'Drag the dots until no edges cross — procedural puzzle game; board pose, level and readouts as flow nodes.',
+	version: '2.1.0',
+	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device); replicated, board pose, level and readouts as flow nodes.',
 	/** @param {any} api */
 	register(api) {
 		const THREE = api.THREE;
@@ -81,6 +81,10 @@ export default {
 		let progress = normalizeProgress(storage.get(PROGRESS_KEY));
 		/** did THIS peer make an authoritative move on the current board? (who banks a solve) */
 		let participated = false;
+		/** authoritative moves applied on the current board — every peer counts the same moves,
+		 * so a state snapshot with a LOWER rev for the same board is stale (applyState) */
+		let rev = 0;
+		const syncs = { applied: 0, stale: 0 };
 		/** the solve clock, local performance time: running from `start`, frozen at `ms` */
 		const clock = { start: /** @type {number | null} */ (null), ms: /** @type {number | null} */ (null), newBest: false };
 		let wasUnderway = false;
@@ -308,6 +312,7 @@ export default {
 			won = false;
 			carried = -1;
 			participated = false;
+			rev = 0;
 			globeQuat.identity();
 			clock.start = roundUnderway() || shellUnused() ? performance.now() : null;
 			clock.ms = null;
@@ -383,7 +388,10 @@ export default {
 		/** apply a position; an authoritative move checks the win on EVERY peer */
 		function applyMove(i, p, authoritative, fromMe = false) {
 			if (!positions[i] || !fits(p)) return;
-			if (authoritative) touched = true;
+			if (authoritative) {
+				touched = true;
+				rev++;
+			}
 			positions[i] = clampPos(p);
 			const total = refresh();
 			if (authoritative && total === 0 && !won) {
@@ -591,15 +599,20 @@ export default {
 			return m !== 'edit' || (typeof api.isPlaying === 'function' && api.isPlaying());
 		}
 
-		// VR (and any core path that dispatches a module click): the trigger picks, the next
-		// trigger drops. Desktop presses never get here — gesture.js consumed them first.
+		// VR: the trigger picks, the next trigger drops. On a desktop gesture.js OWNS every
+		// press (a press on a dot never reaches core), so a module click core still dispatches
+		// there — play's crosshair TAP while the real cursor is elsewhere, an unlocked play —
+		// is only CONSUMED (nothing selects a dot), never acted on: acting would pick the dot
+		// under the crosshair while the player aimed the cursor at another one.
 		api.registerClickHandler(
 			(object) => {
+				const isDot = !!object?.name?.startsWith('untangle-dot-');
+				if (!api.isVR?.() && typeof window !== 'undefined') return carried !== -1 || isDot;
 				if (carried !== -1) {
 					drop('click');
 					return true;
 				}
-				if (!object?.name?.startsWith('untangle-dot-')) return false;
+				if (!isDot) return false;
 				pick(+object.name.slice('untangle-dot-'.length), 'click');
 				return true; // consume — never selects the dot
 			},
@@ -771,14 +784,25 @@ export default {
 			}
 		});
 		api.registerStateSync({
-			getState: () => (touched ? { level, positions, mode } : null),
+			getState: () => (touched ? { level, positions, mode, rev } : null),
 			applyState: (state) => {
 				if (!state) return;
+				// the exchange runs on EVERY connection of a mesh, so a third peer's snapshot can
+				// land AFTER a move we already applied on this same board: `rev` (authoritative
+				// moves on the board) says which is newer — an older peer sends none, and gets
+				// today's behaviour
+				const sameBoard = built && state.level === level && (state.mode ?? '2d') === mode;
+				if (sameBoard && typeof state.rev === 'number' && state.rev <= rev) {
+					syncs.stale++;
+					return;
+				}
+				syncs.applied++;
 				remoteApplied = true;
 				touched = true;
-				setLevel(state.level ?? 1, false, state.mode ?? '2d');
+				if (!sameBoard) setLevel(state.level ?? 1, false, state.mode ?? '2d');
 				if (Array.isArray(state.positions) && state.positions.length === positions.length && state.positions.every(fits)) {
 					positions = state.positions.map(clampPos);
+					if (typeof state.rev === 'number') rev = state.rev;
 					refresh();
 				}
 			}
@@ -842,7 +866,7 @@ export default {
 				level, mode, positions, edges, board: { ...board }, won, crossings, solvedCount, built, touched,
 				nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite,
 				carried, carryMode: carried === -1 ? 'none' : gesture.carryMode() === 'none' ? carryHow : gesture.carryMode(),
-				lastDrop, lastUp: gesture.lastUp(), rayMode: aim.mode()
+				lastDrop, lastUp: gesture.lastUp(), rayMode: aim.mode(), rev, syncs: { ...syncs }
 			}),
 			move: (i, p) => dropAt(i, p),
 			solve: () => solveNow(),

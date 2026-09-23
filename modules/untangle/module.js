@@ -441,7 +441,7 @@ function makeBackplate(THREE, R) {
   const h = R * 1.24;
   const plate = new THREE.Mesh(
     new THREE.ShapeGeometry(roundedRect(THREE, h, R * 0.16), 6),
-    new THREE.MeshStandardMaterial({ color: 857120, roughness: 0.62, metalness: 0.15, transparent: true, opacity: 0.9 })
+    new THREE.MeshStandardMaterial({ color: 988966, roughness: 0.85, metalness: 0, transparent: true, opacity: 0.93 })
   );
   plate.name = "untangle-plate";
   plate.position.z = -R * 0.06;
@@ -593,7 +593,8 @@ function makeGlobe(THREE, R) {
   group.name = "untangle-globe";
   const bodyMat = new THREE.MeshStandardMaterial({
     color: 791846,
-    roughness: 0.38,
+    roughness: 0.62,
+    // a glossier globe threw two blurry lamp highlights across the arcs
     metalness: 0.12,
     emissive: 662067,
     emissiveIntensity: 0.6,
@@ -1142,8 +1143,8 @@ var EXPIRE_FRAMES = 40;
 var index_default = {
   id: "untangle",
   name: "Untangle",
-  version: "2.0.0",
-  description: "Drag the dots until no edges cross \u2014 procedural puzzle game; board pose, level and readouts as flow nodes.",
+  version: "2.1.0",
+  description: "Drag the dots until no edges cross \u2014 on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device); replicated, board pose, level and readouts as flow nodes.",
   /** @param {any} api */
   register(api) {
     const THREE = api.THREE;
@@ -1176,6 +1177,8 @@ var index_default = {
     const storage = makeStorage(api);
     let progress = normalizeProgress(storage.get(PROGRESS_KEY));
     let participated = false;
+    let rev = 0;
+    const syncs = { applied: 0, stale: 0 };
     const clock = { start: (
       /** @type {number | null} */
       null
@@ -1381,6 +1384,7 @@ var index_default = {
       won = false;
       carried = -1;
       participated = false;
+      rev = 0;
       globeQuat.identity();
       clock.start = roundUnderway() || shellUnused() ? performance.now() : null;
       clock.ms = null;
@@ -1447,7 +1451,10 @@ var index_default = {
     }
     function applyMove(i, p, authoritative, fromMe = false) {
       if (!positions[i] || !fits(p)) return;
-      if (authoritative) touched = true;
+      if (authoritative) {
+        touched = true;
+        rev++;
+      }
       positions[i] = clampPos(p);
       const total = refresh();
       if (authoritative && total === 0 && !won) {
@@ -1627,11 +1634,13 @@ var index_default = {
     }
     api.registerClickHandler(
       (object) => {
+        const isDot = !!object?.name?.startsWith("untangle-dot-");
+        if (!api.isVR?.() && typeof window !== "undefined") return carried !== -1 || isDot;
         if (carried !== -1) {
           drop("click");
           return true;
         }
-        if (!object?.name?.startsWith("untangle-dot-")) return false;
+        if (!isDot) return false;
         pick(+object.name.slice("untangle-dot-".length), "click");
         return true;
       },
@@ -1797,14 +1806,21 @@ var index_default = {
       }
     });
     api.registerStateSync({
-      getState: () => touched ? { level, positions, mode } : null,
+      getState: () => touched ? { level, positions, mode, rev } : null,
       applyState: (state) => {
         if (!state) return;
+        const sameBoard = built && state.level === level && (state.mode ?? "2d") === mode;
+        if (sameBoard && typeof state.rev === "number" && state.rev <= rev) {
+          syncs.stale++;
+          return;
+        }
+        syncs.applied++;
         remoteApplied = true;
         touched = true;
-        setLevel(state.level ?? 1, false, state.mode ?? "2d");
+        if (!sameBoard) setLevel(state.level ?? 1, false, state.mode ?? "2d");
         if (Array.isArray(state.positions) && state.positions.length === positions.length && state.positions.every(fits)) {
           positions = state.positions.map(clampPos);
+          if (typeof state.rev === "number") rev = state.rev;
           refresh();
         }
       }
@@ -1872,7 +1888,9 @@ var index_default = {
         carryMode: carried === -1 ? "none" : gesture.carryMode() === "none" ? carryHow : gesture.carryMode(),
         lastDrop,
         lastUp: gesture.lastUp(),
-        rayMode: aim.mode()
+        rayMode: aim.mode(),
+        rev,
+        syncs: { ...syncs }
       }),
       move: (i, p) => dropAt(i, p),
       solve: () => solveNow(),

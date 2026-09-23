@@ -123,7 +123,7 @@ export function makeBackplate(THREE, R) {
 	const h = R * 1.24;
 	const plate = new THREE.Mesh(
 		new THREE.ShapeGeometry(roundedRect(THREE, h, R * 0.16), 6),
-		new THREE.MeshStandardMaterial({ color: 0x0d1420, roughness: 0.62, metalness: 0.15, transparent: true, opacity: 0.9 })
+		new THREE.MeshStandardMaterial({ color: 0x0f1726, roughness: 0.85, metalness: 0, transparent: true, opacity: 0.93 })
 	);
 	plate.name = 'untangle-plate';
 	plate.position.z = -R * 0.06;
@@ -299,7 +299,7 @@ export function makeGlobe(THREE, R) {
 	group.name = 'untangle-globe';
 	const bodyMat = new THREE.MeshStandardMaterial({
 		color: 0x0c1526,
-		roughness: 0.38,
+		roughness: 0.62, // a glossier globe threw two blurry lamp highlights across the arcs
 		metalness: 0.12,
 		emissive: 0x0a1a33,
 		emissiveIntensity: 0.6,

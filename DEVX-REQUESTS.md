@@ -34,6 +34,10 @@ promise from core.
 | 20 | a scene-physics block write (`api.physics.setScene({gravity, knock, …})`) | `football` | yes — the template carries the block; the "Build pitch" recipe toasts the Inspector rows to set |
 | 21 | the XR room bounds and the colocation `roomAnchor` on the api | `football` | yes — "Fit to room" / "Centre on room" feature-detect `api.xrReferenceSpace` / `api.colocation.roomAnchor` and fall back to sliders |
 | 22 | a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value | `football` | yes — a `delay` node bridges the stamp into a numeric pulse |
+| 26 | no **pointer seam** (pointerdown/up, click-miss) and no module **dispose hook** | `untangle` | yes — window CAPTURE listeners, self-detaching when a newer copy owns the module's hook |
+| 27 | `api.game` cannot say **which** non-running state (menu vs over) | `untangle` | yes — the rising edge of `roundUnderway()` is enough for "Next" |
+| 28 | no **camera** on the api (the crosshair ray under a lock) | `untangle` | yes — `pointerRay().camera`, else the scene camera nearest `playerPosition()` |
+| 29 | a module HUD kind's `mount` gets no **editor** flag | `untangle` | yes — `el.closest('#hud-layer')` tells the runtime layer from the artboard |
 
 ---
 
@@ -525,6 +529,47 @@ toolbox instead of an overlay at `z-index: 900`.
 - **#14** — Game Rules ▸ disableFlight writes `userData.play.grounded` (through the Kit); the capture-phase Q/E swallow is deleted.
 - **#9/#12** — Realms Value / Realms Event / Realms HUD Rows replace the `drhud` node: the HUD is core HUD elements the template authors.
 - The `#dungeon-panel` overlay is a registered toolbox (the SDK's worked example, AUTHORING.md).
+
+## 26. No pointer seam and no dispose hook for a module's own listeners
+
+**Found in:** `modules/untangle` (roadmap 30, P0). A real drag needs the PRESS: core
+dispatches a module click only on a short STATIONARY pointerup (the editor's select rule,
+play's tap), so a press that moves never reaches a module — and until release OrbitControls
+orbits the camera under the dot. The "any click drops a carried dot" rule also needs a
+MISS: core has `moduleClickMissHandlers` (23-B1) but only `vrPatch` reaches it.
+
+**Ask:** `api.registerPointerHandler({down, move, up}, {modes})` with the hit (or null) and a
+way to claim the gesture (core stops orbit/select for it); `api.onClickMiss(fn)` over the
+existing registry; `api.onDispose(fn)` so a module's own listeners join the teardown journal.
+
+**Meanwhile:** `gesture.js` listens on `window` in the CAPTURE phase (it runs before the
+canvas's listeners), stops propagation only for a press on its own dot or a carrying click,
+and detaches itself the first time it fires after a newer copy of the module replaced
+`window.__untangle` (a dev reload); a torn-down board makes it inert.
+
+## 27. `api.game` cannot tell `menu` from `over`
+
+**Found in:** `modules/untangle` (P4). `roundCutoff()` is `Infinity` for both. The solved
+screen's Next is "a round starts on a solved board", which the rising edge of
+`roundUnderway()` expresses — every peer sees the same replicated edge, so all advance in
+lockstep with no message. **Ask:** `api.game.state()` → `'menu'|'playing'|'paused'|'over'`
+(+ `outcome`).
+
+## 28. No camera on the api
+
+**Found in:** `modules/untangle` (P0). Under a pointer lock the carry must follow the
+CROSSHAIR; a 1.16 core's `pointerRay()` returns the stale last-mouse ray there. **Ask:**
+`api.camera()` (or `pointerRay()` = the crosshair under a lock — roadmap 30 `30-core-modes`
+P4). **Meanwhile:** `aim.js` takes the camera a Raycaster remembers (`pointerRay().camera`),
+else the scene camera nearest `playerPosition()`, and builds the NDC (0,0) ray; it uses the
+api ray as-is once it already IS the crosshair.
+
+## 29. A module HUD kind cannot tell the editor artboard from the runtime layer
+
+**Found in:** `modules/untangle` (P2). The level grid must be inert in the HUD editor's
+preview. `HudElement` knows (`editor`) but `mount(el, element, runtime)` is not told.
+**Ask:** pass `{editor}` in `runtime` (or a fourth argument). **Meanwhile:**
+`el.closest('#hud-layer')`.
 
 ## 23. No play-mode MENU surface
 

@@ -119,6 +119,16 @@ run(async () => {
 	check(await A.page.evaluate((t) => window.__untangle.move(0, t), target), 'P3.3 A drops dot 0 on the globe');
 	const g1 = await snap(A.page);
 	await eventually(() => snap(B.page), (s) => JSON.stringify(s.positions[0]) === JSON.stringify(g1.positions[0]) && unit(s.positions[0]), 'P3.4 B receives the 3D move (normalised, identical)');
+	// P3.4b: the mesh runs the module-state exchange on EVERY connection, so a third peer's
+	// snapshot of THIS board can land after a move: an older one (lower rev) must not undo it
+	const bBefore = await snap(B.page);
+	await B.page.evaluate((stale) => window.__stores.moduleSDK.applyModuleStates({ untangle: stale }), { level: 3, mode: '3d', positions: g0.positions, rev: 0 });
+	const bStale = await snap(B.page);
+	check(JSON.stringify(bStale.positions) === JSON.stringify(bBefore.positions) && bStale.syncs.stale === bBefore.syncs.stale + 1, 'P3.4b a STALE snapshot of the same board (rev 0) is ignored — B keeps the move');
+	const newer = g1.positions.map((p, i) => (i === 5 ? [0, 0, 1] : p));
+	await B.page.evaluate((st) => window.__stores.moduleSDK.applyModuleStates({ untangle: st }), { level: 3, mode: '3d', positions: newer, rev: bBefore.rev + 5 });
+	check(JSON.stringify((await snap(B.page)).positions[5]) === '[0,0,1]', 'P3.4c ...and a NEWER one (higher rev) is applied');
+	await B.page.evaluate((st) => window.__stores.moduleSDK.applyModuleStates({ untangle: st }), { level: 3, mode: '3d', positions: g1.positions, rev: bBefore.rev + 6 }); // put B back in step
 	const viewB = await B.page.evaluate(() => window.__untangle.globeView());
 	await A.page.evaluate(() => window.__untangle.rotate(120, -40));
 	const viewA = await A.page.evaluate(() => window.__untangle.globeView());

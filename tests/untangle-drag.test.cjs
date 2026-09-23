@@ -308,6 +308,16 @@ run(async () => {
 	check(a4.carried === -1 && near(a4.positions[4], T4), '4.4 the release drops it there (' + a4.lastDrop + ')');
 	await eventually(() => state(B.page), (s) => JSON.stringify(s.positions[4]) === JSON.stringify(a4.positions[4]), '4.5 B agrees');
 	await A.page.evaluate(() => Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => null }));
+	// 4b (P4): play WITHOUT a lock (a free cursor, or a lock the browser refused): core's play
+	// TAP still aims with the crosshair. With the crosshair on a dot and the real cursor on
+	// empty board, a click must pick NOTHING — the cursor is what the player aims with
+	const dot2 = await A.page.evaluate(() => window.__untangle.dotWorld(2));
+	await aimAt(A.page, dot2);
+	await A.page.waitForTimeout(200);
+	const empty = await projectPoint(A.page, await A.page.evaluate(() => window.__untangle.boardWorld([2.6, 1.6])));
+	await A.page.mouse.click(empty.x, empty.y);
+	await A.page.waitForTimeout(250);
+	check((await state(A.page)).carried === -1, '4.6 an unlocked play click with the crosshair on a dot and the cursor elsewhere picks nothing (the desktop gesture owns presses)');
 	await A.page.keyboard.press('Escape');
 	await A.page.waitForTimeout(600);
 
