@@ -60,8 +60,8 @@
 	{
 		"id": "dungeon",
 		"name": "Dungeon Kit",
-		"version": "2.2.0",
-		"description": "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) rendered as torch-lit stone — every torch glows, throws a halo and a pool and lights the stone around it, the real lights follow you — with a toolbox, a Dungeon node and the userData.play contract the app walks (and collides with) in play mode. The playable game is Dungeon Realms.",
+		"version": "2.2.1",
+		"description": "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) rendered as torch-lit stone — every torch is the props-kit wall torch, glows, throws a halo and a pool and lights the stone around it, the real lights follow you — with a toolbox, a Dungeon node and the userData.play contract the app walks (and collides with) in play mode. The playable game is Dungeon Realms.",
 		"author": "theprototype-app",
 		"source": "modules/dungeon",
 		"zip": "dungeon.zip",

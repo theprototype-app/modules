@@ -140,11 +140,15 @@ run(async () => {
 			patched: floors.material.customProgramCacheKey?.() === 'dk-torch-lit' && walls.material.customProgramCacheKey?.() === 'dk-torch-lit',
 			wallAO: !!walls.material.vertexColors && !!walls.geometry.getAttribute('color'),
 			lights: g.children.filter((c) => c.name === 'dk-light').length,
-			haloAdditive: g.getObjectByName('dk-halos')?.material.blending === window.__stores.THREE.AdditiveBlending
+			haloAdditive: g.getObjectByName('dk-halos')?.material.blending === window.__stores.THREE.AdditiveBlending,
+			// 30b integrate: the props-kit WallTorch, one InstancedMesh per part, each part textured
+			torchParts: ['dk-torch-iron', 'dk-torch-oak', 'dk-torch-cloth'].map((n) => ({ n: count(n), map: !!g.getObjectByName(n)?.material.map, tris: (g.getObjectByName(n)?.geometry.index?.count ?? 0) / 3 })),
+			oldCones: count('dk-torch-brackets') + count('dk-torch-bowls')
 		};
 	});
 	check(lit.halos === lit.torches && lit.pools >= lit.torches && lit.cores === lit.flames && lit.torches > 20, 'EVERY torch (' + lit.torches + ') has a wall halo, a floor pool and a white-hot flame core (' + lit.halos + ' / ' + lit.pools + ' / ' + lit.cores + ')');
 	check(lit.haloAdditive, '  the halos are ADDITIVE glow (they read in VR, where there is no bloom pass)');
+	check(lit.torchParts.every((p) => p.n === lit.torches && p.map) && lit.oldCones === 0 && lit.torchParts.reduce((t, p) => t + p.tris, 0) > 400, 'every torch IS the props-kit WallTorch: iron/oak/cloth instanced per torch, textured (' + JSON.stringify(lit.torchParts) + '), no bracket-and-bowl stand-ins left');
 	check(lit.floorLight.n === lit.floorCount && lit.wallLight.n === lit.wallCount && lit.patched, 'the baked torch light rides every floor and wall instance (torchLight attribute) into a torch-lit emissive (patched materials)');
 	check(lit.floorLight.lit > 0.6 && lit.wallLight.lit > 0.4, '  ' + Math.round(lit.floorLight.lit * 100) + '% of the floor and ' + Math.round(lit.wallLight.lit * 100) + '% of the walls are torch-lit (the rest stays dark between the pools)');
 	check(lit.wallAO, '  the walls carry vertex-colour AO (dark at the foot)');

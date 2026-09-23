@@ -3,3 +3,4 @@ node_modules/
 .DS_Store
 modules/waves/src/gltf/loader.chunk
 modules/waves/src/gltf/three-shim.gen.js
+modules/dungeon/src/torch/torch.gen.js

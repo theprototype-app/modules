@@ -11,7 +11,7 @@
 	"scripts": {
 		"pack": "node scripts/pack.cjs",
 		"new": "node scripts/new.cjs",
-		"build:dungeon": "esbuild modules/dungeon/src/index.js --bundle --format=esm --outfile=modules/dungeon/module.js",
+		"build:dungeon": "node modules/dungeon/build-torch.mjs && esbuild modules/dungeon/src/index.js --bundle --format=esm --outfile=modules/dungeon/module.js",
 		"test:dungeon": "node modules/dungeon/test/run.mjs",
 		"test": "node tests/run.cjs",
 		"build:dungeon-realms": "esbuild modules/dungeon-realms/src/index.js --bundle --format=esm --outfile=modules/dungeon-realms/module.js && node modules/dungeon-realms/emit-def.mjs",

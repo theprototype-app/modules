@@ -10,6 +10,7 @@
 
 import { FLOOR, WALL } from './gen/dungeon.js';
 import { LOOK, LIT, stoneTint, flameFlicker, pickLights, stoneTexture, bakeTorchLight, litShade, haloTexture, stepLightSlots } from './look.js';
+import { torchParts, SOLID_PARTS, TORCH_SCALE, TORCH_BASE_Y, FLAME_AT, FLAME_GROW } from './torch.js';
 
 /** P4: the two stone textures, built once per page (the same bytes on every peer) @type {any} */
 let textures = null;
@@ -285,30 +286,38 @@ export function buildFloorGroup(THREE, dungeon) {
 		});
 	quaternion.identity();
 
-	// torches: P4 real SCONCES — an iron bracket on the wall face, a bowl and a flickering flame
-	// (30b: OUT on the face — round 1 hung them 0.4 from the wall's centre, half inside the stone)
-	// (the bloom pass makes the glow); braziers get the flame
+	// torches: the props-kit WALL TORCH (30b integrate — round 2's were a bracket + a bowl + a
+	// cone): its back on the wall face, facing the floor cell, one InstancedMesh per part;
+	// the model's own Flame keeps the Kit's emissive glow and per-torch flicker; braziers get
+	// a bigger flame on their rim
 	const torches = byKind.torch ?? [];
 	const onWall = (/** @type {any} */ p, /** @type {number} */ out) => ({ x: worldX(p.x) + (p.fx ?? 0) * out, z: worldZ(p.y) + (p.fy ?? 0) * out });
-	instanced('dk-torch-brackets', new THREE.BoxGeometry(0.09, 0.42, 0.09),
-		new THREE.MeshStandardMaterial({ color: 0x2a2520, roughness: 0.55, metalness: 0.6 }),
-		torches, (p) => { const w = onWall(p, 0.54); position.set(w.x, 1.5, w.z); });
-	instanced('dk-torch-bowls', new THREE.CylinderGeometry(0.13, 0.06, 0.12, 10),
-		new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 0.45, metalness: 0.7 }),
-		torches, (p) => { const w = onWall(p, LIT.sconceOut); position.set(w.x, 1.74, w.z); });
-	const flameSpots = torches.map((p) => ({ ...onWall(p, LIT.sconceOut), y: 1.95 }))
-		.concat((byKind.brazier ?? []).map((p) => ({ x: worldX(p.x), y: 0.75, z: worldZ(p.y) })));
-	// 30: the flames GLOW (emissive over 1: the bloom pass catches them) and flicker per torch
+	const parts = torchParts(THREE);
+	const yAxis = new THREE.Vector3(0, 1, 0);
+	for (const name of SOLID_PARTS)
+		instanced('dk-torch-' + name.replace(/^WallTorch_/, ''), parts[name].geometry, parts[name].material, torches, (p) => {
+			const w = onWall(p, 0.505);
+			position.set(w.x, TORCH_BASE_Y, w.z);
+			quaternion.setFromAxisAngle(yAxis, Math.atan2(p.fx ?? 0, p.fy ?? 1));
+			scale.setScalar(TORCH_SCALE);
+		});
+	const flameOut = 0.505 + FLAME_AT[2] * TORCH_SCALE;
+	const flameBase = TORCH_BASE_Y + FLAME_AT[1] * TORCH_SCALE;
+	const torchFlame = TORCH_SCALE * FLAME_GROW;
+	// a spot is the flame's CENTRE (lights, halos' flicker); `by`/`sc` are its base and size
+	const flameSpots = torches.map((p) => ({ ...onWall(p, flameOut), y: flameBase + 0.11 * torchFlame, by: flameBase, sc: torchFlame }))
+		.concat((byKind.brazier ?? []).map((p) => ({ x: worldX(p.x), y: 0.75, z: worldZ(p.y), by: 0.55, sc: 2.4 })));
+	// the flames GLOW (emissive over 1: the bloom pass catches them) and flicker per torch
 	// (animateFloor stretches each instance from its own base pose)
-	const flames = instanced('dk-flames', new THREE.ConeGeometry(0.15, 0.46, 7),
+	const flames = instanced('dk-flames', parts.Flame.geometry,
 		new THREE.MeshStandardMaterial({ color: theme.torchColor, emissive: theme.torchColor, emissiveIntensity: LOOK.flameIntensity, roughness: 1 }),
-		flameSpots, (p) => position.set(p.x, p.y, p.z));
+		flameSpots, (p) => { position.set(p.x, p.by, p.z); scale.setScalar(p.sc); });
 	if (flames) flames.userData.spots = flameSpots;
-	// 30b: a white-hot core inside every flame (unlit, so it reads in VR where there is no bloom)
-	const cores = instanced('dk-flame-cores', new THREE.ConeGeometry(0.07, 0.24, 6),
+	// a white-hot core inside every flame (unlit, so it reads in VR where there is no bloom)
+	const cores = instanced('dk-flame-cores', new THREE.ConeGeometry(0.03, 0.1, 6),
 		new THREE.MeshBasicMaterial({ color: 0xfff1c8 }),
-		flameSpots, (p) => position.set(p.x, p.y - 0.06, p.z));
-	if (cores) cores.userData.spots = flameSpots.map((p) => ({ ...p, y: p.y - 0.06 }));
+		flameSpots, (p) => { position.set(p.x, p.by + 0.05 * p.sc, p.z); scale.setScalar(p.sc); });
+	if (cores) cores.userData.spots = flameSpots.map((p) => ({ ...p, by: p.by + 0.05 * p.sc }));
 
 	// 30b: the CHEAP light every torch throws — a warm halo on the wall behind its flame and a
 	// pool on the floor in front of it (additive, no depth write, fogged; each instance's colour
@@ -389,7 +398,9 @@ export function animateFloor(group, time, view = {}) {
 			const m = child.userData._m ??= child.matrix.clone();
 			child.userData.spots.forEach((/** @type {any} */ p, /** @type {number} */ i) => {
 				const k = flameFlicker(time, p.x, p.z);
-				m.makeScale(1 / Math.sqrt(k), k, 1 / Math.sqrt(k)).setPosition(p.x, p.y + (k - 1) * 0.15, p.z);
+				// grows from its BASE (the model flame's origin): no vertical bob needed
+				const sc = p.sc ?? 1;
+				m.makeScale(sc / Math.sqrt(k), sc * k, sc / Math.sqrt(k)).setPosition(p.x, p.by ?? p.y, p.z);
 				child.setMatrixAt(i, m);
 			});
 			child.instanceMatrix.needsUpdate = true;
