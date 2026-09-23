@@ -552,10 +552,14 @@ function createGame(api) {
     if (fxLog.length > 40) fxLog.shift();
   }
   function setMusic(on) {
-    if (on === musicOn || !api.music) return;
-    musicOn = on;
-    if (on) api.music.play?.("dungeon", { volume: 0.5 });
-    else api.music.stop?.();
+    if (!api.music) return;
+    if (on) {
+      if (musicOn && (typeof api.music.current === "function" ? api.music.current() : "dungeon") === "dungeon") return;
+      musicOn = api.music.play?.("dungeon", { volume: 0.5 }) !== false;
+    } else if (musicOn) {
+      musicOn = false;
+      api.music.stop?.();
+    }
   }
   function mySlot() {
     if (state.slots.p2?.peerId === me()) return 1;

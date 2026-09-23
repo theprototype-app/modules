@@ -267,6 +267,11 @@ run(async () => {
 		'Interact counts as a game view: Realms plays and the Kit closes its vault'
 	);
 	await eventually(() => calls(A.page, interactFrom), (c) => c.some((x) => x.fn === 'music' && x.name === 'dungeon'), '  and the dungeon music plays in Interact');
+	// core stops the music by itself (a mode change) or refuses it (Edit): Realms re-asserts it
+	const replayFrom = await callCount(A.page);
+	await A.page.evaluate(() => (window.__dungeonRealms.api.music.current = () => null));
+	await eventually(() => calls(A.page, replayFrom), (c) => c.some((x) => x.fn === 'music' && x.name === 'dungeon'), '  core stopped the music under it (current() = null): Realms starts it again');
+	await A.page.evaluate(() => (window.__dungeonRealms.api.music.current = () => 'dungeon'));
 	await A.page.evaluate(() => window.__stores.editorMode.set('edit'));
 	await eventually(() => A.page.evaluate(() => window.__dungeonRealms.game.isPlaying()), (v) => v === false, '  back in Edit: not a game view');
 	const C = await setupPage(browser, 'C');

@@ -190,7 +190,7 @@ run(async () => {
 			window.__stores.globalScene.subscribe((v) => (scene = v))();
 			const g = scene.getObjectByName('dungeon-module').getObjectByName('dk-floor');
 			const dk = g.userData._dk;
-			return { near: g.children.filter((c) => c.name === 'dk-light').map((l) => +Math.hypot(l.position.x - t.x, l.position.z - t.z).toFixed(1)), full: dk.slots.every((s) => s.w === 1) };
+			return { near: g.children.filter((c) => c.name === 'dk-light').map((l) => +Math.hypot(l.position.x - t.x, l.position.z - t.z).toFixed(1)), full: dk.slots.every((s) => s.w === 1), slots: dk.slots.map((s) => s.torch + ':' + s.w.toFixed(2)).join(' '), t: dk.lastTime };
 		}, lightTrace.target),
 		(v) => v.full && v.near.every((d) => d < 10),
 		'in the EDITOR the 4 lights moved to the torches around the viewer and settled at full strength'

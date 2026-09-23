@@ -137,12 +137,18 @@ export function createGame(api) {
 		if (fxLog.length > 40) fxLog.shift();
 	}
 
-	/** the dungeon's music on/off (C5; core also stops it on leaving Play/Interact) @param {boolean} on */
+	/** the dungeon's music on/off (C5). Core refuses it in Edit (play() returns false) and stops
+	 * it by itself on leaving the game, so "on" is re-asserted until it is really playing
+	 * (api.music.current()) @param {boolean} on */
 	function setMusic(on) {
-		if (on === musicOn || !api.music) return;
-		musicOn = on;
-		if (on) api.music.play?.('dungeon', { volume: 0.5 });
-		else api.music.stop?.();
+		if (!api.music) return;
+		if (on) {
+			if (musicOn && (typeof api.music.current === 'function' ? api.music.current() : 'dungeon') === 'dungeon') return;
+			musicOn = api.music.play?.('dungeon', { volume: 0.5 }) !== false;
+		} else if (musicOn) {
+			musicOn = false;
+			api.music.stop?.();
+		}
 	}
 
 	/** my party slot index (P1 = 0, P2 = 1; unslotted players stand with P1) */
