@@ -696,7 +696,7 @@ where it was left-aligned (the default).
 that must look centred (the football clock, the waves banner) get a box barely wider than the text.
 
 
-## 29. A module cannot pause VR snap turn (or teleport) while it owns a stick
+## 38. A module cannot pause VR snap turn (or teleport) while it owns a stick
 
 **Found in:** `modules/untangle` (roadmap 30b, the globe hold). One hand's trigger holds the
 globe and that hand's stick should scale it — the edit-mode object grab's map (X scales, Y
@@ -711,7 +711,7 @@ which a module cannot reach.
 **Meanwhile:** the untangle hold scales on the stick's Y (forward grows, back shrinks) — the
 axis snap turn does not use — and claims `'locomotion'` for the left hand.
 
-## 30. A module cannot reseat a dynamic body (put the ball back on the centre spot)
+## 39. A module cannot reseat a dynamic body (put the ball back on the centre spot)
 
 **Found in:** `modules/football` (30b). After a goal the ball must rest in the net, then go back
 to the centre spot for the kick-off. `api.physics` can push a body (`applyImpulse`) but not PLACE
@@ -728,7 +728,7 @@ rule and costs a `move` message per re-place.
 **Ask:** `api.physics.placeBody(uuid, pos, {rot?, linvel?, angvel?})` — the initiator's
 `applyThrow`, replicated through the move stream like every other initiator write.
 
-## 31. A squeezed grip silences the hand's knock
+## 40. A squeezed grip silences the hand's knock
 
 **Found in:** `modules/football` (30b, the Quest 3 feedback "I should be able to knock the ball
 with the controller"). Core's knock skips a GRIPPED hand ("a gripped hand is carrying, not
@@ -739,7 +739,7 @@ follows the same peer's core knock within 250 ms so one swing is never two touch
 **Ask:** gate the knock on "holding something" (a user hold on a body) rather than on the grip
 button; then football's tip kick could retire to just the `kick` sound and the scaled haptic.
 
-## 30. No model loader on the api (a GLB gun, a GLB enemy)
+## 36. No model loader on the api (a GLB gun, a GLB enemy)
 
 **Found in:** 30b-waves. The round's Meshy pipeline can make a gun or an enemy as a `.glb`, and a
 module zip can carry it (`api.assetUrl('assets/gun.glb')`), but the api hands a module `THREE`
@@ -755,6 +755,9 @@ template's capsule groups.
 
 **30c:** worked around in the module (row #36): Waves 2.1.0 bundles three's own loader against a
 shim of `api.THREE` and ships Meshy guns, rigged walking enemies and a crystal inside its zip.
+
+<!-- 30b-integrate: the round-2 lanes each numbered from #29/#30; renumbered to #36 (model
+     loader, cited as #36 by 30c), #37 (render-only hide, cited by 30c), #38 untangle, #39/#40 football. -->
 
 ## Roadmap 30b (30b-waves) — felt again
 

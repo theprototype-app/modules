@@ -1,5 +1,5 @@
 // build the GLB loader chunk the Waves models need (run by `npm run build:waves`, before the
-// module bundle). The api hands a module THREE only — no GLTFLoader (DEVX #30) — and bundling
+// module bundle). The api hands a module THREE only — no GLTFLoader (DEVX #36) — and bundling
 // three's loader the normal way would drag a SECOND three into the module, whose classes are
 // not the scene's. So three's own GLTFLoader + SkeletonUtils are bundled against a SHIM that
 // re-exports the RUNTIME three (`globalThis.__wavesTHREE`, set by src/assets.js right before

@@ -1,7 +1,7 @@
 // waves — THE MESHY MODELS (30c): the three guns, the three enemies and the crystal as GLBs
 // inside the module's own zip (`assets/…`, listed in manifest `files` for a URL install).
 //
-// The api hands a module THREE but no GLTFLoader (DEVX #30). Three's own loader is bundled at
+// The api hands a module THREE but no GLTFLoader (DEVX #36). Three's own loader is bundled at
 // build time against a shim of the RUNTIME three (build-gltf.mjs → src/gltf/loader.chunk, text
 // embedded in module.js): set `globalThis.__wavesTHREE`, import the chunk from a blob, and its
 // classes ARE the scene's. A core that grows `api.loadModel(url)` is used first.

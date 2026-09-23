@@ -84,7 +84,7 @@ the pitch and names the ball through its `ball` object input.
 | last touch | derived from the knock hit feed every peer receives (`api.onHit`, A2; the debug hook on an A1 build), and from the `kick` op (30b) |
 | a tip / click kick (30b) | the kicker sends `{op: 'kick', impulse, by}`; every peer applies the touch and the sound, the physics initiator alone the impulse |
 | countdown, banners, sounds, confetti, music (30b) | LOCAL on every peer, derived from the replicated stamps — no message |
-| the ball's celebration / kick-off placement (30b) | the authority writes the pose (`api.moveObject`, DEVX #30) |
+| the ball's celebration / kick-off placement (30b) | the authority writes the pose (`api.moveObject`, DEVX #39) |
 | goal, serve, match over | the physics initiator decides and broadcasts (with no sim anywhere, the lowest peer id) |
 | per-player sheet | `api.peerVars.setMine` by the ONE peer the goal names |
 | late joiners | `registerStateSync` carries the whole match state |

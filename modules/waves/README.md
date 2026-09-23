@@ -223,7 +223,7 @@ The card renders the module root too (`thumb.sceneGroups`), over the capsules. A
 life. The Meshy crystal follows the `Goal core` and dims with it. Any model that fails to load
 leaves that thing's 30b primitive in place.
 
-**The loader.** The api hands a module THREE but no GLTFLoader (DEVX #30). `build-gltf.mjs`
+**The loader.** The api hands a module THREE but no GLTFLoader (DEVX #36). `build-gltf.mjs`
 bundles three's own `GLTFLoader` + `SkeletonUtils` (three 0.185.1, core's version) against a
 generated shim that re-exports `globalThis.__wavesTHREE`; `assets.js` sets it to `api.THREE`
 and imports the chunk from a blob, so every class is the scene's own. A core with

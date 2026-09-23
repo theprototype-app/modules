@@ -603,7 +603,7 @@ list when something bites you.
 - **A solo session's own hits carry `by: ''`.** With no peer id the knock stamps nobody, so a
   module that keys a touch on `hit.by` drops every touch of a player alone; take `hit.local` as
   "me" (football 30b).
-- **There is no api to place a dynamic body** (DEVX #30). Writing its pose with
+- **There is no api to place a dynamic body** (DEVX #39). Writing its pose with
   `api.moveObject` while the sim runs holds it where you put it (core's external-hold rule) and
   lets go, at rest, 250 ms after the last write — football parks the ball in the net and on the
   centre spot this way. An impulse given in the same frame as the write is eaten by the hold:
