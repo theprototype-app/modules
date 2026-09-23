@@ -373,6 +373,31 @@ export function playedSeconds(s, now) {
 	return base + (since ? Math.max(0, now - since) : 0);
 }
 
+/**
+ * 30b C1: where a player of `team` starts when they enter Interact/Play — `depth` metres from
+ * the centre spot into their OWN half (the side of the gate they defend), feet on the pitch
+ * (y 0), facing the gate they attack. `yaw` in three's convention: 0 faces -z.
+ * @param {'red'|'blue'} team @param {number[]} redGate @param {number[]} blueGate
+ * @returns {{position: number[], yaw: number}}
+ */
+export function teamSpawn(team, redGate, blueGate, depth = 1.6) {
+	const own = team === 'red' ? redGate : blueGate;
+	const cx = (redGate[0] + blueGate[0]) / 2;
+	const cz = (redGate[2] + blueGate[2]) / 2;
+	let dx = own[0] - cx;
+	let dz = own[2] - cz;
+	const d = Math.hypot(dx, dz);
+	if (d < 1e-6) {
+		dx = 0;
+		dz = team === 'red' ? -1 : 1;
+	} else {
+		dx /= d;
+		dz /= d;
+	}
+	// facing = -(dx, dz); a three.js yaw y faces (-sin y, -cos y), so y = atan2(dx, dz)
+	return { position: [cx + dx * depth, 0, cz + dz * depth], yaw: Math.atan2(dx, dz) };
+}
+
 /** `Red 2 - 1 Blue`, the announce banner's sub line @param {{red: number, blue: number}} score */
 export function bannerScore(score) {
 	return 'Red ' + (score.red ?? 0) + ' - ' + (score.blue ?? 0) + ' Blue';

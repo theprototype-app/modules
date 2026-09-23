@@ -221,6 +221,22 @@ function playedSeconds(s, now) {
   const since = Number(s.liveSince) || 0;
   return base + (since ? Math.max(0, now - since) : 0);
 }
+function teamSpawn(team, redGate, blueGate, depth = 1.6) {
+  const own = team === "red" ? redGate : blueGate;
+  const cx = (redGate[0] + blueGate[0]) / 2;
+  const cz = (redGate[2] + blueGate[2]) / 2;
+  let dx = own[0] - cx;
+  let dz = own[2] - cz;
+  const d = Math.hypot(dx, dz);
+  if (d < 1e-6) {
+    dx = 0;
+    dz = team === "red" ? -1 : 1;
+  } else {
+    dx /= d;
+    dz /= d;
+  }
+  return { position: [cx + dx * depth, 0, cz + dz * depth], yaw: Math.atan2(dx, dz) };
+}
 function bannerScore(score) {
   return "Red " + (score.red ?? 0) + " - " + (score.blue ?? 0) + " Blue";
 }
@@ -328,12 +344,98 @@ function createFx(api) {
       note("music", "stop", void 0, native);
       if (native) api.music.stop?.();
     },
+    /** is there game music on this core (C5) */
+    hasMusic: () => hasSfx(),
+    /** the preset playing now, or null */
+    musicNow: () => hasSfx() ? api.music.current?.() ?? null : null,
+    /** record a call the game made on another api (setSpawn) @param {string} kind @param {string} name @param {any} [opts] */
+    note: (kind, name, opts) => note(kind, name, opts, true),
     /** what the game asked for, oldest first (the flight's and the unit test's window) */
     log: () => calls.map((c) => ({ ...c })),
     clearLog: () => {
       calls.length = 0;
     }
   };
+}
+
+// modules/football/src/kick.js
+var TIP_RADIUS = 0.07;
+var TIP_OFFSET = 0.05;
+var MIN_KICK_SPEED = 0.35;
+var KICK_GAIN = 1.3;
+var MAX_KICK_SPEED = 10;
+var VELOCITY_WINDOW_MS = 90;
+var DEDUPE_MS = 250;
+var CLICK_REACH = 2.5;
+var CLICK_KICK_SPEED = 4;
+function rotate(v, q) {
+  const [x, y, z] = v;
+  const [qx, qy, qz, qw] = q;
+  const tx = 2 * (qy * z - qz * y);
+  const ty = 2 * (qz * x - qx * z);
+  const tz = 2 * (qx * y - qy * x);
+  return [x + qw * tx + (qy * tz - qz * ty), y + qw * ty + (qz * tx - qx * tz), z + qw * tz + (qx * ty - qy * tx)];
+}
+function tipPoint(pos, quat, offset = TIP_OFFSET) {
+  if (!quat) return [pos[0], pos[1], pos[2]];
+  const f = rotate([0, 0, -offset], quat);
+  return [pos[0] + f[0], pos[1] + f[1], pos[2] + f[2]];
+}
+function pushSample(ring, p, t, windowMs = VELOCITY_WINDOW_MS) {
+  if (ring.length && t < ring[ring.length - 1].t) ring.length = 0;
+  ring.push({ t, p: [p[0], p[1], p[2]] });
+  while (ring.length > 2 && t - ring[0].t > windowMs) ring.shift();
+  return ring;
+}
+function ringVelocity(ring) {
+  if (ring.length < 2) return [0, 0, 0];
+  const a = ring[0];
+  const b = ring[ring.length - 1];
+  const dt = (b.t - a.t) / 1e3;
+  if (!(dt > 1e-4)) return [0, 0, 0];
+  return [(b.p[0] - a.p[0]) / dt, (b.p[1] - a.p[1]) / dt, (b.p[2] - a.p[2]) / dt];
+}
+function kickContact(tip, tipVel, tipR, ball, ballVel, ballR) {
+  const dx = ball[0] - tip[0];
+  const dy = ball[1] - tip[1];
+  const dz = ball[2] - tip[2];
+  const d = Math.hypot(dx, dy, dz);
+  const overlap = d < tipR + ballR;
+  let n = d > 1e-6 ? [dx / d, dy / d, dz / d] : null;
+  if (!n) {
+    const s = Math.hypot(tipVel[0], tipVel[1], tipVel[2]);
+    n = s > 1e-6 ? [tipVel[0] / s, tipVel[1] / s, tipVel[2] / s] : [0, 0, -1];
+  }
+  const rel = [tipVel[0] - ballVel[0], tipVel[1] - ballVel[1], tipVel[2] - ballVel[2]];
+  const approach = rel[0] * n[0] + rel[1] * n[1] + rel[2] * n[2];
+  return { overlap, n, approach, distance: d };
+}
+function kickImpulse(n, approach, mass, ballVel, gain = KICK_GAIN, maxSpeed = MAX_KICK_SPEED) {
+  let dv = Math.max(0, approach) * gain;
+  const m = Math.max(0.01, mass || 1);
+  const after = [ballVel[0] + n[0] * dv, ballVel[1] + n[1] * dv, ballVel[2] + n[2] * dv];
+  const speed = Math.hypot(after[0], after[1], after[2]);
+  if (speed > maxSpeed && dv > 0) {
+    const b = ballVel[0] * n[0] + ballVel[1] * n[1] + ballVel[2] * n[2];
+    const c = ballVel[0] ** 2 + ballVel[1] ** 2 + ballVel[2] ** 2 - maxSpeed * maxSpeed;
+    const disc = b * b - c;
+    dv = disc >= 0 ? Math.max(0, Math.min(dv, -b + Math.sqrt(disc))) : 0;
+  }
+  return [n[0] * dv * m, n[1] * dv * m, n[2] * dv * m];
+}
+function kickHaptic(speed) {
+  return Math.min(1, 0.25 + Math.max(0, speed) / 8);
+}
+function bounced(before, after, minSpeed = 0.6) {
+  const a = Math.hypot(before[0], before[1], before[2]);
+  const b = Math.hypot(after[0], after[1], after[2]);
+  if (a < minSpeed || b < minSpeed * 0.5) return false;
+  const cos = (before[0] * after[0] + before[1] * after[1] + before[2] * after[2]) / (a * b);
+  return cos < 0.35;
+}
+function armStep(state, distance, reach, release = 0.03) {
+  if (distance > reach + release) state.spent = false;
+  return !state.spent && distance < reach;
 }
 
 // modules/football/src/game.js
@@ -669,10 +771,11 @@ function createGame(api) {
     } else {
       const red = gateLocal("red") ?? [0, 0, -1];
       const blue = gateLocal("blue") ?? [0, 0, 1];
-      placeBall(kickoffSpot() ?? object.position.toArray());
+      const moved = placeBall(kickoffSpot() ?? object.position.toArray());
       const impulse = kickoffImpulse(state.kickTeam, red, blue, mass, r.serveSpeed, at);
-      pushed = api.physics.applyImpulse(object.uuid, impulse);
-      pendingNudge = pushed ? null : { impulse, until: performance.now() + 1500 };
+      pushed = !moved && api.physics.applyImpulse(object.uuid, impulse);
+      const ms = performance.now();
+      pendingNudge = pushed ? null : { impulse, after: moved ? ms + 350 : 0, until: ms + 1800 };
       why = why === "button" ? "button" : "kickoff";
     }
     const data = { op: "serve", at, why };
@@ -752,7 +855,7 @@ function createGame(api) {
       placedFor = state.celebrateUntil;
       if (rules().serve !== "auto") placeBall(kickoffSpot() ?? []);
     }
-    if (pendingNudge) {
+    if (pendingNudge && performance.now() >= pendingNudge.after) {
       const o = ball();
       if (!o || performance.now() > pendingNudge.until || api.physics.applyImpulse(o.uuid, pendingNudge.impulse)) pendingNudge = null;
     }
@@ -774,6 +877,10 @@ function createGame(api) {
     if (!hit || !config.ballUuid || hit.uuid !== config.ballUuid) return;
     const by = String(hit.by || (hit.local ? me() : ""));
     if (!by) return;
+    coreHitAt.set(by, performance.now());
+    lastTouchPerf = performance.now();
+    fx.sound("kick", ballWorld());
+    if (by === me()) onCoreHitByMe();
     const team = teamOf(state.slots, by);
     state.lastTouch = { by, team, at: Number(hit.at) || now() };
     if (by === me() && state.started && api.peerVars?.setMine) api.peerVars.setMine("touches", api.peerVars.mine("touches", 0) + 1);
@@ -782,6 +889,33 @@ function createGame(api) {
       fireEvent("touch");
       if (hit.local !== false) touchedByMe();
     }
+  }
+  const coreHitAt = /* @__PURE__ */ new Map();
+  let lastTouchPerf = -Infinity;
+  let onCoreHitByMe = () => {
+  };
+  function applyKick(data, local) {
+    if (!config.ballUuid || data?.uuid !== config.ballUuid) return false;
+    const by = String(data.by || (local ? me() : ""));
+    let impulse = Array.isArray(data.impulse) ? data.impulse.slice(0, 3).map((n) => Number(n) || 0) : null;
+    const mass = Number(ball()?.userData?.physics?.mass) || 0.45;
+    const size = impulse ? Math.hypot(impulse[0], impulse[1], impulse[2]) : 0;
+    if (impulse && size > MAX_KICK_SPEED * mass) impulse = impulse.map((n) => n * MAX_KICK_SPEED * mass / size);
+    if (impulse && api.physics?.isInitiator?.()) {
+      const recent = coreHitAt.get(by) ?? -Infinity;
+      if (local || performance.now() - recent >= DEDUPE_MS) api.physics.applyImpulse(data.uuid, impulse);
+    }
+    lastTouchPerf = performance.now();
+    fx.sound("kick", ballWorld());
+    if (!by) return true;
+    state.lastTouch = { by, team: teamOf(state.slots, by), at: Number(data.at) || now() };
+    if (by === me() && state.started && api.peerVars?.setMine) api.peerVars.setMine("touches", api.peerVars.mine("touches", 0) + 1);
+    emit("touch", state.lastTouch);
+    if (by === me() && local) {
+      fireEvent("touch");
+      touchedByMe();
+    }
+    return true;
   }
   function touchedByMe() {
     if (!localActive()) return;
@@ -869,11 +1003,32 @@ function createGame(api) {
     }
     if (!state.started && !state.outcome) goldenPlayed = false;
     const want = !!config.ballUuid && localActive();
+    const ms = performance.now();
     if (want !== musicOn) {
       musicOn = want;
+      musicTry = ms;
       if (want) fx.music("stadium", { volume: 0.55 });
       else fx.stopMusic();
+    } else if (want && fx.hasMusic() && fx.musicNow() !== "stadium" && ms - musicTry > 2e3) {
+      musicTry = ms;
+      fx.music("stadium", { volume: 0.55 });
     }
+    placeSpawn();
+  }
+  let musicTry = 0;
+  let spawnKey = "";
+  function placeSpawn() {
+    if (typeof api.setSpawn !== "function" || !config.ballUuid) return;
+    const red = gateLocal("red");
+    const blue = gateLocal("blue");
+    if (!red || !blue) return;
+    const team = teamOf(state.slots, me()) ?? "blue";
+    const key = team + ":" + red.map((n) => n.toFixed(2)).join() + ":" + blue.map((n) => n.toFixed(2)).join();
+    if (key === spawnKey) return;
+    spawnKey = key;
+    const { position, yaw } = teamSpawn(team, red, blue);
+    fx.note("spawn", team, { position, yaw });
+    api.setSpawn(position, yaw);
   }
   let firing = false;
   function fireEvent(kind) {
@@ -907,6 +1062,8 @@ function createGame(api) {
           return applyOver(data);
         case "rules":
           return applyRulesOp(data);
+        case "kick":
+          return applyKick(data, false);
         default:
           return false;
       }
@@ -1065,6 +1222,11 @@ function createGame(api) {
     fx,
     localActive,
     kickoffSpot,
+    applyKick,
+    lastTouchMs: () => lastTouchPerf,
+    onCoreHitByMe: (fn) => {
+      onCoreHitByMe = fn;
+    },
     scoreLine: () => scoreLine(state.score),
     outcomeText,
     pitchCentre,
@@ -1915,6 +2077,143 @@ function pitchHud() {
   };
 }
 
+// modules/football/src/kicker.js
+var FEED_HOLD_MS = 600;
+var BOUNCE_GAP_MS = 160;
+function createKicker(api, game) {
+  const THREE = api.THREE;
+  const rings = { left: [], right: [] };
+  const arms = { left: { spent: false }, right: { spent: false } };
+  const fedUntil = { left: 0, right: 0 };
+  const ballRing = [];
+  const velHistory = [];
+  let lastBounce = 0;
+  let kicks = 0;
+  const _v = new THREE.Vector3();
+  let radiusCache = { key: "", r: 0.22 };
+  function ballRadius(o) {
+    const key = (o.geometry?.uuid ?? "") + "|" + o.scale.x + "|" + o.scale.y + "|" + o.scale.z;
+    if (radiusCache.key !== key) {
+      if (o.geometry && !o.geometry.boundingSphere) o.geometry.computeBoundingSphere?.();
+      const r = o.geometry?.boundingSphere?.radius ?? 0.22;
+      radiusCache = { key, r: r * Math.max(Math.abs(o.scale.x), Math.abs(o.scale.y), Math.abs(o.scale.z)) };
+    }
+    return radiusCache.r;
+  }
+  const mass = (o) => Number(o?.userData?.physics?.mass) || 0.45;
+  function toGroup(p) {
+    const group = api.objectsGroup();
+    _v.fromArray(p);
+    if (group) {
+      group.updateWorldMatrix(true, false);
+      group.worldToLocal(_v);
+    }
+    return _v.toArray();
+  }
+  let lastCoreHit = -Infinity;
+  function noteCoreHit() {
+    lastCoreHit = performance.now();
+  }
+  function fire(o, n, approach, probe, hand) {
+    const ballVel = ringVelocity(ballRing);
+    const impulse = kickImpulse(n, approach, mass(o), ballVel);
+    const speed = Math.hypot(impulse[0], impulse[1], impulse[2]) / mass(o);
+    if (!(speed > 0)) return false;
+    const data = { op: "kick", uuid: o.uuid, impulse, speed, by: game.me(), at: api.now(), probe };
+    game.applyKick(data, true);
+    api.send(data);
+    game.fx.pulse(kickHaptic(speed), 40, hand);
+    kicks++;
+    return true;
+  }
+  function evaluate(hand, o) {
+    const ring = rings[hand];
+    if (ring.length < 2) return 0;
+    const tip = ring[ring.length - 1].p;
+    const ballR = ballRadius(o);
+    const reach = TIP_RADIUS + ballR;
+    const c = kickContact(tip, ringVelocity(ring), TIP_RADIUS, o.position.toArray(), ringVelocity(ballRing), ballR);
+    if (!armStep(arms[hand], c.distance, reach)) return 0;
+    if (c.approach <= MIN_KICK_SPEED) return 0;
+    arms[hand].spent = true;
+    if (performance.now() - lastCoreHit < DEDUPE_MS) return 0;
+    return fire(o, c.n, c.approach, "tip-" + hand, hand) ? 1 : 0;
+  }
+  const tipsLive = () => !!api.isVR?.() && game.localActive();
+  function tick() {
+    const o = game.ball();
+    if (!o) {
+      ballRing.length = 0;
+      return;
+    }
+    const now = performance.now();
+    pushSample(ballRing, o.position.toArray(), now);
+    watchBounce(o, now);
+    if (!tipsLive()) {
+      rings.left.length = 0;
+      rings.right.length = 0;
+      return;
+    }
+    for (
+      const hand of
+      /** @type {const} */
+      ["left", "right"]
+    ) {
+      if (now < fedUntil[hand]) continue;
+      const snap = api.vrHand?.(hand);
+      if (!snap?.position) {
+        rings[hand].length = 0;
+        continue;
+      }
+      pushSample(rings[hand], toGroup(tipPoint(snap.position, snap.quaternion ?? null)), now);
+      evaluate(hand, o);
+    }
+  }
+  function watchBounce(o, now) {
+    const v = ringVelocity(ballRing);
+    velHistory.push({ t: now, v });
+    while (velHistory.length > 2 && now - velHistory[0].t > 220) velHistory.shift();
+    if (game.phase() !== "live" && game.phase() !== "menu") return;
+    if (now - lastBounce < BOUNCE_GAP_MS || now - game.lastTouchMs() < BOUNCE_GAP_MS) return;
+    const old = velHistory.find((e) => now - e.t >= 100);
+    if (!old || !bounced(old.v, v)) return;
+    lastBounce = now;
+    velHistory.length = 0;
+    game.fx.sound("hit", o.getWorldPosition(new THREE.Vector3()).toArray());
+  }
+  function feed(hand, worldPos, worldQuat, tMs) {
+    const o = game.ball();
+    const live = tipsLive();
+    if (!o || !live) return { kicks: 0, live };
+    fedUntil[hand] = performance.now() + FEED_HOLD_MS;
+    pushSample(rings[hand], toGroup(tipPoint(worldPos, worldQuat)), tMs);
+    return { kicks: evaluate(hand, o), live };
+  }
+  function clickKick(mesh) {
+    const o = game.ball();
+    if (!o || !game.localActive()) return false;
+    let cursor = mesh;
+    while (cursor && cursor !== o) cursor = cursor.parent;
+    if (!cursor) return false;
+    const player = typeof api.playerPosition === "function" ? api.playerPosition() : null;
+    const ballWorld = o.getWorldPosition(new THREE.Vector3());
+    if (!player) return false;
+    const d = [ballWorld.x - player[0], (ballWorld.y - player[1]) * 0.4, ballWorld.z - player[2]];
+    const dist = Math.hypot(ballWorld.x - player[0], ballWorld.y - player[1], ballWorld.z - player[2]);
+    if (dist > CLICK_REACH) return false;
+    const l = Math.hypot(d[0], d[1], d[2]) || 1;
+    const group = api.objectsGroup();
+    const dir = new THREE.Vector3(d[0] / l, d[1] / l, d[2] / l);
+    if (group) dir.applyQuaternion(group.getWorldQuaternion(new THREE.Quaternion()).invert());
+    const ballVel = ringVelocity(ballRing);
+    const n = dir.toArray();
+    const along = ballVel[0] * n[0] + ballVel[1] * n[1] + ballVel[2] * n[2];
+    fire(o, n, Math.max(0, CLICK_KICK_SPEED - along), "click");
+    return true;
+  }
+  return { tick, feed, clickKick, noteCoreHit, kicks: () => kicks, tipsLive };
+}
+
 // modules/football/src/index.js
 var index_default = {
   id: "football",
@@ -1927,7 +2226,9 @@ var index_default = {
     const nodes = registerNodes(api, game);
     const hitSource = game.wireHits();
     const toolbox = registerToolbox(api, game, { hitSource: () => hitSource });
-    api.registerClickHandler((mesh) => nodes.clickButton(mesh), { modes: ["interact", "play"] });
+    const kicker = createKicker(api, game);
+    game.onCoreHitByMe(() => kicker.noteCoreHit());
+    api.registerClickHandler((mesh) => nodes.clickButton(mesh) || kicker.clickKick(mesh), { modes: ["interact", "play"] });
     api.onMessage((data) => game.handleMessage(data));
     api.registerStateSync({
       getState: () => game.getState(),
@@ -1937,19 +2238,23 @@ var index_default = {
     api.registerFrameTask((time) => {
       nodes.tick();
       game.tick(time);
+      kicker.tick();
     });
     if (api.hud?.registerDebugLine)
       api.hud.registerDebugLine(() => "football " + game.scoreLine() + (game.state.started ? " playing" : "") + " \xB7 hits via " + hitSource);
     if (api.hud?.registerAction)
-      for (const action of ["join-red", "join-blue", "start", "new-match", "spectate", "swap-sides"])
+      for (const action of ["join-red", "join-blue", "start", "new-match", "spectate", "swap-sides", "rematch"])
         api.hud.registerAction({ key: action, label: "Football: " + action, group: "Football", role: "press", node: "fbbutton", data: { action }, handle: "press" });
     if (typeof window !== "undefined") {
       window.__football = {
         game,
         nodes,
         toolbox,
+        kicker,
         hud: pitchHud,
         hitSource: () => hitSource,
+        /** 30b: where this viewer stands (the click kick's reach) */
+        player: () => typeof api.playerPosition === "function" ? api.playerPosition() : null,
         snapshot: () => ({
           ...game.getState(),
           rules: game.rules(),

@@ -91,6 +91,12 @@ export function createFx(api) {
 			note('music', 'stop', undefined, native);
 			if (native) api.music.stop?.();
 		},
+		/** is there game music on this core (C5) */
+		hasMusic: () => hasSfx(),
+		/** the preset playing now, or null */
+		musicNow: () => (hasSfx() ? api.music.current?.() ?? null : null),
+		/** record a call the game made on another api (setSpawn) @param {string} kind @param {string} name @param {any} [opts] */
+		note: (kind, name, opts) => note(kind, name, opts, true),
 		/** what the game asked for, oldest first (the flight's and the unit test's window) */
 		log: () => calls.map((c) => ({ ...c })),
 		clearLog: () => {

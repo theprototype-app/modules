@@ -3,6 +3,7 @@
 import { run as rulesTests } from './rules.test.mjs';
 import { run as pitchTests } from './pitch.test.mjs';
 import { run as fxTests } from './fx.test.mjs';
+import { run as kickTests } from './kick.test.mjs';
 
 let failures = 0;
 function check(ok, label) {
@@ -15,5 +16,7 @@ console.log('\n=== pitch.test.mjs ===');
 pitchTests(check);
 console.log('\n=== fx.test.mjs ===');
 fxTests(check);
+console.log('\n=== kick.test.mjs ===');
+kickTests(check);
 console.log('\n' + (failures === 0 ? 'ALL PASS' : failures + ' FAILURES'));
 process.exit(failures === 0 ? 0 : 1);

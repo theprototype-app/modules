@@ -5,7 +5,7 @@ import {
 	normalizeRules, DEFAULT_RULES, emptySlots, teamOf, canJoin, applySlot, freeVanished, swapSlots,
 	attributeGoal, applyGoal, matchOutcome, secondsLeft, serveDirection, serveImpulse,
 	matchLogEntry, appendMatchLog, scoreLine, hash32,
-	balancedTeam, goldenGoal, matchPhase, countdownNumber, startKickTeam, kickoffImpulse, playedSeconds, bannerScore, CELEBRATE_SECONDS
+	balancedTeam, goldenGoal, matchPhase, countdownNumber, startKickTeam, kickoffImpulse, playedSeconds, bannerScore, CELEBRATE_SECONDS, teamSpawn
 } from '../src/rules.js';
 
 /** @param {(ok: boolean, label: string) => void} check */
@@ -153,4 +153,12 @@ export function run(check) {
 	check(playedSeconds({ clockBase: 0, liveSince: 0 }, 50) === 0 && playedSeconds({ clockBase: 12, liveSince: 0 }, 50) === 12, 'playedSeconds: a stopped clock holds its base');
 	check(playedSeconds({ clockBase: 12, liveSince: 40 }, 50) === 22, '  a live stretch adds to it');
 	check(bannerScore({ red: 2, blue: 1 }) === 'Red 2 - 1 Blue', 'bannerScore reads "Red 2 - 1 Blue"');
+
+	const faces = (yaw) => [-Math.sin(yaw), -Math.cos(yaw)];
+	const sb = teamSpawn('blue', redG, blueG);
+	check(Math.abs(sb.position[2] - 1.6) < 1e-9 && sb.position[1] === 0 && Math.abs(faces(sb.yaw)[1] + 1) < 1e-9, 'teamSpawn: blue starts 1.6 m into its own half (+z), feet at 0, facing the red gate (-z)');
+	const sr = teamSpawn('red', redG, blueG);
+	check(Math.abs(sr.position[2] + 1.6) < 1e-9 && Math.abs(faces(sr.yaw)[1] - 1) < 1e-9, '  counterfactual: red starts in the red half facing +z');
+	const sx = teamSpawn('red', [2.45, 1, 0], [-2.45, 1, 0]);
+	check(Math.abs(sx.position[0] - 1.6) < 1e-9 && Math.abs(faces(sx.yaw)[0] + 1) < 1e-9, '  a pitch along x: red at +x facing -x');
 }

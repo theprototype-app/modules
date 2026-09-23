@@ -45,9 +45,11 @@ import {
 	startKickTeam,
 	kickoffImpulse,
 	playedSeconds,
-	bannerScore
+	bannerScore,
+	teamSpawn
 } from './rules.js';
 import { createFx } from './fx.js';
+import { DEDUPE_MS, MAX_KICK_SPEED } from './kick.js';
 
 export const MODULE_ID = 'football';
 /** gameState.vars key the saved sheet lives under (B5) */
@@ -431,7 +433,7 @@ export function createGame(api) {
 	}
 
 	/** a kick-off nudge the physics refused (the ball was still held): retried until then
-	 * @type {{impulse: number[], until: number} | null} */
+	 * @type {{impulse: number[], after: number, until: number} | null} */
 	let pendingNudge = null;
 
 	/** @param {'auto'|'button'|'rest'|'kickoff'} why */
@@ -452,10 +454,13 @@ export function createGame(api) {
 			// 30b: the KICK-OFF — from the centre spot, a slow nudge into the kicking team's half
 			const red = gateLocal('red') ?? [0, 0, -1];
 			const blue = gateLocal('blue') ?? [0, 0, 1];
-			placeBall(kickoffSpot() ?? object.position.toArray());
+			const moved = placeBall(kickoffSpot() ?? object.position.toArray());
 			const impulse = kickoffImpulse(state.kickTeam, red, blue, mass, r.serveSpeed, at);
-			pushed = api.physics.applyImpulse(object.uuid, impulse);
-			pendingNudge = pushed ? null : { impulse, until: performance.now() + 1500 };
+			// a ball just re-placed is about to go under the placement's hold, which would eat
+			// an impulse given now: nudge it once the hold has let go
+			pushed = !moved && api.physics.applyImpulse(object.uuid, impulse);
+			const ms = performance.now();
+			pendingNudge = pushed ? null : { impulse, after: moved ? ms + 350 : 0, until: ms + 1800 };
 			why = why === 'button' ? 'button' : 'kickoff';
 		}
 		const data = { op: 'serve', at, why };
@@ -549,7 +554,7 @@ export function createGame(api) {
 			placedFor = state.celebrateUntil;
 			if (rules().serve !== 'auto') placeBall(kickoffSpot() ?? []);
 		}
-		if (pendingNudge) {
+		if (pendingNudge && performance.now() >= pendingNudge.after) {
 			const o = ball();
 			if (!o || performance.now() > pendingNudge.until || api.physics.applyImpulse(o.uuid, pendingNudge.impulse)) pendingNudge = null;
 		}
@@ -582,6 +587,12 @@ export function createGame(api) {
 		// every touch of a player alone in a headset; my own hit is mine whatever it carries
 		const by = String(hit.by || (hit.local ? me() : ''));
 		if (!by) return;
+		// 30b: every knock on the ball sounds (every peer hears it, like the hit itself), and
+		// the kicker learns the hand's core hit so one swing is never two touches
+		coreHitAt.set(by, performance.now());
+		lastTouchPerf = performance.now();
+		fx.sound('kick', ballWorld());
+		if (by === me()) onCoreHitByMe();
 		const team = teamOf(state.slots, by);
 		// a spectator's hit moves the ball (that is physics) but attributes nothing
 		state.lastTouch = { by, team, at: Number(hit.at) || now() };
@@ -591,6 +602,47 @@ export function createGame(api) {
 			fireEvent('touch');
 			if (hit.local !== false) touchedByMe();
 		}
+	}
+
+	/** @type {Map<string, number>} peer id -> its last core knock on the ball (performance.now) */
+	const coreHitAt = new Map();
+	/** performance.now of the ball's last touch of any kind (the bounce sound waits it out) */
+	let lastTouchPerf = -Infinity;
+	/** the kicker's hook (index.js wires it) */
+	let onCoreHitByMe = () => {};
+
+	/**
+	 * 30b: a KICK — a controller tip swung through the ball, or a click on it (kicker.js). Every
+	 * peer applies the touch (last touch, the sound, the sheet); the physics INITIATOR alone
+	 * applies the impulse (AUTHORING §4.1: authoritative), and drops one that follows the same
+	 * peer's core knock within DEDUPE_MS — the kicker's own dedupe cannot see a knock the
+	 * initiator logged first.
+	 * @param {{uuid: string, impulse: number[], speed?: number, by?: string, at?: number, probe?: string}} data
+	 * @param {boolean} local born on this peer
+	 */
+	function applyKick(data, local) {
+		if (!config.ballUuid || data?.uuid !== config.ballUuid) return false;
+		const by = String(data.by || (local ? me() : ''));
+		let impulse = Array.isArray(data.impulse) ? data.impulse.slice(0, 3).map((n) => Number(n) || 0) : null;
+		// never trust the sender's numbers: at most a MAX_KICK_SPEED change of the ball's speed
+		const mass = Number(ball()?.userData?.physics?.mass) || 0.45;
+		const size = impulse ? Math.hypot(impulse[0], impulse[1], impulse[2]) : 0;
+		if (impulse && size > MAX_KICK_SPEED * mass) impulse = impulse.map((n) => (n * MAX_KICK_SPEED * mass) / size);
+		if (impulse && api.physics?.isInitiator?.()) {
+			const recent = coreHitAt.get(by) ?? -Infinity;
+			if (local || performance.now() - recent >= DEDUPE_MS) api.physics.applyImpulse(data.uuid, impulse);
+		}
+		lastTouchPerf = performance.now();
+		fx.sound('kick', ballWorld());
+		if (!by) return true;
+		state.lastTouch = { by, team: teamOf(state.slots, by), at: Number(data.at) || now() };
+		if (by === me() && state.started && api.peerVars?.setMine) api.peerVars.setMine('touches', api.peerVars.mine('touches', 0) + 1);
+		emit('touch', state.lastTouch);
+		if (by === me() && local) {
+			fireEvent('touch');
+			touchedByMe();
+		}
+		return true;
 	}
 
 	/**
@@ -699,11 +751,41 @@ export function createGame(api) {
 		}
 		if (!state.started && !state.outcome) goldenPlayed = false;
 		const want = !!config.ballUuid && localActive();
+		const ms = performance.now();
 		if (want !== musicOn) {
 			musicOn = want;
+			musicTry = ms;
 			if (want) fx.music('stadium', { volume: 0.55 });
 			else fx.stopMusic();
+		} else if (want && fx.hasMusic() && fx.musicNow() !== 'stadium' && ms - musicTry > 2000) {
+			// the core refused (the mode had not flipped yet) or something else took the music:
+			// ask again, at most every 2 s
+			musicTry = ms;
+			fx.music('stadium', { volume: 0.55 });
 		}
+		placeSpawn();
+	}
+	let musicTry = 0;
+
+	/** the spawn this peer last asked for (a key), so setSpawn runs on a CHANGE only */
+	let spawnKey = '';
+	/**
+	 * 30b C1: entering Interact/Play puts the player on THEIR team's half, facing the gate they
+	 * attack (red defends -z, so a red player starts in the red half looking +z); unseated, the
+	 * blue half (the scene's own play.spawn). Feature-detected: a core before C1 has no setSpawn.
+	 */
+	function placeSpawn() {
+		if (typeof api.setSpawn !== 'function' || !config.ballUuid) return;
+		const red = gateLocal('red');
+		const blue = gateLocal('blue');
+		if (!red || !blue) return;
+		const team = teamOf(state.slots, me()) ?? 'blue';
+		const key = team + ':' + red.map((n) => n.toFixed(2)).join() + ':' + blue.map((n) => n.toFixed(2)).join();
+		if (key === spawnKey) return;
+		spawnKey = key;
+		const { position, yaw } = teamSpawn(team, red, blue);
+		fx.note('spawn', team, { position, yaw });
+		api.setSpawn(position, yaw);
 	}
 
 	// ---- events into the graph -----------------------------------------------------------
@@ -748,6 +830,8 @@ export function createGame(api) {
 					return applyOver(data);
 				case 'rules':
 					return applyRulesOp(data);
+				case 'kick':
+					return applyKick(data, false);
 				default:
 					return false;
 			}
@@ -927,6 +1011,11 @@ export function createGame(api) {
 		fx,
 		localActive,
 		kickoffSpot,
+		applyKick,
+		lastTouchMs: () => lastTouchPerf,
+		onCoreHitByMe: (/** @type {() => void} */ fn) => {
+			onCoreHitByMe = fn;
+		},
 		scoreLine: () => scoreLine(state.score),
 		outcomeText,
 		pitchCentre,

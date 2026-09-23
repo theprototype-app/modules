@@ -14,6 +14,7 @@ import { createGame } from './game.js';
 import { registerNodes } from './nodes.js';
 import { registerToolbox } from './toolbox.js';
 import { pitchHud } from './hud.js';
+import { createKicker } from './kicker.js';
 
 export default {
 	id: 'football',
@@ -28,10 +29,15 @@ export default {
 		const nodes = registerNodes(api, game);
 		const hitSource = game.wireHits();
 		const toolbox = registerToolbox(api, game, { hitSource: () => hitSource });
+		// 30b: the controller tip kicks, a click kicks, the ball sounds where it bounces
+		const kicker = createKicker(api, game);
+		game.onCoreHitByMe(() => kicker.noteCoreHit());
 
 		// clicks on button objects: desktop click, play-mode tap and the VR trigger all
-		// dispatch through the same handler with the exact mesh that was hit
-		api.registerClickHandler((mesh) => nodes.clickButton(mesh), { modes: ['interact', 'play'] }); // 30: a button presses in Interact/Play; Edit selects it
+		// dispatch through the same handler with the exact mesh that was hit; 30b: a click on
+		// the BALL kicks it (Interact/Play, within reach). Neither hears an Edit click, where
+		// the ball is selected and moved with the gizmo as before
+		api.registerClickHandler((mesh) => nodes.clickButton(mesh) || kicker.clickKick(mesh), { modes: ['interact', 'play'] }); // 30: a button presses in Interact/Play; Edit selects it
 
 		api.onMessage((data) => game.handleMessage(data));
 		api.registerStateSync({
@@ -43,6 +49,7 @@ export default {
 		api.registerFrameTask((time) => {
 			nodes.tick();
 			game.tick(time);
+			kicker.tick();
 		});
 
 		if (api.hud?.registerDebugLine)
@@ -50,7 +57,7 @@ export default {
 
 		// the HUD editor's Actions picker: a HUD Button that presses a Match Button node
 		if (api.hud?.registerAction)
-			for (const action of ['join-red', 'join-blue', 'start', 'new-match', 'spectate', 'swap-sides'])
+			for (const action of ['join-red', 'join-blue', 'start', 'new-match', 'spectate', 'swap-sides', 'rematch'])
 				api.hud.registerAction({ key: action, label: 'Football: ' + action, group: 'Football', role: 'press', node: 'fbbutton', data: { action }, handle: 'press' });
 
 		// test/debug hook (never serialized): the flight drives the game through this
@@ -60,8 +67,11 @@ export default {
 				game,
 				nodes,
 				toolbox,
+				kicker,
 				hud: pitchHud,
 				hitSource: () => hitSource,
+				/** 30b: where this viewer stands (the click kick's reach) */
+				player: () => (typeof api.playerPosition === 'function' ? api.playerPosition() : null),
 				snapshot: () => ({
 					...game.getState(),
 					rules: game.rules(),
