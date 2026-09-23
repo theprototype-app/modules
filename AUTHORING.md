@@ -250,8 +250,8 @@ Full signatures live in the docs site; this is the map.
 
 | Group | Calls |
 |---|---|
-| Scene | `scene()`, `objectsGroup()`, `registerPrimitive(name, builder, entry?)`, `registerInteractiveGroup(name)`, `registerSystemGroup(name)`, `onSceneClear(fn)` |
-| Interaction | `registerClickHandler(fn)` (desktop click **and** VR trigger), `pointerRay()`, `registerFrameTask(time => …)` |
+| Scene | `scene()`, `objectsGroup()`, `registerPrimitive(name, builder, entry?)`, `registerInteractiveGroup(name)`, `registerSystemGroup(name)`, `registerListedGroup(name, {label})` (§6), `onSceneClear(fn)` |
+| Interaction | `registerClickHandler(fn, {modes})` (desktop click **and** VR trigger; which editor modes — §6), `pointerRay()` (the crosshair ray in play under a pointer lock), `registerFrameTask(time => …)` |
 | Flow | `registerNodeGroup(group, components?)`, `registerEffect(type, fn)`, `registerNodeDefs(defs)` |
 | Netcode | `send(payload)`, `onMessage(fn)`, `registerStateSync({getState, applyState})`, `peerId()` |
 | Input | `registerBindings(list)`, `input()`, `onInput(fn)`, `claimInput(scope)`, `releaseInput(scope)` |
@@ -268,6 +268,8 @@ Three that are easy to miss:
 - **`registerClickHandler` covers VR too.** You do not write a second input
   path for the headset; the trigger dispatches through the same handler with the
   exact mesh that was hit. Return `true` to consume the click (no selection).
+  On desktop it runs only in the modes you name (§6) — by default Interact and Play,
+  never the editor's select click.
 - **`claimInput('keys' | 'locomotion')` pauses the editor's own consumers** so
   your WASD does not also fly the camera. Always release it when your mode ends,
   including on error paths.
@@ -279,15 +281,63 @@ Three that are easy to miss:
 
 ## 6. Edit, Interact, Play
 
-### Content that is listed but never click-selectable
+The app has three places a click can come from, and your module decides where
+each of its handlers runs. (Core 1.17, roadmap 30: before it, every module click
+handler heard every EDITOR click, so a piano or a puzzle piece swallowed the select
+and could never be moved.)
 
-Every module's content is in the object list (the scene tree, or its **Module content**
-section). These are the exceptions to "a click in Edit selects it", each with its reason:
+| Mode | What a click does | Who hears it |
+|---|---|---|
+| **Edit** (default) | SELECTS; the gizmo moves the selection | only handlers registered with `'edit'` — editor TOOLS |
+| **Interact** (key `I`, the Controls bar toggle) | the play-style click with the cursor: nothing is selected, the scene reacts | handlers with `'interact'`, On Click nodes |
+| **Play** | the crosshair tap, the VR trigger | handlers with `'play'`, On Click nodes |
+
+```js
+api.registerClickHandler(fn, { modes: ['interact', 'play'] }); // a game piece: the default
+api.registerClickHandler(fn, { modes: ['edit'] });             // an editor tool
+```
+
+Leaving `modes` out means `['interact', 'play']`. Say it anyway — a reader then sees
+it was decided, and an older app simply ignores the option. VR's trigger has no editor
+mode yet and still offers every handler.
+
+### What you decide, per module
+
+1. **Is each click handler a game piece or an editor tool?** A key that sounds, a
+   button that presses, a gem that collects, a portal, a claim: a game piece,
+   `['interact', 'play']`. A toolbox's "pick an object", a kit's pick-to-place: an
+   editor tool, `['edit']` — it runs BEFORE the selection, so returning `true` still
+   consumes the click. The one module here that runs in all three is
+   `tutorial-room`: its plinths are a checklist of EDITOR lessons.
+2. **Where does your content live?** Things a user moves, saves and shares go in
+   `objectsGroup()` (a `/create` primitive): they are listed in the scene tree,
+   selected by a click and moved by the gizmo with no work from you — your job is
+   only to keep your handler out of Edit. Derived content you rebuild from module
+   state goes at the scene root (§4.6) and is READ-ONLY to the user.
+3. **Name your scene-root group for a person.** Every group passed to
+   `registerInteractiveGroup` / `registerSystemGroup` is listed in the object list's
+   **Module content** section; `api.registerListedGroup?.(name, {label})` gives the
+   row a readable label ("Piano (module)", "Dungeon") instead of the id. Name the
+   children you want listed (`mesh.name = 'Key C4'`) — unnamed meshes are not rows.
+4. **Should an Edit click on it select it?** Only groups registered with
+   `registerInteractiveGroup` are picked in the viewport: an Edit click on one
+   selects a PROXY that frames it (the gizmo never attaches; the module owns it). A
+   `registerSystemGroup`-only group is listed and framed from the list, not picked.
+
+The scaffold (`modules/_template`, what `npm run new` copies) shows all of it: the
+beacon's handler with `modes` spelled out and the three modes explained, and the
+scene-root recipe with `registerListedGroup`.
+
+### Content that is listed but never click-selectable
 
 | Module | What | Why |
 |---|---|---|
 | `sabers` | the blades | a desk blade lies ALONG the pointer ray, so a click on it would be every click; listed (`Sabers`) and framed from the list |
 | `avatar`, `flow-toolkit` | — | no scene content of their own (possession acts on your object; node definitions only) |
+
+`tests/modes-audit.test.cjs` measures every module against this: listed, selected by
+a real click in Edit, moved by a real gizmo drag (or read-only for scene-root
+content), quiet in Edit, working in Interact and in Play.
 
 ---
 
@@ -370,6 +420,8 @@ recipe and the `window.__stores` debug hook the checks read.
 - [ ] `api.onSceneClear` removes your scene-root content and resets state.
 - [ ] `npm run pack` succeeds (no top-level imports, manifest matches folder).
 - [ ] Works with a mouse **and** with the VR trigger, if it is clickable.
+- [ ] Every click handler names its `modes` (§6), and an Edit click still selects
+      (or, for scene-root content, lists and frames) everything you made.
 
 ---
 
@@ -392,9 +444,10 @@ list when something bites you.
   `objectsGroup()` without telling anyone — a module cannot broadcast a plain
   object move; replicate the pose through your own `api.send` op, or drive the
   object with `api.possess`.
-- **The click handler never fires.** Your content is at the scene root and you
-  did not `registerInteractiveGroup(name)` — only `objectsGroup` is clickable by
-  default. Also check you are walking up from the *hit mesh* to your root
+- **The click handler never fires.** You are in the editor's Edit mode: a game
+  piece hears clicks in Interact (key `I`) and Play, not Edit (§6). Or your content
+  is at the scene root and you did not `registerInteractiveGroup(name)` — only
+  `objectsGroup` is clickable by default. Also check you are walking up from the *hit mesh* to your root
   object; handlers receive the exact mesh, not the group.
 - **The animation drifts between peers.** Accumulation, `Date.now()`, or a
   frame-rate-dependent step. Recompute from `(base, api.now())` every frame.

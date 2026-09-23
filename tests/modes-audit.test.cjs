@@ -25,6 +25,7 @@
 //   APP_URL=… node tests/modes-audit.test.cjs            every module
 //   ONLY=piano,music-lab node tests/modes-audit.test.cjs  a few
 //   AUDIT_OUT=/path/report.json                           also write the table as JSON
+//   AUDIT_SHOTS=/path/dir                                 and a screenshot of each object list
 const h = require('./helpers.cjs');
 const fs = require('fs');
 const path = require('path');
@@ -707,7 +708,7 @@ async function setMode(page, mode) {
 	await page.waitForTimeout(1700);
 }
 
-async function checkList(page, items) {
+async function checkList(page, items, id) {
 	await page.evaluate(() => {
 		window.__stores.objectListClose.set(false);
 		window.__stores.inspectorClose?.set(true);
@@ -758,6 +759,11 @@ async function checkList(page, items) {
 				} else notes.push(kids + ' parts');
 			}
 		}
+	}
+	// AUDIT_SHOTS=dir: the object list as the user sees it (the rows, the labels)
+	if (process.env.AUDIT_SHOTS) {
+		fs.mkdirSync(process.env.AUDIT_SHOTS, { recursive: true });
+		await page.screenshot({ path: path.join(process.env.AUDIT_SHOTS, id + '-object-list.png') });
 	}
 	await page.evaluate(() => window.__stores.objectListClose.set(true));
 	await page.waitForTimeout(500);
@@ -1037,7 +1043,7 @@ async function auditModule(browser, spec) {
 		});
 		const made = await spec.make(page);
 		made.items = (made.items ?? []).filter((i) => i.uuid || i.group);
-		row.list = made.listNa ? cell('N-A', made.listNa) : await checkList(page, made.items);
+		row.list = made.listNa ? cell('N-A', made.listNa) : await checkList(page, made.items, spec.id);
 		row.select = made.items.length ? await checkSelect(page, made.items) : cell('N-A', made.listNa ?? 'no content');
 		row.move = made.items.length ? await checkMove(page, made.items) : cell('N-A', made.listNa ?? 'no content');
 		row.editQuiet = await checkEditQuiet(page, made);
