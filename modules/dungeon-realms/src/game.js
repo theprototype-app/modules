@@ -330,7 +330,14 @@ export function createGame(api) {
 		if (id === 'join-p1') claimSlot('p1');
 		else if (id === 'join-p2') claimSlot('p2');
 		else if (id === 'start') start();
-		else if (id === 'resume') {
+		else if (id === 'quit') {
+			// 30: back to the Start screen — the round resets on every peer (the rule state;
+			// the world and the collected gems stay, a new dungeon is the dice button)
+			if (state.started || state.wonAt) {
+				reset();
+				eventSink?.('reset');
+			}
+		} else if (id === 'resume') {
 			state._menuSuppressed = true;
 			guiDirty = true;
 		} else if (id === 'new-dungeon' || id === 'play-again' || id === 'generate') {

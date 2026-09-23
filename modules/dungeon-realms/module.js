@@ -55,6 +55,15 @@ function hash32(seed, ...parts) {
 }
 
 // modules/dungeon-realms/src/overlay.js
+var GEM_GLOW = 2.4;
+var PORTAL_GLOW = 2.2;
+function paintRing(ring, hex, glow) {
+  ring.material.color.setHex(hex);
+  if (ring.material.emissive) {
+    ring.material.emissive.setHex(hex);
+    ring.material.emissiveIntensity = glow;
+  }
+}
 function buildOverlay(THREE, play, collected) {
   const group = new THREE.Group();
   const theme = play.theme ?? {};
@@ -63,7 +72,7 @@ function buildOverlay(THREE, play, collected) {
   const gemWorld = gems.map((p) => ({ x: p.wx, y: 0.55, z: p.wz, index: p.index }));
   const gemMesh = new THREE.InstancedMesh(
     new THREE.OctahedronGeometry(0.17, 0),
-    new THREE.MeshBasicMaterial({ color: gemColor }),
+    new THREE.MeshStandardMaterial({ color: gemColor, emissive: gemColor, emissiveIntensity: GEM_GLOW, roughness: 0.25, metalness: 0.1 }),
     Math.max(1, gemWorld.length)
   );
   gemMesh.name = "dr-gems";
@@ -73,7 +82,10 @@ function buildOverlay(THREE, play, collected) {
     const portalGroup = new THREE.Group();
     portalGroup.name = "dr-portal-" + portal.kind;
     portalGroup.position.set(portal.wx, 0, portal.wz);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.1, 10, 36), new THREE.MeshBasicMaterial({ color: 5593702 }));
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.05, 0.1, 10, 36),
+      new THREE.MeshStandardMaterial({ color: 5593702, emissive: 5593702, emissiveIntensity: 0.3, roughness: 0.4, metalness: 0.3 })
+    );
     ring.name = "dr-portal-ring";
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.1;
@@ -84,7 +96,14 @@ function buildOverlay(THREE, play, collected) {
     disc.name = "dr-portal-disc";
     disc.rotation.x = -Math.PI / 2;
     disc.position.y = 0.08;
-    portalGroup.add(ring, disc);
+    const column = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 0.9, 2.6, 28, 1, true),
+      new THREE.MeshBasicMaterial({ color: 3793151, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending })
+    );
+    column.name = "dr-portal-column";
+    column.position.y = 1.35;
+    column.visible = false;
+    portalGroup.add(ring, disc, column);
     portalGroup.userData.portal = { kind: portal.kind, gated: portal.gated };
     group.add(portalGroup);
   }
@@ -109,7 +128,12 @@ function setPortalSealed(group, sealed, theme) {
   if (portal) {
     const ring = portal.getObjectByName("dr-portal-ring");
     const disc = portal.getObjectByName("dr-portal-disc");
-    if (ring) ring.material.color.setHex(sealed ? 5593702 : 3793151);
+    if (ring) paintRing(ring, sealed ? 5593702 : 3793151, sealed ? 0.3 : PORTAL_GLOW);
+    const column = portal.getObjectByName("dr-portal-column");
+    if (column) {
+      column.visible = !sealed;
+      column.material.color.setHex(theme?.gemColor ?? 3793151);
+    }
     if (disc) {
       disc.material.color.setHex(sealed ? 3752016 : theme?.gemColor ?? 3793088);
       disc.material.opacity = sealed ? 0.35 : 0.75;
@@ -118,7 +142,8 @@ function setPortalSealed(group, sealed, theme) {
   }
   const down = group.getObjectByName("dr-portal-down");
   if (down) {
-    down.getObjectByName("dr-portal-ring")?.material.color.setHex(3776767);
+    const downRing = down.getObjectByName("dr-portal-ring");
+    if (downRing) paintRing(downRing, 3776767, PORTAL_GLOW * 0.6);
     down.userData.portal.sealed = false;
   }
 }
@@ -143,8 +168,16 @@ function animateOverlay(THREE, group, collected, time) {
   }
   group.children.forEach((child) => {
     if (child.name === "dr-portal-up" || child.name === "dr-portal-down") {
+      const open = child.userData.portal?.sealed === false;
       const ring = child.getObjectByName("dr-portal-ring");
-      if (ring && child.userData.portal?.sealed === false) ring.rotation.z = time * 0.8;
+      if (ring && open) ring.rotation.z = time * 0.8;
+      const disc = child.getObjectByName("dr-portal-disc");
+      if (disc && open) disc.material.opacity = 0.6 + Math.sin(time * 2.4) * 0.15;
+      const column = child.getObjectByName("dr-portal-column");
+      if (column?.visible) {
+        column.material.opacity = 0.16 + Math.sin(time * 3.1) * 0.06;
+        column.rotation.y = time * 0.5;
+      }
     }
   });
 }
@@ -579,7 +612,12 @@ function createGame(api) {
     if (id === "join-p1") claimSlot("p1");
     else if (id === "join-p2") claimSlot("p2");
     else if (id === "start") start();
-    else if (id === "resume") {
+    else if (id === "quit") {
+      if (state.started || state.wonAt) {
+        reset();
+        eventSink?.("reset");
+      }
+    } else if (id === "resume") {
       state._menuSuppressed = true;
       guiDirty = true;
     } else if (id === "new-dungeon" || id === "play-again" || id === "generate") {
@@ -795,10 +833,12 @@ var EXPIRE_FRAMES = 40;
 var EVENTS = ["start", "gem", "unseal", "travel", "victory", "reset"];
 var READS = ["gems", "need", "total", "level", "levels", "players", "started", "won", "sealed", "score"];
 var ROWS = ["objective", "players", "level", "gems", "all"];
+var BUTTON_ACTIONS = ["join-p1", "join-p2", "start", "new-dungeon", "quit"];
 function registerNodes(api, game) {
   let frame = 0;
   const seen = { rules: -1, menu: -1 };
   const propSeen = {};
+  const pressLevel = /* @__PURE__ */ new Map();
   const MENU_OPTIONS = ["none", "join-p1", "join-p2", "start", "resume", "new-dungeon"];
   api.registerNodeGroup({
     group: "Dungeon Realms",
@@ -852,6 +892,14 @@ function registerNodes(api, game) {
         ]
       },
       {
+        // 30: the menu on core HUD screens — a HUD Button (through a Delay, DEVX #22) or an
+        // On Click pulses `press`, and the action runs on the presser's peer
+        type: "drbutton",
+        label: "Realms Button",
+        defaults: { action: "start", press: 0 },
+        params: [{ key: "action", kind: "select", options: BUTTON_ACTIONS }]
+      },
+      {
         type: "drevent",
         label: "Realms Event",
         defaults: { event: "start" },
@@ -898,6 +946,20 @@ function registerNodes(api, game) {
       game.markGuiDirty();
     }
   });
+  api.registerEffect(
+    "drbutton",
+    (object, base, data, time, ctx2) => {
+      const level = Number(data.press) > 0 ? 1 : 0;
+      const key = ctx2?.id ?? object.uuid;
+      const was = pressLevel.get(key);
+      pressLevel.set(key, level);
+      if (was === void 0 || was === level || level !== 1) return;
+      const action = BUTTON_ACTIONS.includes(data.action) ? data.action : "start";
+      game.menuAction(action);
+    },
+    // 'number': a Delay's pulse, an On Click, a Compare all drive it (DEVX #22)
+    { inputs: { press: "number" } }
+  );
   const lastRows = {};
   api.registerEffect("drrows", (object, base, data, time, ctx2) => {
     if (!api.hud?.rows) return;

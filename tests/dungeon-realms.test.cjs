@@ -85,7 +85,7 @@ run(async () => {
 	);
 	const realms = groups.find(([name]) => name === 'Dungeon Realms');
 	const kit = groups.find(([name]) => name === 'Dungeon Kit');
-	check(!!realms && realms[1] === 6, 'node palette has "Dungeon Realms" with 6 nodes — rules, menu, prop, value, rows, event (' + JSON.stringify(realms) + ')');
+	check(!!realms && realms[1] === 7, 'node palette has "Dungeon Realms" with 7 nodes — rules, menu, prop, value, rows, button, event (' + JSON.stringify(realms) + ')');
 	check(!!kit && kit[1] === 1, 'node palette has "Dungeon Kit" with its Dungeon node');
 	const retired = await A.page.evaluate(
 		() => new Promise((r) => window.__stores.moduleSDK.moduleNodeGroups.subscribe((g) => r(g.some((x) => x.items.some((i) => i.type === 'drhud' || i.type === 'drdungeon'))))())
