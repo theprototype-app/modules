@@ -40,7 +40,7 @@
 export default {
 	id: 'collectible',
 	name: 'Collectibles',
-	version: '1.1.1',
+	version: '1.1.2',
 	description:
 		'One node makes an object collectible: click it or walk into it, it hides and counts.',
 
@@ -188,12 +188,16 @@ export default {
 
 		// A pure OBSERVER: returning false leaves selection, locks and every other click
 		// consumer exactly as they were. A collectible must stay selectable — you have to be
-		// able to pick the gem up in the editor to move it.
-		api.registerClickHandler((/** @type {any} */ object) => {
-			const chain = uuidChain(object);
-			if (chain.length) collectAt(chain, 'click');
-			return false;
-		});
+		// able to pick the gem up in the editor to move it. And a click COLLECTS only where
+		// the game is played: Interact and Play. An Edit click is a select, never a pickup.
+		api.registerClickHandler(
+			(/** @type {any} */ object) => {
+				const chain = uuidChain(object);
+				if (chain.length) collectAt(chain, 'click');
+				return false;
+			},
+			{ modes: ['interact', 'play'] }
+		);
 
 		// =====================================================================
 		// 4. COUNTING — the `once` semantics, from stamp EDGES

@@ -33,7 +33,20 @@ promise from core.
 | 19 | `api.game.setState(state, outcome)` — a module cannot move the game shell | `football` | yes — a Football Event node fires `start`/`over`/`reset` and the template wires it to Set Game State |
 | 20 | a scene-physics block write (`api.physics.setScene({gravity, knock, …})`) | `football` | yes — the template carries the block; the "Build pitch" recipe toasts the Inspector rows to set |
 | 21 | the XR room bounds and the colocation `roomAnchor` on the api | `football` | yes — "Fit to room" / "Centre on room" feature-detect `api.xrReferenceSpace` / `api.colocation.roomAnchor` and fall back to sliders |
-| 22 | a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value | `football` | yes — a `delay` node bridges the stamp into a numeric pulse |
+| 22 | a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value | `football`, `dungeon-realms` (30), `waves` | yes — a `delay` node bridges the stamp into a numeric pulse |
+| 23 | ~~no play-mode MENU surface~~ | `dungeon-realms` | **ANSWERED by core** — a HUD screen with `input: 'menu'` frees the pointer and core's HUD ring gives arrows/Enter/gamepad A; Dungeon Realms moved its Start/victory menu there in roadmap 30 (the DOM card stays for a graph with no HUD, `drmenu show`) |
+| 26 | no per-element HUD **visibility** (show a list only when it has rows, a panel only while…) | `waves` | yes — a list with `bg: 'transparent'` draws nothing while it is empty |
+| 27 | a template cannot place the **desktop play spawn** (outside a dungeon it is core's fixed `[0, 2, 3]`, whatever `view` says) | `football`, `waves` | yes — the football lamp strip moved onto the crossbar so the spawn's eye line stays clear; the ask is #23's `teleportPlayer`, or a def/scene `play.spawn` |
+| 28 | ~~**BUG**: a HUD Text / Timer / list row ignores `style.align` unless it wraps~~ | `football`, `dungeon-realms`, `waves`, `untangle` | **FIXED in core 1.17** — the text row takes `justify-content` from `align` (30-visuals-core); the 30 menus stay left-aligned (still right on 1.16), untangle's titles are wide centred boxes |
+| 29 | no **pointer seam** (pointerdown/up, click-miss) and no module **dispose hook** | `untangle` | yes — window CAPTURE listeners, self-detaching when a newer copy owns the module's hook |
+| 30 | `api.game` cannot say **which** non-running state (menu vs over) | `untangle` | yes — the rising edge of `roundUnderway()` is enough for "Next" |
+| 31 | no **camera** on the api (the crosshair ray under a lock) | `untangle` | yes — `pointerRay().camera`, else the scene camera nearest `playerPosition()` |
+| 32 | a module HUD kind's `mount` gets no **editor** flag | `untangle` | yes — `el.closest('#hud-layer')` tells the runtime layer from the artboard |
+| 33 | the VR trigger has no editor mode — a `{modes}` game piece still eats it in the headset editor | every clickable module | no — owed on device; modules already pass `modes`, so the fix is core-only |
+| 34 | `registerListedGroup` cannot ask to be PICKED by the Edit select | `dungeon`, `sabers` | yes — the Kit registers as an INTERACTIVE group (joining every tap's raycast) |
+| 35 | a module cannot read the editor's click mode (`api.editorMode()`) | `car`, `essentials` | yes — hints say "press I (Interact)" blind |
+| 36 | no **model loader** on the api (`api.loadModel(url)` / `api.GLTFLoader`) — the detailed ask is "30. No model loader" below | `waves` (30b, 30c) | yes (30c) — `build-gltf.mjs` bundles three's GLTFLoader + SkeletonUtils against a shim of the RUNTIME three (`globalThis.__wavesTHREE`), imported from a blob: +45 kB per module that does it, and it must track core's three version by hand |
+| 37 | no way to **hide an object's look without touching it** (a module-drawn stand-in: a rigged figure over a capsule enemy) | `waves` (30c) | yes — the object's meshes hop off layer 0 only between the scene's `onBeforeRender` and `onAfterRender` (chained). A persistent hop is NOT safe: the .tpscene save is `toJSON`, which writes layers. The card (author script) renders a `toJSON` clone, so there the capsules show under the figures. Ask: a per-object `userData.renderHidden` core honours in its renders only |
 
 ---
 
@@ -468,6 +481,11 @@ outside play), local only, the same house rule as `flyTo`.
 **Meanwhile:** `respawnAt` works in the editor; in play the player comes back at full where
 they died.
 
+**30b (being answered by core lane 30b-vr-modes, C1 — not merged yet):** `api.setSpawn([x, y, z], yaw,
+{teleport?})` (feet + three.js yaw; `teleport` moves the player now while Interact/Play is on,
+otherwise it is the checkpoint used on entering them) and `api.respawnPlayer()`. Dungeon Realms
+2.2.0 feature-detects it: each floor's start, a move on Start and on a new floor.
+
 ## 24. Live values are ~6 Hz, and a pulse's count cannot be read back synchronously
 
 **Found in:** `modules/health` (kill credit), `modules/waves` (heals into the next wave).
@@ -489,6 +507,43 @@ directly and the wave never started. It is documented nowhere on the api.
 
 **Ask:** either `api.game.roundStartedAt()` in the same seconds as `api.now()`, or a note in
 MODULES.md on `roundCutoff` saying "ms — compare to `api.now() * 1000`". Cheap either way.
+
+## 26. The VR trigger has no editor mode
+
+**Found in:** the roadmap-30 modes audit (`tests/modes-audit.test.cjs`). Core 30 routes a
+desktop click by the editor's mode — Edit selects, Interact and Play reach the module
+handlers that asked for them — but VR's trigger passes no mode, so it still offers EVERY
+handler first. A `{modes: ['interact', 'play']}` piano key therefore still eats the
+trigger in the headset editor, and a VR user cannot select the piano to move it — the very
+thing the desktop split fixed.
+
+**Ask:** give the VR trigger the same `editorMode` (a radial-menu toggle beside the desktop
+`I`), and pass it to `runClickHandlers`.
+
+**Meanwhile:** every module passes `modes` anyway, so the VR half lands with no module
+change. Owed on device: the music modules and sabers under the new routing in a headset.
+
+## 27. `registerListedGroup` cannot ask to be PICKED
+
+**Found in:** `dungeon`, `sabers` (the modes audit). Only a group passed to
+`registerInteractiveGroup` is raycast by the Edit pick, so a group that is merely listed
+(`registerSystemGroup` / `registerListedGroup`) shows in the object list but a click on it
+in the viewport falls through. The Kit had to become an INTERACTIVE group to be selectable
+— which also enrols it in every Interact and Play tap's raycast although it has no click
+handler at all.
+
+**Ask:** `registerListedGroup(name, {label, pick: true})` — picked by the Edit select only.
+
+## 28. A module cannot read the editor's click mode
+
+**Found in:** `car`, `essentials` (the modes audit). A game piece no longer hears Edit
+clicks, so a module's hints have to tell the user to press `I` blind ("press I (Interact)
+and click the body") — it cannot tell whether they already are in Interact, nor say so on
+its card.
+
+**Ask:** `api.editorMode()` → `'edit' | 'interact'` (and `'play'` while playing), with an
+`onChange` like `api.game.onChange`. Local, never replicated — the same house rule as the
+store it reads.
 
 ---
 
@@ -526,6 +581,47 @@ toolbox instead of an overlay at `z-index: 900`.
 - **#9/#12** — Realms Value / Realms Event / Realms HUD Rows replace the `drhud` node: the HUD is core HUD elements the template authors.
 - The `#dungeon-panel` overlay is a registered toolbox (the SDK's worked example, AUTHORING.md).
 
+## 26. No pointer seam and no dispose hook for a module's own listeners
+
+**Found in:** `modules/untangle` (roadmap 30, P0). A real drag needs the PRESS: core
+dispatches a module click only on a short STATIONARY pointerup (the editor's select rule,
+play's tap), so a press that moves never reaches a module — and until release OrbitControls
+orbits the camera under the dot. The "any click drops a carried dot" rule also needs a
+MISS: core has `moduleClickMissHandlers` (23-B1) but only `vrPatch` reaches it.
+
+**Ask:** `api.registerPointerHandler({down, move, up}, {modes})` with the hit (or null) and a
+way to claim the gesture (core stops orbit/select for it); `api.onClickMiss(fn)` over the
+existing registry; `api.onDispose(fn)` so a module's own listeners join the teardown journal.
+
+**Meanwhile:** `gesture.js` listens on `window` in the CAPTURE phase (it runs before the
+canvas's listeners), stops propagation only for a press on its own dot or a carrying click,
+and detaches itself the first time it fires after a newer copy of the module replaced
+`window.__untangle` (a dev reload); a torn-down board makes it inert.
+
+## 27. `api.game` cannot tell `menu` from `over`
+
+**Found in:** `modules/untangle` (P4). `roundCutoff()` is `Infinity` for both. The solved
+screen's Next is "a round starts on a solved board", which the rising edge of
+`roundUnderway()` expresses — every peer sees the same replicated edge, so all advance in
+lockstep with no message. **Ask:** `api.game.state()` → `'menu'|'playing'|'paused'|'over'`
+(+ `outcome`).
+
+## 28. No camera on the api
+
+**Found in:** `modules/untangle` (P0). Under a pointer lock the carry must follow the
+CROSSHAIR; a 1.16 core's `pointerRay()` returns the stale last-mouse ray there. **Ask:**
+`api.camera()` (or `pointerRay()` = the crosshair under a lock — roadmap 30 `30-core-modes`
+P4). **Meanwhile:** `aim.js` takes the camera a Raycaster remembers (`pointerRay().camera`),
+else the scene camera nearest `playerPosition()`, and builds the NDC (0,0) ray; it uses the
+api ray as-is once it already IS the crosshair.
+
+## 29. A module HUD kind cannot tell the editor artboard from the runtime layer
+
+**Found in:** `modules/untangle` (P2). The level grid must be inert in the HUD editor's
+preview. `HudElement` knows (`editor`) but `mount(el, element, runtime)` is not told.
+**Ask:** pass `{editor}` in `runtime` (or a fourth argument). **Meanwhile:**
+`el.closest('#hud-layer')`.
+
 ## 23. No play-mode MENU surface
 
 **Found in:** `modules/dungeon-realms` (21-C C6.2). The start / victory menu is a modal,
@@ -547,3 +643,140 @@ Also in the same branch: user modules now install/update/disable/remove **LIVE**
 (A2 — no page reload while you iterate), and the manager grew a **Browse** tab
 reading this repo's `index.json` off jsDelivr (A3) — add your modules to
 `index.json` (id/name/version/description/author/source/zip) when they land.
+
+## 26. No per-element HUD visibility
+
+**Found in:** `modules/waves` (roadmap 30, the empty leaderboard). The kills list sat top-right
+as an EMPTY dark box until the first kill. A HUD element has no visibility channel: a screen
+shows or hides as a whole (`hudscreen`, `showWhile`), and a list's box is drawn whether or not it
+has rows.
+
+**Ask:** a `visible` input on the HUD nodes (HUD Text / Bar / List: a number > 0 shows the
+element), or a list style `hideEmpty: true`.
+
+**Meanwhile:** the list's `bg` is `'transparent'`, so an empty list draws nothing and the rows
+read over the scene when they arrive.
+
+## 27. A template cannot place the desktop play spawn
+
+**Found in:** `modules/football`, `modules/waves` (roadmap 30). Outside a Dungeon Kit level,
+entering play puts a desktop player at core's fixed `[0, 2, 3]` (Scene.svelte's `<Player
+position>`), not at the def's `view` and not at any object — so a template cannot choose where
+its game starts. Football's player lands just outside the blue-end glass, above the ceiling
+line, looking through the blue scoreboard.
+
+**Ask:** a scene-level `play.spawn {pos, yaw}` (a def field, saved + replicated with the play
+block), or #23's `api.teleportPlayer(position, lookAt)` so a module can do it on Start.
+
+**Meanwhile:** templates keep the line of sight from `[0, 2, 3]` clear (football's lamp strip
+rides the crossbar).
+
+## Roadmap 30 (30-visuals-mod) — felt again
+
+- **#19** (`api.game.setState`): Dungeon Realms' new `quit` action resets its own rules and
+  fires its `reset` EVENT so the template's Set Game State can follow — the event bridge again.
+- **#22** (HUD Button -> module input): every Dungeon Realms menu button is HUD Button
+  (perPlayer) -> Delay -> a new `drbutton` node; football's scoreboard needed none (values only).
+- **#23** (move the play-mode player): see #27 — the spawn half of the same gap.
+
+## 28. BUG — HUD text ignores `align` unless it wraps
+
+**Found in:** all three roadmap-30 game HUDs. `HudElement.svelte` renders a text / timer element as
+`<div class="hud-el hud-text" style="text-align: …">`, and `.hud-text` is `display: flex;
+align-items: center`. The label becomes an anonymous flex ITEM sized to its content, so
+`text-align: center` has nothing to centre: a title, a clock or a node-driven score always sits at
+the box's left edge. Wrapped text (`wrap: true`) happens to fill the box and centres. List rows
+(`.hud-list-row`, also flex) behave the same.
+
+**Ask:** map `style.align` onto `justify-content` (`flex-start` / `center` / `flex-end`) on the
+flex text elements and list rows — one line in `boxStyle`, every saved document keeps its look
+where it was left-aligned (the default).
+
+**Meanwhile:** the 30 game menus align left to their button column on purpose, and the few things
+that must look centred (the football clock, the waves banner) get a box barely wider than the text.
+
+
+## 38. A module cannot pause VR snap turn (or teleport) while it owns a stick
+
+**Found in:** `modules/untangle` (roadmap 30b, the globe hold). One hand's trigger holds the
+globe and that hand's stick should scale it — the edit-mode object grab's map (X scales, Y
+reels). `api.claimInput('locomotion')` pauses only the LEFT stick's walking; the RIGHT stick's
+X is core's snap turn and its Y teleports where a scene allows it, and nothing on the api
+stands them down. Core's own gestures do it through `registerNavSuppressor` in vrControls,
+which a module cannot reach.
+
+**Ask:** `api.claimInput('turn')` (and `'teleport'`), or `api.suppressNavigation(fn)` wrapping
+`registerNavSuppressor` (torn down with the module).
+
+**Meanwhile:** the untangle hold scales on the stick's Y (forward grows, back shrinks) — the
+axis snap turn does not use — and claims `'locomotion'` for the left hand.
+
+## 39. A module cannot reseat a dynamic body (put the ball back on the centre spot)
+
+**Found in:** `modules/football` (30b). After a goal the ball must rest in the net, then go back
+to the centre spot for the kick-off. `api.physics` can push a body (`applyImpulse`) but not PLACE
+one: there is no module path to core's `applyThrow` (reseat + velocity), and `setBodyVelocity` is
+not on the api either.
+
+**Meanwhile:** the authority writes the ball's pose with `api.moveObject` while a simulation runs.
+Core's physics reads a pose it did not write as an EXTERNAL hold (the deviation rule): the body
+goes kinematic where it was put and drops back to dynamic, at rest, 250 ms after the last write.
+Football re-places only when the ball drifted more than 2 cm (a hand knocked it during the
+countdown), and retries a kick-off nudge the hold refused. It works, but it leans on an internal
+rule and costs a `move` message per re-place.
+
+**Ask:** `api.physics.placeBody(uuid, pos, {rot?, linvel?, angvel?})` — the initiator's
+`applyThrow`, replicated through the move stream like every other initiator write.
+
+## 40. A squeezed grip silences the hand's knock
+
+**Found in:** `modules/football` (30b, the Quest 3 feedback "I should be able to knock the ball
+with the controller"). Core's knock skips a GRIPPED hand ("a gripped hand is carrying, not
+knocking"), and a player swinging at a ball squeezes the grip. Football now kicks with its own
+controller-TIP sphere (kick.js), which does not care about the grip, and drops a tip kick that
+follows the same peer's core knock within 250 ms so one swing is never two touches.
+
+**Ask:** gate the knock on "holding something" (a user hold on a body) rather than on the grip
+button; then football's tip kick could retire to just the `kick` sound and the scaled haptic.
+
+## 36. No model loader on the api (a GLB gun, a GLB enemy)
+
+**Found in:** 30b-waves. The round's Meshy pipeline can make a gun or an enemy as a `.glb`, and a
+module zip can carry it (`api.assetUrl('assets/gun.glb')`), but the api hands a module `THREE`
+only — no `GLTFLoader`. Bundling three's loader into a module pulls a SECOND copy of three (its
+`import … from 'three'`), whose classes are not the scene's; aliasing `three` to the runtime
+`api.THREE` needs a hand-written shim of ~40 names.
+
+**Ask:** `api.loadModel(url) -> Promise<THREE.Group>` through core's own loader (the same path an
+Explorer import takes), or `api.GLTFLoader`.
+
+**Meanwhile:** the Waves guns are built from primitives (src/models.js); the enemies are the
+template's capsule groups.
+
+**30c:** worked around in the module (row #36): Waves 2.1.0 bundles three's own loader against a
+shim of `api.THREE` and ships Meshy guns, rigged walking enemies and a crystal inside its zip.
+
+<!-- 30b-integrate: the round-2 lanes each numbered from #29/#30; renumbered to #36 (model
+     loader, cited as #36 by 30c), #37 (render-only hide, cited by 30c), #38 untangle, #39/#40 football. -->
+
+## Roadmap 30b (30b-waves) — felt again
+
+- **#27** (`api.game` cannot tell `menu` from `over`): the results panel must not fire on Quit or
+  Restart; Waves reads the crystal's health value (0 = destroyed) to tell a loss from a quit.
+- **#28** (no camera on the api): the headset's START board faces the way the CONTROLLERS point
+  (`api.vrHand` yaw), since the head's direction is not readable.
+- **#23 / #27** (placing the player): Waves calls `api.setSpawn?.(home, 0)` — the 30b C1 seam —
+  and writes `physics.play.spawn` into its def; both no-ops on a core without C1.
+- A per-player HUD Button's stamp IS readable by a module (`api.flow.triggerStamp` on the
+  `hudbutton` node, `perPlayer: true`): the Waves Loadout / Options screens need no new seam —
+  an alternative to #22's Delay bridge for local choices.
+
+## Roadmap 30c (30c-game-assets) — felt again
+
+- **#36** (no model loader): see above — solved in the module, at the cost of a build step and a
+  hand-kept three version (three 0.185.1 = core's). `api.loadModel` is feature-detected first.
+- **#37** (a stand-in look): the figure trick needs the object's own meshes hidden without a saved
+  or replicated fact; a render-scoped layer hop does it (nothing outlives a render, so switching the
+  module off mid-session leaves nothing behind either).
+- A figure's hit flash needs its OWN materials: a SkeletonUtils clone shares them with the source,
+  so `assets.instance()` clones the materials per figure (textures stay shared).

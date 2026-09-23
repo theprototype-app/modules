@@ -22,7 +22,7 @@
 export default {
 	id: 'door-keypad',
 	name: 'Door & Keypad',
-	version: '1.0.0',
+	version: '1.0.1',
 	description: 'A combination-lock keypad that opens an actuated door.',
 
 	/** @param {any} api */
@@ -201,17 +201,22 @@ export default {
 		}
 
 		// ---- one handler, desktop clicks AND the VR trigger --------------------
-		api.registerClickHandler((/** @type {any} */ object) => {
-			const piece = pieceOf(object);
-			if (!piece) return false;
-			const match = /^Kpbutton(\d)$/.exec(piece.name);
-			if (!match) return false; // the door itself stays selectable
-			const at = api.now();
-			const index = Number(match[1]);
-			press(index, piece.uuid, at, true);
-			api.send({ op: 'press', index, uuid: piece.uuid, at });
-			return true; // consume: pressing must not select the button
-		});
+		// A button is a PLAY piece: it presses in Interact and in Play. In Edit the click
+		// selects it instead, so the keypad can be placed and moved like anything else.
+		api.registerClickHandler(
+			(/** @type {any} */ object) => {
+				const piece = pieceOf(object);
+				if (!piece) return false;
+				const match = /^Kpbutton(\d)$/.exec(piece.name);
+				if (!match) return false; // the door itself stays selectable
+				const at = api.now();
+				const index = Number(match[1]);
+				press(index, piece.uuid, at, true);
+				api.send({ op: 'press', index, uuid: piece.uuid, at });
+				return true; // consume: pressing must not select the button
+			},
+			{ modes: ['interact', 'play'] }
+		);
 
 		// receivers apply the same change, and never re-broadcast
 		api.onMessage((/** @type {any} */ data) => {

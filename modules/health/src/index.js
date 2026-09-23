@@ -36,7 +36,7 @@ export default {
 			const chain = uuidChain(api, object);
 			if (chain.length) engine.hitObjects(chain, 'click', { local: false });
 			return false;
-		});
+		}, { modes: ['interact', 'play'] }); // 30: a click damages in Interact/Play; an Edit click only selects
 
 		api.hud.registerDebugLine(() => {
 			const names = engine.names();

@@ -14,11 +14,11 @@
 	"modules": [
 		{
 			"id": "dungeon",
-			"version": "2.0.0"
+			"version": "2.2.0"
 		},
 		{
 			"id": "dungeon-realms",
-			"version": "2.0.0"
+			"version": "2.2.0"
 		}
 	],
 	"installModules": [
@@ -26,8 +26,28 @@
 		"dungeon-realms"
 	],
 	"env": {
-		"preset": "night",
-		"exposure": 1.15
+		"preset": "custom",
+		"base": "night",
+		"exposure": 1.25,
+		"background": {
+			"top": "#0d1430",
+			"bottom": "#4a3350"
+		},
+		"fog": {
+			"color": "#0e0b10",
+			"near": 6,
+			"far": 30
+		},
+		"ground": {
+			"color": "#2a2530",
+			"roughness": 1
+		},
+		"sun": null,
+		"hemi": {
+			"sky": "#4a4f6e",
+			"ground": "#5a4030",
+			"intensity": 0.9
+		}
 	},
 	"physics": {
 		"play": {
@@ -39,6 +59,15 @@
 	"post": {
 		"enabled": true,
 		"effects": [
+			{
+				"id": "ao",
+				"kind": "ao",
+				"enabled": true,
+				"params": {
+					"aoRadius": 0.5,
+					"intensity": 1
+				}
+			},
 			{
 				"id": "tone",
 				"kind": "tonemapping",
@@ -52,8 +81,8 @@
 				"kind": "bloom",
 				"enabled": true,
 				"params": {
-					"intensity": 0.8,
-					"luminanceThreshold": 0.7
+					"intensity": 0.9,
+					"luminanceThreshold": 0.75
 				}
 			},
 			{
@@ -138,7 +167,7 @@
 					},
 					"data": {
 						"label": "Start Menu",
-						"show": "auto",
+						"show": "never",
 						"button1": "join-p1",
 						"button2": "join-p2",
 						"button3": "start",
@@ -147,11 +176,381 @@
 					"class": "w-[150px]"
 				},
 				{
+					"id": "hdrjoinp1",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 490
+					},
+					"data": {
+						"label": "HUD dr-join-p1",
+						"element": "dr-join-p1",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "ddrjoinp1",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 490
+					},
+					"data": {
+						"label": "HUD dr-join-p1 press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bdrjoinp1",
+					"type": "drbutton",
+					"position": {
+						"x": 280,
+						"y": 490
+					},
+					"data": {
+						"label": "Realms: join-p1",
+						"action": "join-p1"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hdrjoinp2",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 600
+					},
+					"data": {
+						"label": "HUD dr-join-p2",
+						"element": "dr-join-p2",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "ddrjoinp2",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 600
+					},
+					"data": {
+						"label": "HUD dr-join-p2 press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bdrjoinp2",
+					"type": "drbutton",
+					"position": {
+						"x": 280,
+						"y": 600
+					},
+					"data": {
+						"label": "Realms: join-p2",
+						"action": "join-p2"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hdrstart",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 710
+					},
+					"data": {
+						"label": "HUD dr-start",
+						"element": "dr-start",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "ddrstart",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 710
+					},
+					"data": {
+						"label": "HUD dr-start press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bdrstart",
+					"type": "drbutton",
+					"position": {
+						"x": 280,
+						"y": 710
+					},
+					"data": {
+						"label": "Realms: start",
+						"action": "start"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hdrnewdungeon",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 820
+					},
+					"data": {
+						"label": "HUD dr-new-dungeon",
+						"element": "dr-new-dungeon",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "ddrnewdungeon",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 820
+					},
+					"data": {
+						"label": "HUD dr-new-dungeon press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bdrnewdungeon",
+					"type": "drbutton",
+					"position": {
+						"x": 280,
+						"y": 820
+					},
+					"data": {
+						"label": "Realms: new-dungeon",
+						"action": "new-dungeon"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hdrrestart",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 930
+					},
+					"data": {
+						"label": "HUD dr-restart",
+						"element": "dr-restart",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "ddrrestart",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 930
+					},
+					"data": {
+						"label": "HUD dr-restart press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bdrrestart",
+					"type": "drbutton",
+					"position": {
+						"x": 280,
+						"y": 930
+					},
+					"data": {
+						"label": "Realms: new-dungeon",
+						"action": "new-dungeon"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hdrplayagain",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 1040
+					},
+					"data": {
+						"label": "HUD dr-play-again",
+						"element": "dr-play-again",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "ddrplayagain",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 1040
+					},
+					"data": {
+						"label": "HUD dr-play-again press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bdrplayagain",
+					"type": "drbutton",
+					"position": {
+						"x": 280,
+						"y": 1040
+					},
+					"data": {
+						"label": "Realms: new-dungeon",
+						"action": "new-dungeon"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hquitbtn",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 1150
+					},
+					"data": {
+						"label": "HUD quit-btn",
+						"element": "quit-btn",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "dquitbtn",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 1150
+					},
+					"data": {
+						"label": "HUD quit-btn press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bquitbtn",
+					"type": "drbutton",
+					"position": {
+						"x": 280,
+						"y": 1150
+					},
+					"data": {
+						"label": "Realms: quit",
+						"action": "quit"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "hdrovermenu",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 1260
+					},
+					"data": {
+						"label": "HUD dr-over-menu",
+						"element": "dr-over-menu",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "ddrovermenu",
+					"type": "delay",
+					"position": {
+						"x": 160,
+						"y": 1260
+					},
+					"data": {
+						"label": "HUD dr-over-menu press",
+						"seconds": 0.05,
+						"pulse": 0.3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bdrovermenu",
+					"type": "drbutton",
+					"position": {
+						"x": 280,
+						"y": 1260
+					},
+					"data": {
+						"label": "Realms: quit",
+						"action": "quit"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "restarthide",
+					"type": "hudscreen",
+					"position": {
+						"x": 520,
+						"y": 930
+					},
+					"data": {
+						"label": "Close pause on restart",
+						"screen": "pause",
+						"action": "hide"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "rmenulevel",
+					"type": "drrows",
+					"position": {
+						"x": 280,
+						"y": 1370
+					},
+					"data": {
+						"label": "Menu: the dungeon",
+						"element": "dr-menu-level",
+						"show": "level"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "rmenuplayers",
+					"type": "drrows",
+					"position": {
+						"x": 520,
+						"y": 1370
+					},
+					"data": {
+						"label": "Menu: the party",
+						"element": "dr-menu-players",
+						"show": "players"
+					},
+					"class": "w-[150px]"
+				},
+				{
 					"id": "score",
 					"type": "drprop",
 					"position": {
 						"x": 280,
-						"y": 490
+						"y": 1520
 					},
 					"data": {
 						"label": "Prop Counter",
@@ -166,7 +565,7 @@
 					"type": "drvalue",
 					"position": {
 						"x": 40,
-						"y": 640
+						"y": 1670
 					},
 					"data": {
 						"label": "Realms: gems",
@@ -179,7 +578,7 @@
 					"type": "hudtext",
 					"position": {
 						"x": 280,
-						"y": 640
+						"y": 1670
 					},
 					"data": {
 						"label": "HUD dr-gems",
@@ -194,7 +593,7 @@
 					"type": "drvalue",
 					"position": {
 						"x": 40,
-						"y": 750
+						"y": 1780
 					},
 					"data": {
 						"label": "Realms: need",
@@ -207,7 +606,7 @@
 					"type": "hudtext",
 					"position": {
 						"x": 280,
-						"y": 750
+						"y": 1780
 					},
 					"data": {
 						"label": "HUD dr-need",
@@ -222,7 +621,7 @@
 					"type": "drvalue",
 					"position": {
 						"x": 40,
-						"y": 860
+						"y": 1890
 					},
 					"data": {
 						"label": "Realms: level",
@@ -235,7 +634,7 @@
 					"type": "hudtext",
 					"position": {
 						"x": 280,
-						"y": 860
+						"y": 1890
 					},
 					"data": {
 						"label": "HUD dr-level",
@@ -250,7 +649,7 @@
 					"type": "drvalue",
 					"position": {
 						"x": 40,
-						"y": 970
+						"y": 2000
 					},
 					"data": {
 						"label": "Realms: levels",
@@ -263,7 +662,7 @@
 					"type": "hudtext",
 					"position": {
 						"x": 280,
-						"y": 970
+						"y": 2000
 					},
 					"data": {
 						"label": "HUD dr-levels",
@@ -278,7 +677,7 @@
 					"type": "drvalue",
 					"position": {
 						"x": 40,
-						"y": 1080
+						"y": 2110
 					},
 					"data": {
 						"label": "Realms: players",
@@ -291,7 +690,7 @@
 					"type": "hudtext",
 					"position": {
 						"x": 280,
-						"y": 1080
+						"y": 2110
 					},
 					"data": {
 						"label": "HUD dr-player-count",
@@ -306,7 +705,7 @@
 					"type": "drrows",
 					"position": {
 						"x": 280,
-						"y": 1190
+						"y": 2220
 					},
 					"data": {
 						"label": "Objective line",
@@ -320,7 +719,7 @@
 					"type": "drrows",
 					"position": {
 						"x": 520,
-						"y": 1190
+						"y": 2220
 					},
 					"data": {
 						"label": "Player pills",
@@ -334,7 +733,7 @@
 					"type": "drevent",
 					"position": {
 						"x": 40,
-						"y": 1340
+						"y": 2370
 					},
 					"data": {
 						"label": "On gem",
@@ -347,7 +746,7 @@
 					"type": "counter",
 					"position": {
 						"x": 280,
-						"y": 1340
+						"y": 2370
 					},
 					"data": {
 						"label": "Gems taken",
@@ -361,7 +760,7 @@
 					"type": "hudtext",
 					"position": {
 						"x": 520,
-						"y": 1340
+						"y": 2370
 					},
 					"data": {
 						"label": "HUD dr-taken",
@@ -376,7 +775,7 @@
 					"type": "drevent",
 					"position": {
 						"x": 40,
-						"y": 1490
+						"y": 2520
 					},
 					"data": {
 						"label": "On start",
@@ -389,7 +788,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 1490
+						"y": 2520
 					},
 					"data": {
 						"label": "Realms: playing",
@@ -404,7 +803,7 @@
 					"type": "drevent",
 					"position": {
 						"x": 40,
-						"y": 1600
+						"y": 2630
 					},
 					"data": {
 						"label": "On victory",
@@ -417,7 +816,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 1600
+						"y": 2630
 					},
 					"data": {
 						"label": "Realms: over",
@@ -432,7 +831,7 @@
 					"type": "drevent",
 					"position": {
 						"x": 40,
-						"y": 1710
+						"y": 2740
 					},
 					"data": {
 						"label": "On new dungeon",
@@ -445,7 +844,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 1710
+						"y": 2740
 					},
 					"data": {
 						"label": "Realms: menu",
@@ -460,7 +859,7 @@
 					"type": "keypress",
 					"position": {
 						"x": 40,
-						"y": 1860
+						"y": 2890
 					},
 					"data": {
 						"label": "Press P",
@@ -475,7 +874,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 280,
-						"y": 1860
+						"y": 2890
 					},
 					"data": {
 						"label": "Toggle pause menu",
@@ -489,7 +888,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 40,
-						"y": 1970
+						"y": 3000
 					},
 					"data": {
 						"label": "Resume button",
@@ -502,7 +901,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 280,
-						"y": 1970
+						"y": 3000
 					},
 					"data": {
 						"label": "Close pause menu",
@@ -516,7 +915,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 40,
-						"y": 2080
+						"y": 3110
 					},
 					"data": {
 						"label": "Quit to menu button",
@@ -529,7 +928,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 2080
+						"y": 3110
 					},
 					"data": {
 						"label": "Quit to menu",
@@ -544,7 +943,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 520,
-						"y": 2080
+						"y": 3110
 					},
 					"data": {
 						"label": "Close pause on quit",
@@ -574,6 +973,158 @@
 				{
 					"id": "e-menu-selplinth",
 					"source": "menu",
+					"target": "selplinth"
+				},
+				{
+					"id": "e-hdrjoinp1-ddrjoinp1.trigger",
+					"source": "hdrjoinp1",
+					"target": "ddrjoinp1",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-ddrjoinp1-bdrjoinp1.press",
+					"source": "ddrjoinp1",
+					"target": "bdrjoinp1",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bdrjoinp1-selplinth",
+					"source": "bdrjoinp1",
+					"target": "selplinth"
+				},
+				{
+					"id": "e-hdrjoinp2-ddrjoinp2.trigger",
+					"source": "hdrjoinp2",
+					"target": "ddrjoinp2",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-ddrjoinp2-bdrjoinp2.press",
+					"source": "ddrjoinp2",
+					"target": "bdrjoinp2",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bdrjoinp2-selplinth",
+					"source": "bdrjoinp2",
+					"target": "selplinth"
+				},
+				{
+					"id": "e-hdrstart-ddrstart.trigger",
+					"source": "hdrstart",
+					"target": "ddrstart",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-ddrstart-bdrstart.press",
+					"source": "ddrstart",
+					"target": "bdrstart",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bdrstart-selplinth",
+					"source": "bdrstart",
+					"target": "selplinth"
+				},
+				{
+					"id": "e-hdrnewdungeon-ddrnewdungeon.trigger",
+					"source": "hdrnewdungeon",
+					"target": "ddrnewdungeon",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-ddrnewdungeon-bdrnewdungeon.press",
+					"source": "ddrnewdungeon",
+					"target": "bdrnewdungeon",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bdrnewdungeon-selplinth",
+					"source": "bdrnewdungeon",
+					"target": "selplinth"
+				},
+				{
+					"id": "e-hdrrestart-ddrrestart.trigger",
+					"source": "hdrrestart",
+					"target": "ddrrestart",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-ddrrestart-bdrrestart.press",
+					"source": "ddrrestart",
+					"target": "bdrrestart",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bdrrestart-selplinth",
+					"source": "bdrrestart",
+					"target": "selplinth"
+				},
+				{
+					"id": "e-hdrplayagain-ddrplayagain.trigger",
+					"source": "hdrplayagain",
+					"target": "ddrplayagain",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-ddrplayagain-bdrplayagain.press",
+					"source": "ddrplayagain",
+					"target": "bdrplayagain",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bdrplayagain-selplinth",
+					"source": "bdrplayagain",
+					"target": "selplinth"
+				},
+				{
+					"id": "e-hquitbtn-dquitbtn.trigger",
+					"source": "hquitbtn",
+					"target": "dquitbtn",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-dquitbtn-bquitbtn.press",
+					"source": "dquitbtn",
+					"target": "bquitbtn",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bquitbtn-selplinth",
+					"source": "bquitbtn",
+					"target": "selplinth"
+				},
+				{
+					"id": "e-hdrovermenu-ddrovermenu.trigger",
+					"source": "hdrovermenu",
+					"target": "ddrovermenu",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-ddrovermenu-bdrovermenu.press",
+					"source": "ddrovermenu",
+					"target": "bdrovermenu",
+					"targetHandle": "press"
+				},
+				{
+					"id": "e-bdrovermenu-selplinth",
+					"source": "bdrovermenu",
+					"target": "selplinth"
+				},
+				{
+					"id": "e-hdrrestart-restarthide.trigger",
+					"source": "hdrrestart",
+					"target": "restarthide",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-rmenulevel-selplinth",
+					"source": "rmenulevel",
+					"target": "selplinth"
+				},
+				{
+					"id": "e-rmenuplayers-selplinth",
+					"source": "rmenuplayers",
 					"target": "selplinth"
 				},
 				{
@@ -687,16 +1238,16 @@
 					"id": "menu",
 					"name": "Menu",
 					"showWhile": "menu",
-					"input": "game",
+					"input": "menu",
 					"elements": [
 						{
 							"id": "menu-panel",
 							"kind": "panel",
-							"anchor": "top-center",
+							"anchor": "center",
 							"x": 0,
-							"y": 16,
-							"w": 520,
-							"h": 96,
+							"y": 0,
+							"w": 480,
+							"h": 440,
 							"z": 0,
 							"label": "",
 							"style": {
@@ -708,36 +1259,169 @@
 						{
 							"id": "title",
 							"kind": "text",
-							"anchor": "top-center",
+							"anchor": "center",
 							"x": 0,
-							"y": 26,
-							"w": 480,
-							"h": 40,
+							"y": -170,
+							"w": 412,
+							"h": 44,
 							"z": 1,
 							"label": "DUNGEON REALMS",
 							"style": {
-								"size": 28,
-								"weight": "700",
+								"size": 34,
+								"weight": "800",
 								"color": "#67e8f9",
-								"align": "center"
+								"align": "left"
+							}
+						},
+						{
+							"id": "dr-menu-level",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": -128,
+							"w": 412,
+							"h": 26,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"rowHeight": 20,
+							"style": {
+								"size": 14,
+								"weight": "600",
+								"color": "#e5e9f0",
+								"align": "left",
+								"bg": "transparent",
+								"pad": 0
 							}
 						},
 						{
 							"id": "subtitle",
 							"kind": "text",
-							"anchor": "top-center",
+							"anchor": "center",
 							"x": 0,
-							"y": 66,
-							"w": 500,
+							"y": -92,
+							"w": 412,
 							"h": 40,
 							"z": 1,
-							"label": "Press ▶ Play. In the start menu: ↑↓ + Enter — join as Player 1 / 2, then Start. Collect gems, unseal the portal, stand on it together.",
+							"label": "Collect gems to unseal the portal, stand on it together, and climb to the dragon’s hoard.",
 							"style": {
-								"size": 12,
-								"color": "#d8dee9",
-								"align": "center"
+								"size": 13,
+								"color": "#aab4c3",
+								"align": "left"
 							},
 							"wrap": true
+						},
+						{
+							"id": "dr-join-p1",
+							"kind": "button",
+							"anchor": "center",
+							"x": -106,
+							"y": -30,
+							"w": 200,
+							"h": 44,
+							"z": 1,
+							"label": "Join as Player 1",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#334155",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "dr-join-p2",
+							"kind": "button",
+							"anchor": "center",
+							"x": 106,
+							"y": -30,
+							"w": 200,
+							"h": 44,
+							"z": 1,
+							"label": "Join as Player 2",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#334155",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "dr-start",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 32,
+							"w": 412,
+							"h": 52,
+							"z": 1,
+							"label": "Start adventure",
+							"enabled": true,
+							"style": {
+								"size": 18,
+								"weight": "700",
+								"bg": "#0ea5e9",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "dr-new-dungeon",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 94,
+							"w": 412,
+							"h": 40,
+							"z": 1,
+							"label": "New dungeon 🎲",
+							"enabled": true,
+							"style": {
+								"size": 14,
+								"weight": "500",
+								"bg": "#2a3242",
+								"color": "#e5e9f0",
+								"radius": 10
+							}
+						},
+						{
+							"id": "dr-menu-players",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": 146,
+							"w": 412,
+							"h": 44,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"rowHeight": 18,
+							"style": {
+								"size": 12,
+								"color": "#86efac",
+								"align": "left",
+								"bg": "transparent",
+								"pad": 0
+							}
+						},
+						{
+							"id": "menu-hint",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": 192,
+							"w": 412,
+							"h": 20,
+							"z": 1,
+							"label": "WASD / left stick walk  ·  walk over gems  ·  P pauses  ·  ↑↓ + Enter work too",
+							"style": {
+								"size": 11,
+								"color": "#64748b",
+								"align": "left"
+							}
 						}
 					]
 				},
@@ -752,9 +1436,9 @@
 							"kind": "panel",
 							"anchor": "top-left",
 							"x": 16,
-							"y": 64,
-							"w": 300,
-							"h": 150,
+							"y": 16,
+							"w": 290,
+							"h": 132,
 							"z": 0,
 							"label": "",
 							"style": {
@@ -768,14 +1452,14 @@
 							"kind": "text",
 							"anchor": "top-left",
 							"x": 28,
-							"y": 72,
-							"w": 60,
+							"y": 22,
+							"w": 44,
 							"h": 34,
 							"z": 1,
 							"label": "0",
 							"style": {
 								"size": 26,
-								"weight": "700",
+								"weight": "800",
 								"color": "#39e0c0",
 								"align": "left"
 							}
@@ -784,10 +1468,10 @@
 							"id": "dr-need",
 							"kind": "text",
 							"anchor": "top-left",
-							"x": 88,
-							"y": 82,
-							"w": 220,
-							"h": 22,
+							"x": 66,
+							"y": 32,
+							"w": 150,
+							"h": 20,
 							"z": 1,
 							"label": "/ 0 needed",
 							"style": {
@@ -801,14 +1485,14 @@
 							"kind": "text",
 							"anchor": "top-left",
 							"x": 28,
-							"y": 110,
-							"w": 110,
-							"h": 20,
+							"y": 58,
+							"w": 56,
+							"h": 18,
 							"z": 1,
 							"label": "LEVEL 1",
 							"style": {
 								"size": 12,
-								"weight": "600",
+								"weight": "700",
 								"color": "#a5b4fc",
 								"align": "left"
 							}
@@ -817,14 +1501,15 @@
 							"id": "dr-levels",
 							"kind": "text",
 							"anchor": "top-left",
-							"x": 118,
-							"y": 110,
-							"w": 60,
-							"h": 20,
+							"x": 82,
+							"y": 58,
+							"w": 30,
+							"h": 18,
 							"z": 1,
 							"label": "/ 5",
 							"style": {
 								"size": 12,
+								"weight": "700",
 								"color": "#a5b4fc",
 								"align": "left"
 							}
@@ -833,10 +1518,10 @@
 							"id": "dr-player-count",
 							"kind": "text",
 							"anchor": "top-left",
-							"x": 180,
-							"y": 110,
-							"w": 130,
-							"h": 20,
+							"x": 120,
+							"y": 58,
+							"w": 180,
+							"h": 18,
 							"z": 1,
 							"label": "0 in the party",
 							"style": {
@@ -846,53 +1531,60 @@
 							}
 						},
 						{
-							"id": "dr-players",
-							"kind": "list",
-							"anchor": "top-left",
-							"x": 28,
-							"y": 134,
-							"w": 280,
-							"h": 34,
-							"z": 1,
-							"label": "",
-							"rows": [],
-							"style": {
-								"size": 11,
-								"color": "#c8d0dc",
-								"align": "left"
-							}
-						},
-						{
 							"id": "dr-objective",
 							"kind": "list",
 							"anchor": "top-left",
-							"x": 28,
-							"y": 170,
+							"x": 22,
+							"y": 80,
 							"w": 280,
-							"h": 36,
+							"h": 20,
 							"z": 1,
 							"label": "",
 							"rows": [],
+							"rowHeight": 18,
 							"style": {
 								"size": 12,
+								"weight": "600",
 								"color": "#86efac",
-								"align": "left"
+								"align": "left",
+								"bg": "transparent",
+								"pad": 0
+							}
+						},
+						{
+							"id": "dr-players",
+							"kind": "list",
+							"anchor": "top-left",
+							"x": 22,
+							"y": 100,
+							"w": 280,
+							"h": 20,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"rowHeight": 18,
+							"style": {
+								"size": 11,
+								"color": "#c8d0dc",
+								"align": "left",
+								"bg": "transparent",
+								"pad": 0
 							}
 						},
 						{
 							"id": "dr-taken",
 							"kind": "text",
-							"anchor": "top-right",
-							"x": 16,
-							"y": 64,
-							"w": 200,
-							"h": 24,
+							"anchor": "top-left",
+							"x": 28,
+							"y": 122,
+							"w": 270,
+							"h": 18,
 							"z": 1,
 							"label": "0 gems taken",
 							"style": {
-								"size": 12,
-								"color": "#c8d0dc",
-								"align": "right"
+								"size": 11,
+								"color": "#7c8698",
+								"align": "left"
 							}
 						},
 						{
@@ -904,10 +1596,10 @@
 							"w": 560,
 							"h": 20,
 							"z": 1,
-							"label": "WASD walk · walk over gems · stand on the unsealed portal together · P pauses",
+							"label": "WASD / left stick walk · walk over gems · stand on the unsealed portal together · P pauses",
 							"style": {
 								"size": 11,
-								"color": "#8b97a8",
+								"color": "#c8d0dc",
 								"align": "center"
 							}
 						}
@@ -925,7 +1617,7 @@
 							"x": 0,
 							"y": 0,
 							"w": 380,
-							"h": 250,
+							"h": 300,
 							"z": 0,
 							"label": "",
 							"style": {
@@ -939,8 +1631,8 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": -75,
-							"w": 340,
+							"y": -95,
+							"w": 260,
 							"h": 36,
 							"z": 1,
 							"label": "PAUSED",
@@ -948,7 +1640,7 @@
 								"size": 26,
 								"weight": "700",
 								"color": "#e5e9f0",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -956,9 +1648,9 @@
 							"kind": "button",
 							"anchor": "center",
 							"x": 0,
-							"y": -10,
-							"w": 240,
-							"h": 42,
+							"y": -30,
+							"w": 260,
+							"h": 44,
 							"z": 1,
 							"label": "Resume",
 							"enabled": true,
@@ -971,13 +1663,32 @@
 							}
 						},
 						{
+							"id": "dr-restart",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 24,
+							"w": 260,
+							"h": 44,
+							"z": 1,
+							"label": "Restart — new dungeon",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3f7f5f",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
 							"id": "quit-btn",
 							"kind": "button",
 							"anchor": "center",
 							"x": 0,
-							"y": 42,
-							"w": 240,
-							"h": 42,
+							"y": 78,
+							"w": 260,
+							"h": 44,
 							"z": 1,
 							"label": "Quit to menu",
 							"enabled": true,
@@ -995,55 +1706,93 @@
 					"id": "over",
 					"name": "Victory",
 					"showWhile": "over",
-					"input": "game",
+					"input": "menu",
 					"elements": [
 						{
 							"id": "over-panel",
 							"kind": "panel",
-							"anchor": "top-center",
+							"anchor": "center",
 							"x": 0,
-							"y": 16,
-							"w": 480,
-							"h": 96,
+							"y": 0,
+							"w": 460,
+							"h": 300,
 							"z": 0,
 							"label": "",
 							"style": {
 								"bg": "rgba(12, 16, 24, 0.9)",
 								"radius": 14,
-								"border": "1px solid rgba(103, 232, 249, 0.25)"
+								"border": "1px solid rgba(255, 212, 94, 0.4)"
 							}
 						},
 						{
 							"id": "over-title",
 							"kind": "text",
-							"anchor": "top-center",
+							"anchor": "center",
 							"x": 0,
-							"y": 26,
-							"w": 440,
+							"y": -100,
+							"w": 400,
 							"h": 40,
 							"z": 1,
 							"label": "THE HOARD IS YOURS",
 							"style": {
-								"size": 26,
-								"weight": "700",
+								"size": 28,
+								"weight": "800",
 								"color": "#ffd45e",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
 							"id": "dr-taken-over",
 							"kind": "text",
-							"anchor": "top-center",
+							"anchor": "center",
 							"x": 0,
-							"y": 70,
-							"w": 440,
+							"y": -56,
+							"w": 400,
 							"h": 24,
 							"z": 1,
-							"label": "Play again from the menu — a new dungeon every time",
+							"label": "Every floor cleared — a new dungeon waits",
 							"style": {
 								"size": 13,
 								"color": "#c8d0dc",
-								"align": "center"
+								"align": "left"
+							}
+						},
+						{
+							"id": "dr-play-again",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 10,
+							"w": 280,
+							"h": 50,
+							"z": 1,
+							"label": "Play again 🎲",
+							"enabled": true,
+							"style": {
+								"size": 17,
+								"weight": "600",
+								"bg": "#0ea5e9",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "dr-over-menu",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 72,
+							"w": 280,
+							"h": 42,
+							"z": 1,
+							"label": "Back to menu",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "500",
+								"bg": "#3a4150",
+								"color": "#e5e9f0",
+								"radius": 10
 							}
 						}
 					]
@@ -1055,7 +1804,7 @@
 		{
 			"type": "box",
 			"name": "Entrance plinth",
-			"color": 3817808,
+			"color": 4869980,
 			"roughness": 0.9,
 			"size": [
 				2.8,
@@ -1071,48 +1820,48 @@
 		{
 			"type": "box",
 			"name": "Arch left",
-			"color": 2962240,
+			"color": 6973024,
 			"roughness": 0.85,
 			"size": [
 				0.36,
-				3,
+				2,
 				0.36
 			],
 			"pos": [
 				52.4,
-				1.5,
+				1,
 				-1.5
 			]
 		},
 		{
 			"type": "box",
 			"name": "Arch right",
-			"color": 2962240,
+			"color": 6973024,
 			"roughness": 0.85,
 			"size": [
 				0.36,
-				3,
+				2,
 				0.36
 			],
 			"pos": [
 				54.6,
-				1.5,
+				1,
 				-1.5
 			]
 		},
 		{
 			"type": "box",
 			"name": "Arch lintel",
-			"color": 2962240,
+			"color": 6973024,
 			"roughness": 0.85,
 			"size": [
 				2.6,
-				0.36,
+				0.26,
 				0.5
 			],
 			"pos": [
 				53.5,
-				3.18,
+				2.13,
 				-1.5
 			]
 		},
@@ -1121,26 +1870,71 @@
 			"name": "Arch lantern",
 			"color": 6809849,
 			"emissive": 6809849,
-			"emissiveIntensity": 1.6,
-			"r": 0.16,
+			"emissiveIntensity": 2.4,
+			"r": 0.14,
 			"pos": [
 				53.5,
-				2.75,
+				1.78,
 				-1.5
 			],
-			"shadow": false
+			"shadow": false,
+			"particles": {
+				"preset": "sparkles",
+				"count": 26,
+				"radius": 0.16,
+				"speed": 0.12,
+				"sizeStart": 0.035,
+				"sizeEnd": 0.01,
+				"lifetime": 1.1
+			}
 		},
 		{
 			"type": "light",
 			"name": "Arch light",
 			"color": 6809849,
 			"intensity": 6,
-			"distance": 9,
+			"distance": 8,
 			"pos": [
 				53.5,
-				2.6,
+				1.7,
 				-1.5
 			]
+		},
+		{
+			"type": "plane",
+			"name": "Ground",
+			"size": [
+				400,
+				400
+			],
+			"pos": [
+				53.5,
+				0.006,
+				-1.5
+			],
+			"rot": [
+				-1.5707963267948966,
+				0,
+				0
+			],
+			"color": 3814464,
+			"roughness": 1,
+			"pick": "through"
+		},
+		{
+			"type": "camera",
+			"name": "Card camera",
+			"pos": [
+				58.5,
+				4.6,
+				4.5
+			],
+			"lookAt": [
+				53.5,
+				0.9,
+				-2
+			],
+			"fov": 55
 		}
 	],
 	"view": {
@@ -1156,6 +1950,7 @@
 		]
 	},
 	"thumb": {
+		"camera": "Card camera",
 		"sceneGroups": [
 			"dungeon-module"
 		]

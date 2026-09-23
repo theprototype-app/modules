@@ -35,7 +35,7 @@ function select(options, value) {
 /**
  * THE ARENA, as addNodes specs. Pure: given the enemy uuids and the options it returns
  * the nodes and edges, row by row, so a node test can hold it to its shape.
- * @param {{enemies: string[], goal: string|null, options: any, row: number, playerHealthId: string|null}} spec
+ * @param {{enemies: string[], goal: string|null, options: any, row: number, playerHealthId: string|null, hps?: number[]}} spec
  */
 export function arenaRecipe(spec) {
 	const o = spec.options;
@@ -49,7 +49,13 @@ export function arenaRecipe(spec) {
 	const y = () => Y0 + row * ROW;
 
 	// the run itself, its goal, the shell wiring, and the player's health (once)
-	const wavesIdx = nodes.push({ type: 'waves', x: X0, y: y(), data: { name, waves: o.waves, sizeStart: o.sizeStart, sizeStep: o.sizeStep, interval: o.interval, speed: o.speed, stagger: DEFAULTS.stagger, reach: o.reach, spawnPrefix: o.spawnPrefix } }) - 1;
+	// 30b: levels and the breach ride along only when asked (a pre-30b recipe is unchanged)
+	const extra = {
+		...(o.stagger !== undefined ? { stagger: o.stagger } : { stagger: DEFAULTS.stagger }),
+		...(o.perLevel ? { perLevel: o.perLevel, levelSpeed: o.levelSpeed ?? 0 } : {}),
+		...(o.breach ? { breach: true } : {})
+	};
+	const wavesIdx = nodes.push({ type: 'waves', x: X0, y: y(), data: { name, waves: o.waves, sizeStart: o.sizeStart, sizeStep: o.sizeStep, interval: o.interval, speed: o.speed, reach: o.reach, spawnPrefix: o.spawnPrefix, ...extra } }) - 1;
 	if (spec.goal) {
 		const sel = nodes.push({ type: 'objectselector', x: X0 - 0, y: y() + 100, data: { selected: spec.goal } }) - 1;
 		edges.push({ from: sel, to: wavesIdx, handle: 'goal' });
@@ -61,24 +67,34 @@ export function arenaRecipe(spec) {
 	if (!playerRef) {
 		const pd = nodes.push({ type: 'damage', x: X0 + 3 * COL, y: y(), data: { amount: 1, source: 'wired' } }) - 1;
 		const pc = nodes.push({ type: 'counter', x: X0 + 4 * COL, y: y(), data: { op: 'up', step: 1 } }) - 1;
-		const ph = nodes.push({ type: 'health', x: X0 + 5 * COL, y: y(), data: { name: playerName, scope: 'player', max: o.playerHp, regen: o.playerRegen, deathAction: 'respawn', respawnDelay: 3 } }) - 1;
+		const ph = nodes.push({ type: 'health', x: X0 + 5 * COL, y: y(), data: { name: playerName, scope: 'player', max: o.playerHp, regen: o.playerRegen, deathAction: o.breach ? 'nothing' : 'respawn', respawnDelay: 3 } }) - 1;
 		const pr = nodes.push({ type: 'healthreset', x: X0 + 3 * COL, y: y() + 100, data: { name: playerName } }) - 1;
 		edges.push({ from: pd, to: pc, handle: 'pulse' }, { from: pc, to: ph, handle: 'damage' }, { from: pr, to: pc, handle: 'reset' });
 		playerRef = ph;
+		if (o.breach) {
+			// 30b: THE CRYSTAL. An enemy breaching the goal fires the run's `breach` event on every
+			// peer (locally), which is a hit of `breachDamage` on each player's own health — and
+			// when it reaches zero the round is lost
+			const bd = nodes.push({ type: 'damage', x: X0 + 3 * COL, y: y() + 200, data: { amount: o.breachDamage ?? 2, source: 'wired' } }) - 1;
+			const be = nodes.push({ type: 'wavesevent', x: X0 + 2 * COL, y: y() + 200, data: { name, event: 'breach' } }) - 1;
+			const death = nodes.push({ type: 'healthevent', x: X0 + 4 * COL, y: y() + 300, data: { name: playerName, event: 'death' } }) - 1;
+			const lost = nodes.push({ type: 'setgamestate', x: X0 + 5 * COL, y: y() + 300, data: { state: 'over', outcome: 'lost' } }) - 1;
+			edges.push({ from: be, to: bd, handle: 'trigger' }, { from: bd, to: pc, handle: 'pulse' }, { from: death, to: lost, handle: 'trigger' });
+		}
 	}
 	row++;
 
 	// per enemy: the health chain, the heal chain, the zone chain into the player
-	for (const uuid of spec.enemies) {
+	spec.enemies.forEach((uuid, i) => {
 		const d = nodes.push({ type: 'damage', x: X0, y: y(), data: { amount: 1, source: o.source, scale: o.source === 'hit' ? 'speed' : 'none', speedRef: 3 } }) - 1;
 		const c = nodes.push({ type: 'counter', x: X0 + COL, y: y(), data: { op: 'up', step: 1 } }) - 1;
-		const h = nodes.push({ type: 'health', x: X0 + 2 * COL, y: y(), data: { name, scope: 'object', max: o.hp, deathAction: 'hide', respawnDelay: 3 } }) - 1;
+		// 30b: an enemy's own hit points when the spec names them (a Tank takes more)
+		const hp = spec.hps?.[i] ?? o.hp;
+		const h = nodes.push({ type: 'health', x: X0 + 2 * COL, y: y(), data: { name, scope: 'object', max: hp, deathAction: 'hide', respawnDelay: 3 } }) - 1;
 		const s = nodes.push({ type: 'objectselector', x: X0 + 3 * COL, y: y(), data: { selected: uuid } }) - 1;
 		const r = nodes.push({ type: 'healthreset', x: X0, y: y() + 100, data: { name } }) - 1;
 		const he = nodes.push({ type: 'heal', x: X0 + COL, y: y() + 100, data: { amount: 1 } }) - 1;
 		const hc = nodes.push({ type: 'counter', x: X0 + 2 * COL, y: y() + 100, data: { op: 'up', step: 1 } }) - 1;
-		const z = nodes.push({ type: 'damage', x: X0 + 4 * COL, y: y(), data: { amount: o.enemyDamage, source: 'zone', perSecond: o.enemyRate, radius: o.reach } }) - 1;
-		const zs = nodes.push({ type: 'objectselector', x: X0 + 4 * COL, y: y() + 100, data: { selected: uuid } }) - 1;
 		edges.push(
 			{ from: d, to: c, handle: 'pulse' },
 			{ from: c, to: h, handle: 'damage' },
@@ -86,12 +102,17 @@ export function arenaRecipe(spec) {
 			{ from: r, to: c, handle: 'reset' },
 			{ from: r, to: hc, handle: 'reset' },
 			{ from: he, to: hc, handle: 'pulse' },
-			{ from: hc, to: h, handle: 'heal' },
-			{ from: zs, to: z, handle: 'zone' },
-			{ from: z, to: playerRef, handle: 'damage' }
+			{ from: hc, to: h, handle: 'heal' }
 		);
+		// the zone chain (an enemy in reach hurts the player) — 30b: optional; the shooter's
+		// enemies hurt through the breach instead
+		if (o.zone !== false) {
+			const z = nodes.push({ type: 'damage', x: X0 + 4 * COL, y: y(), data: { amount: o.enemyDamage, source: 'zone', perSecond: o.enemyRate, radius: o.reach } }) - 1;
+			const zs = nodes.push({ type: 'objectselector', x: X0 + 4 * COL, y: y() + 100, data: { selected: uuid } }) - 1;
+			edges.push({ from: zs, to: z, handle: 'zone' }, { from: z, to: playerRef, handle: 'damage' });
+		}
 		row++;
-	}
+	});
 	return { nodes, edges, rows: row - spec.row };
 }
 

@@ -30,15 +30,40 @@ export function chordsCross(a, b, c, d, n) {
 	return between(c, a, b) !== between(d, a, b);
 }
 
+/** the difficulty curve is defined over levels 1..30 (roadmap 30, fork 9); higher levels
+ * keep the level-30 shape with their own seed */
+export const CURVE_LEVELS = 30;
+const curveLevel = (/** @type {number} */ lvl) => Math.min(Math.max(1, Math.round(Number(lvl) || 1)), CURVE_LEVELS);
+
+/** dots on level `lvl`: 5 on level 1, 16 on level 30 @param {number} lvl */
+export function dotsFor(lvl) {
+	return 5 + Math.round(((curveLevel(lvl) - 1) * 11) / (CURVE_LEVELS - 1));
+}
+
+/** chords (edges beyond the ring) on level `lvl`: a rising share of the n-3 a triangulation
+ * allows — 35% on level 1, 80% on level 30 (16 dots: 10 chords, 26 edges) */
+export function chordsFor(lvl, n = dotsFor(lvl)) {
+	const t = (curveLevel(lvl) - 1) / (CURVE_LEVELS - 1);
+	return Math.max(1, Math.min(n - 3, Math.round((n - 3) * (0.35 + 0.45 * t))));
+}
+
+/** the least crossings a fresh scramble must start with (an already-solved start is no level) */
+export function minStartCrossings(lvl) {
+	const l = curveLevel(lvl);
+	return l <= 2 ? 1 : l <= 8 ? 2 : 3;
+}
+
 /**
  * Generate level `lvl`: a guaranteed-solvable graph (the ring plus greedily added
  * non-crossing chords — the circle layout IS a planar embedding) with SCRAMBLED
- * positions in the unit disc. @param {number} lvl
+ * positions in the unit disc: dots kept apart (a scramble that stacks two dots hides an
+ * edge) and at least `minStartCrossings` crossings, all from the one seeded stream.
+ * @param {number} lvl
  * @returns {{n: number, edges: number[][], positions: number[][]}}
  */
 export function generate(lvl) {
 	const rand = mulberry32(0x9e3779b9 ^ (lvl * 2654435761));
-	const n = Math.min(5 + lvl, 16); // difficulty scales, capped
+	const n = dotsFor(lvl);
 	const edges = [];
 	for (let i = 0; i < n; i++) edges.push([i, (i + 1) % n]);
 	const chords = [];
@@ -49,7 +74,7 @@ export function generate(lvl) {
 		chords[i] = chords[k];
 		chords[k] = swap;
 	}
-	const wanted = Math.floor(n * 0.8);
+	const wanted = chordsFor(lvl, n);
 	let added = 0;
 	for (const [a, b] of chords) {
 		if (added >= wanted) break;
@@ -57,14 +82,44 @@ export function generate(lvl) {
 		edges.push([a, b]);
 		added++;
 	}
-	// scramble positions in the disc (0.9 keeps the dots clear of the rim)
-	const positions = [];
-	for (let i = 0; i < n; i++) {
-		const angle = rand() * Math.PI * 2;
-		const radius = Math.sqrt(rand()) * 0.9;
-		positions.push([Math.cos(angle) * radius, Math.sin(angle) * radius]);
+	return { n, edges, positions: scramble(rand, n, edges, minStartCrossings(lvl)) };
+}
+
+/** the minimum distance between two scrambled dots, in board units */
+export function minSeparation(n) {
+	return Math.max(0.2, 0.42 - n * 0.014);
+}
+
+/**
+ * Scramble n dots in the disc (0.9 keeps them clear of the rim), `minSeparation` apart,
+ * until the start has at least `need` crossings (the best attempt otherwise).
+ * @param {() => number} rand @param {number} n @param {number[][]} edges @param {number} need
+ */
+function scramble(rand, n, edges, need) {
+	const sep = minSeparation(n);
+	let best = null;
+	let bestCount = -1;
+	for (let attempt = 0; attempt < 24; attempt++) {
+		const positions = [];
+		for (let i = 0; i < n; i++) {
+			let p = null;
+			for (let tries = 0; tries < 60; tries++) {
+				const angle = rand() * Math.PI * 2;
+				const radius = Math.sqrt(rand()) * 0.9;
+				p = [Math.cos(angle) * radius, Math.sin(angle) * radius];
+				const q = p;
+				if (positions.every((o) => Math.hypot(o[0] - q[0], o[1] - q[1]) >= sep)) break;
+			}
+			positions.push(/** @type {number[]} */ (p));
+		}
+		const count = totalCrossings(edgeCrossings(positions, edges));
+		if (count >= need) return positions;
+		if (count > bestCount) {
+			bestCount = count;
+			best = positions;
+		}
 	}
-	return { n, edges, positions };
+	return /** @type {number[][]} */ (best);
 }
 
 /** proper segment intersection (shared endpoints excluded by the caller) */

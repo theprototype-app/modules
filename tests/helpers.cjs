@@ -34,8 +34,13 @@ function launch(options = {}) {
 		'--disable-renderer-backgrounding',
 		'--disable-backgrounding-occluded-windows'
 	];
+	// E2E_GPU=1: the Vulkan ANGLE backend (core helpers' GPU_ARGS). Absent = software GL, as ever.
+	// On the 1.17 union a THIRD software-GL page boots past setupPage's 30 s (the first two
+	// saturate the shared SwiftShader process) — measured by the 30b integrator; on the GPU all
+	// three boot in < 2 s.
+	const gpu = process.env.E2E_GPU ? ['--use-gl=angle', '--use-angle=vulkan', '--enable-features=Vulkan', '--enable-gpu', '--ignore-gpu-blocklist'] : [];
 	const { args = [], ...rest } = options;
-	return chromium.launch({ headless: true, args: [...noThrottle, ...args], ...rest });
+	return chromium.launch({ headless: true, args: [...noThrottle, ...gpu, ...args], ...rest });
 }
 
 /** Fresh context + page with the debug hook on, waited through hydration. */

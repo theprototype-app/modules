@@ -16,8 +16,8 @@
 	{
 		"id": "car",
 		"name": "Drivable Car",
-		"version": "1.2.0",
-		"description": "Spawn a jointed demo car; click its body to claim it, then drive with WASD in Play mode while a simulation runs.",
+		"version": "1.2.1",
+		"description": "Spawn a jointed demo car; click its body in Interact mode (I) to claim it, then drive with WASD in Play mode while a simulation runs.",
 		"author": "theprototype-app",
 		"source": "modules/car",
 		"zip": "car.zip",
@@ -30,7 +30,7 @@
 	{
 		"id": "collectible",
 		"name": "Collectibles",
-		"version": "1.1.1",
+		"version": "1.1.2",
 		"description": "One node makes an object collectible: click it or walk into it, it hides and counts. Shared or per-player score, with respawn and never-hiding checkpoints.",
 		"author": "theprototype-app",
 		"source": "modules/collectible",
@@ -45,7 +45,7 @@
 	{
 		"id": "door-keypad",
 		"name": "Door & Keypad",
-		"version": "1.0.0",
+		"version": "1.0.1",
 		"description": "A combination-lock keypad that opens an actuated door. Replicated, VR and desktop, with late-joiner catch-up.",
 		"author": "theprototype-app",
 		"source": "modules/door-keypad",
@@ -60,8 +60,8 @@
 	{
 		"id": "dungeon",
 		"name": "Dungeon Kit",
-		"version": "2.0.0",
-		"description": "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) with a toolbox, a Dungeon node and the userData.play contract the app walks in play mode. The playable game is Dungeon Realms.",
+		"version": "2.2.1",
+		"description": "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) rendered as torch-lit stone — every torch is the props-kit wall torch, glows, throws a halo and a pool and lights the stone around it, the real lights follow you — with a toolbox, a Dungeon node and the userData.play contract the app walks (and collides with) in play mode. The playable game is Dungeon Realms.",
 		"author": "theprototype-app",
 		"source": "modules/dungeon",
 		"zip": "dungeon.zip",
@@ -75,8 +75,8 @@
 	{
 		"id": "dungeon-realms",
 		"name": "Dungeon Realms",
-		"version": "2.0.0",
-		"description": "Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors - every rule and readout a flow node. Requires the dungeon (Dungeon Kit) module.",
+		"version": "2.2.0",
+		"description": "Co-op dungeon crawl on the Dungeon Kit: walk five torch-lit floors (no clipping through walls), collect glowing gems to unseal the portal, stand on it together and climb to the dragon's hoard. Footsteps, gem chimes and sparkles, a portal that sings, a Floor banner, dungeon music and haptics in VR. A clickable start menu (mouse, keys, gamepad or VR laser), pause and victory screens - every rule and readout a flow node. Requires the dungeon (Dungeon Kit) module.",
 		"author": "theprototype-app",
 		"source": "modules/dungeon-realms",
 		"zip": "dungeon-realms.zip",
@@ -91,7 +91,7 @@
 	{
 		"id": "essentials",
 		"name": "VR Essentials",
-		"version": "1.1.0",
+		"version": "1.1.1",
 		"description": "Clickable starter interactables: button, lever, spawner, teleport pad, sound tile, target.",
 		"author": "theprototype-app",
 		"source": "modules/essentials",
@@ -119,8 +119,8 @@
 	{
 		"id": "football",
 		"name": "Football",
-		"version": "1.0.0",
-		"description": "VR football on the knock: floating ball, two team gates, last-touch attribution, modes, per-player records and a saved match log - every rule a flow node.",
+		"version": "1.2.0",
+		"description": "VR football in a floodlit glass arena: hit the floating ball with your hands and put it through the glowing gate. Hit the ball to kick off (or pick a side and Start): a 3-2-1 kick-off, GOAL! banners, confetti and a crowd, the conceding team kicks off, first to 5 or 3:00 with a golden goal - a live scoreboard with a match clock, score lamps over each gate, last-touch attribution, modes, per-player records and a saved match log - every rule a flow node.",
 		"author": "theprototype-app",
 		"source": "modules/football",
 		"zip": "football.zip",
@@ -165,7 +165,7 @@
 	{
 		"id": "music-dj",
 		"name": "Music DJ",
-		"version": "0.1.0",
+		"version": "0.1.1",
 		"description": "Two decks and a crossfader as audio devices: drop a track on a deck, scrub the platter, ride the pitch, fade between them - every peer hears the same position.",
 		"author": "theprototype-app",
 		"source": "modules/music-dj",
@@ -179,8 +179,8 @@
 	{
 		"id": "music-fx",
 		"name": "Music FX",
-		"version": "0.1.0",
-		"description": "A four-channel mixer and five pedals - delay, reverb, filter, distortion, bitcrush - as audio devices. Cable them in any order; re-plug to re-order.",
+		"version": "0.2.0",
+		"description": "A four-channel mixer and five pedals - delay, reverb, filter, distortion, bitcrush - as audio devices. Cable them in any order; re-plug to re-order. Stomp a footswitch or press a mute button (a VR sweep flips them too).",
 		"author": "theprototype-app",
 		"source": "modules/music-fx",
 		"zip": "music-fx.zip",
@@ -194,7 +194,7 @@
 	{
 		"id": "music-lab",
 		"name": "Music Lab",
-		"version": "0.2.0",
+		"version": "0.2.1",
 		"description": "A Piano, a Speaker, a Transport, a Drum machine and Sampler pads as audio devices: cable them, paint a beat, press Play - every peer hears the same beat.",
 		"author": "theprototype-app",
 		"source": "modules/music-lab",
@@ -208,7 +208,7 @@
 	{
 		"id": "music-voice",
 		"name": "Music Voice",
-		"version": "0.1.0",
+		"version": "0.1.1",
 		"description": "A Mic, a Looper, a Synth and a Theremin as audio devices: sing into the graph, loop what is patched in on the bar, play chords, wave a hand - every peer hears the same thing.",
 		"author": "theprototype-app",
 		"source": "modules/music-voice",
@@ -222,7 +222,7 @@
 	{
 		"id": "piano",
 		"name": "Piano",
-		"version": "1.1.0",
+		"version": "1.1.1",
 		"description": "One-octave synth keyboard - every peer hears and sees your notes.",
 		"author": "theprototype-app",
 		"source": "modules/piano",
@@ -236,7 +236,7 @@
 	{
 		"id": "sabers",
 		"name": "Sabers",
-		"version": "1.0.0",
+		"version": "1.0.1",
 		"description": "A glowing blade held wherever you point - VR controller or desktop mouse - with hit sparks and peers seeing your blade.",
 		"author": "theprototype-app",
 		"source": "modules/sabers",
@@ -250,7 +250,7 @@
 	{
 		"id": "tutorial-room",
 		"name": "Tutorial Room",
-		"version": "1.0.0",
+		"version": "1.1.0",
 		"description": "An in-scene onboarding room: signs and clickable stations teaching select, build, connect, flow and VR.",
 		"author": "theprototype-app",
 		"source": "modules/tutorial-room",
@@ -264,8 +264,8 @@
 	{
 		"id": "untangle",
 		"name": "Untangle",
-		"version": "2.0.0",
-		"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - board pose, level and readouts as flow nodes.",
+		"version": "2.2.0",
+		"description": "Untangle the graph: drag the dots until no edges cross, on a flat 2D board or around a 3D globe (great-circle arcs). 30 levels per mode that unlock as you solve them, progress and best times kept on your device, reset any time. In VR: grab dots with the trigger (laser or tip), hold, turn and scale the globe with one hand while the other moves dots, a laser-reachable level bar, haptics. Procedural and replicated, with game sounds and quiet puzzle music - board pose, level and readouts as flow nodes.",
 		"author": "theprototype-app",
 		"source": "modules/untangle",
 		"zip": "untangle.zip",
@@ -280,8 +280,8 @@
 	{
 		"id": "waves",
 		"name": "Waves",
-		"version": "1.0.0",
-		"description": "Wave survival on the health module: enemies walk from spawn points to a goal, a wave ends when its last enemy dies, the run when the last wave does - derived on every peer, kills on each player's own row, the run log in the saved scene.",
+		"version": "2.1.0",
+		"description": "A VR wave shooter in a sunset arena: a sci-fi gun in your hand (Blaster, Scatter or Beam) and an ability on your grip (Shield, Slow-mo or Pulse); five levels of walking robot grunts, runners and tanks march out of the portals toward your crystal - shoot them down before they breach it. Menu, how to play, loadout and options reachable in VR; best run saved; derived on every peer. Needs the health module.",
 		"author": "theprototype-app",
 		"source": "modules/waves",
 		"zip": "waves.zip",
@@ -289,6 +289,8 @@
 		"template": "games/waves",
 		"tags": [
 			"game",
+			"shooter",
+			"vr",
 			"survival",
 			"co-op"
 		]

@@ -1211,15 +1211,20 @@ function registerBeatLab(api) {
 	api.registerAudioDevice(drumsSpec(api)).then((/** @type {string} */ kind) => (KINDS.drums = kind));
 	api.registerAudioDevice(samplerSpec(api)).then((/** @type {string} */ kind) => (KINDS.sampler = kind));
 
-	api.registerClickHandler((/** @type {any} */ object) => {
-		const device = deviceRootOf(object);
-		const kind = device?.userData?.device?.kind;
-		if (!kind) return false;
-		if (kind === KINDS.drums) return clickDrums(api, device, object);
-		if (kind === KINDS.sampler) return clickSampler(api, device, object);
-		if (kind === KINDS.transport) return clickTransport(api, device, object);
-		return false;
-	});
+	// PLAY pieces (a step, a pad, the transport's buttons): Interact and Play. In Edit a
+	// click selects the device, so it can be moved like any other object.
+	api.registerClickHandler(
+		(/** @type {any} */ object) => {
+			const device = deviceRootOf(object);
+			const kind = device?.userData?.device?.kind;
+			if (!kind) return false;
+			if (kind === KINDS.drums) return clickDrums(api, device, object);
+			if (kind === KINDS.sampler) return clickSampler(api, device, object);
+			if (kind === KINDS.transport) return clickTransport(api, device, object);
+			return false;
+		},
+		{ modes: ['interact', 'play'] }
+	);
 	api.registerDropHandler?.((/** @type {any} */ hit, /** @type {any} */ item) => dropSample(api, hit, item));
 	api.registerFrameTask((/** @type {number} */ time) => beatLabFrame(api, time));
 
@@ -1245,7 +1250,7 @@ function registerBeatLab(api) {
 export default {
 	id: 'music-lab',
 	name: 'Music Lab',
-	version: '0.2.0',
+	version: '0.2.1',
 	description: 'A Piano, a Speaker, a Transport, a Drum machine and Sampler pads on the engine. Cable them, paint a beat, press Play.',
 	/** @param {any} api */
 	register(api) {
@@ -1269,16 +1274,20 @@ export default {
 		// Desktop click AND VR trigger, one path — the handler gets the exact mesh that was
 		// hit, so the key carries the note and the walk up to the device carries the uuid.
 		// The note goes through api.audio.note, which replicates it: no api.send here.
-		api.registerClickHandler((/** @type {any} */ object) => {
-			const midi = noteOf(object);
-			if (midi === null) return false;
-			let node = object;
-			while (node && node.userData?.device?.kind !== PIANO_KIND) node = node.parent;
-			if (!node || !PIANO_KIND) return false;
-			api.audio.note(node.uuid, { note: midi, velocity: 0.9 });
-			api.haptic(0.6, 60);
-			return true;
-		});
+		// A key is a PLAY piece — Interact and Play; an Edit click selects the piano.
+		api.registerClickHandler(
+			(/** @type {any} */ object) => {
+				const midi = noteOf(object);
+				if (midi === null) return false;
+				let node = object;
+				while (node && node.userData?.device?.kind !== PIANO_KIND) node = node.parent;
+				if (!node || !PIANO_KIND) return false;
+				api.audio.note(node.uuid, { note: midi, velocity: 0.9 });
+				api.haptic(0.6, 60);
+				return true;
+			},
+			{ modes: ['interact', 'play'] }
+		);
 
 		api.registerMenu('Music Lab: piano + speaker', () => {
 			const piano = api.audio.addDevice('piano', { position: [-1, 0, -2] });

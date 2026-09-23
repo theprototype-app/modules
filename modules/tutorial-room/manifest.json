@@ -1,7 +1,7 @@
 {
 	"id": "tutorial-room",
 	"name": "Tutorial Room",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"format": 1,
 	"description": "An in-scene onboarding room: signs and clickable stations teaching select, build, connect, flow and VR.",
 	"entry": "module.js",

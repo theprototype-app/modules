@@ -54,14 +54,26 @@ export default {
 			pulses[beacon.uuid] = at;
 		};
 
-		api.registerClickHandler((/** @type {any} */ object) => {
-			const beacon = beaconOf(object);
-			if (!beacon) return false; // not ours — let normal selection happen
-			const at = api.now(); // the SYNCED clock: stamp replicated times with it
-			pulse(beacon, at); // apply locally...
-			api.send({ op: 'pulse', uuid: beacon.uuid, at }); // ...and tell peers
-			return true; // consume the click (no selection)
-		});
+		// WHERE does a click reach you? The editor has two click modes and Play has one:
+		//   'edit'      a click SELECTS (and the gizmo moves it) — your handler runs here
+		//               only if it is an editor TOOL (a toolbox's "pick an object")
+		//   'interact'  the editor's play-style mode (key I): the scene reacts, nothing
+		//               is selected — a button presses, a key sounds
+		//   'play'      the game running (the crosshair tap, the VR trigger)
+		// The beacon is a PLAY piece, so it pulses in Interact and Play, and an Edit click
+		// selects it like any object. That is also the default when `modes` is absent —
+		// say it anyway, so a reader sees it was decided. (An older app ignores the option.)
+		api.registerClickHandler(
+			(/** @type {any} */ object) => {
+				const beacon = beaconOf(object);
+				if (!beacon) return false; // not ours — let normal selection happen
+				const at = api.now(); // the SYNCED clock: stamp replicated times with it
+				pulse(beacon, at); // apply locally...
+				api.send({ op: 'pulse', uuid: beacon.uuid, at }); // ...and tell peers
+				return true; // consume the click (no selection)
+			},
+			{ modes: ['interact', 'play'] }
+		);
 
 		// receivers apply the SAME change and never re-broadcast
 		api.onMessage((/** @type {any} */ data) => {
@@ -126,6 +138,9 @@ export default {
 		//   group.name = 'my-module';           // fixed name, scene root
 		//   api.scene().add(group);
 		//   api.registerInteractiveGroup('my-module');   // make it clickable
+		//   api.registerListedGroup?.('my-module', { label: 'My Module' }); // its object-list row
+		//   (it is listed READ-ONLY under "Module content"; an Edit click on it selects a
+		//   proxy that frames it — it is yours to rebuild, so nobody can move or delete it)
 		//   api.onSceneClear(() => { /* remove it + reset state */ });
 		//
 		// Keyboard / VR sticks:

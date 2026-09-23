@@ -30,6 +30,30 @@ export function clamp(n, lo, hi, fallback = lo) {
 
 /** @typedef {{waves: number, sizeStart: number, sizeStep: number, enemies: number}} Curve */
 
+/**
+ * 30b: LEVELS — every `perLevel` waves make a level (0 = no levels: the whole run is level 1,
+ * the pre-30b behaviour). A level walks its enemies faster by `levelSpeed` per level.
+ * @param {number} wave @param {any} perLevel
+ */
+export function levelOf(wave, perLevel) {
+	const p = Math.round(clamp(perLevel, 0, 50, 0));
+	if (!p) return 1;
+	return Math.max(1, Math.ceil(Math.max(1, wave) / p));
+}
+/** the walk's multiplier on a level @param {number} level @param {any} step */
+export function levelSpeed(level, step) {
+	return 1 + clamp(step, 0, 2, 0) * Math.max(0, level - 1);
+}
+/** is `wave` the first of its level (and not the first of the run)? @param {number} wave @param {any} perLevel */
+export function opensLevel(wave, perLevel) {
+	const p = Math.round(clamp(perLevel, 0, 50, 0));
+	return p > 0 && wave > 1 && (wave - 1) % p === 0;
+}
+/** what a kill scores: the kind's points times the level @param {number} points @param {number} level */
+export function killScore(points, level) {
+	return Math.round(points * Math.max(1, level));
+}
+
 /** the curve's numbers, clamped @param {any} data @param {number} enemies @returns {Curve} */
 export function curveOf(data, enemies) {
 	return {
@@ -112,23 +136,101 @@ export function healsBefore(i, n, c) {
 }
 
 /**
+ * 30b: THE ENEMY KINDS, read off the object's NAME (a pure rule every peer applies to the
+ * same replicated name): a Runner is fast and light, a Tank slow and heavy, anything else a
+ * Grunt. `speed` scales the walk, `knock` is how far one hit shoves it back (metres), `points`
+ * what a kill scores.
+ */
+export const KINDS = Object.freeze({
+	grunt: Object.freeze({ speed: 1, knock: 0.55, points: 100 }),
+	runner: Object.freeze({ speed: 1.8, knock: 0.8, points: 150 }),
+	tank: Object.freeze({ speed: 0.6, knock: 0.16, points: 400 })
+});
+/** @param {any} label @returns {'grunt' | 'runner' | 'tank'} */
+export function kindOf(label) {
+	const s = String(label ?? '');
+	if (/runner/i.test(s)) return 'runner';
+	if (/tank/i.test(s)) return 'tank';
+	return 'grunt';
+}
+
+/**
  * Where enemy `index` of a wave stands: it leaves `start` `stagger × index` seconds after
  * the wave starts and walks straight to `goal` at `speed`, then stays. Pure in (data,
  * time), so every peer places it identically with nothing sent.
- * @param {{start: number[], goal: number[], waveStart: number, index: number, now: number, speed: any, stagger: any}} p
+ * 30b: `setback` metres (the knockback its hits bought, itself a pure function of the hit
+ * counter) are taken off how far it has come — never behind its start, never past the goal.
+ * `slows` (30b Slow-mo) stretch the walk: inside a window it walks at SLOW_RATE.
+ * @param {{start: number[], goal: number[], waveStart: number, index: number, now: number, speed: any, stagger: any, setback?: number, slows?: {at: number, until: number}[]}} p
  * @returns {number[]}
  */
 export function enemyPosition(p) {
 	const speed = clamp(p.speed, 0.01, 100, DEFAULTS.speed);
 	const stagger = clamp(p.stagger, 0, 60, DEFAULTS.stagger);
-	const t = p.now - p.waveStart - stagger * p.index;
+	const leave = p.waveStart + stagger * p.index;
+	const t = p.slows?.length ? warpedElapsed(leave, p.now, p.slows) : p.now - leave;
 	if (!(t > 0)) return p.start.slice();
 	const dx = p.goal[0] - p.start[0];
 	const dz = p.goal[2] - p.start[2];
 	const dist = Math.hypot(dx, dz);
 	if (dist < 1e-6) return p.start.slice();
-	const f = Math.min(1, (t * speed) / dist);
+	const along = Math.min(dist, Math.max(0, t * speed - Math.max(0, Number(p.setback) || 0)));
+	const f = along / dist;
 	return [p.start[0] + dx * f, p.start[1], p.start[2] + dz * f];
+}
+
+/**
+ * 30b: THE ABILITIES' MARK ON THE WALK, pure. Slow-mo and Pulse are REPLICATED events (one
+ * player's ability changes the enemies everyone sees), kept in a round-scoped game variable:
+ *   {k: 'slow', at, until}        every enemy walks at SLOW_RATE between at and until
+ *   {k: 'push', at, d: {uuid: m}} each named enemy is shoved m metres back at `at`
+ * Every peer reads the same list, so every peer places every enemy the same.
+ */
+export const SLOW_RATE = 0.4;
+
+/** seconds of walking between `from` and `to` once the slow windows are taken at SLOW_RATE
+ * @param {number} from @param {number} to @param {{at: number, until: number}[]} slows @param {number=} rate */
+export function warpedElapsed(from, to, slows, rate = SLOW_RATE) {
+	if (!(to > from)) return to - from;
+	// merge the windows, clipped to [from, to]
+	const w = (slows ?? [])
+		.map((x) => [Math.max(from, Number(x.at)), Math.min(to, Number(x.until))])
+		.filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b) && b > a)
+		.sort((a, b) => a[0] - b[0]);
+	let slowed = 0;
+	let end = -Infinity;
+	for (const [a, b] of w) {
+		const s = Math.max(a, end);
+		if (b > s) slowed += b - s;
+		end = Math.max(end, b);
+	}
+	return to - from - (1 - rate) * slowed;
+}
+
+/** the metres an enemy was pushed back in THIS wave by Pulses up to `now` @param {string} uuid @param {any[]} events @param {number} since @param {number} now */
+export function pushedBy(uuid, events, since, now) {
+	let m = 0;
+	for (const e of events ?? []) if (e?.k === 'push' && e.at >= since && e.at <= now) m += Number(e.d?.[uuid]) || 0;
+	return m;
+}
+
+/** append an ability event to the round's list: other rounds' events dropped, capped, sorted
+ * @param {any} held the variable as stored @param {number} round @param {any} event @param {number=} cap */
+export function appendFx(held, round, event, cap = 40) {
+	const list = held && typeof held === 'object' && held.round === round && Array.isArray(held.ev) ? held.ev : [];
+	return { round, ev: [...list, event].sort((a, b) => a.at - b.at).slice(-cap) };
+}
+
+/** the round's events (none from an older round) @param {any} held @param {number | null} round */
+export function fxOf(held, round) {
+	return held && typeof held === 'object' && held.round === round && Array.isArray(held.ev) ? held.ev : [];
+}
+
+/** 30b: the knockback an enemy's hits in THIS life buy: every hit since its last heal shoves
+ * it `knock` metres back along its lane @param {number} hits @param {number} heals @param {number} max @param {number} knock */
+export function setbackOf(hits, heals, max, knock) {
+	const taken = Math.max(0, Math.min(max, (Number(hits) || 0) - (Number(heals) || 0)));
+	return taken * Math.max(0, Number(knock) || 0);
 }
 
 /** distance on the ground plane @param {number[]} a @param {number[]} b */
@@ -147,6 +249,8 @@ export function spawnFor(i, points, fallback) {
 export function runEntry(r) {
 	return {
 		at: r.at,
+		// 30: the round's stamp, the entry's identity when known (absent on an old entry)
+		...(typeof r.round === 'number' ? { round: r.round } : {}),
 		waves: r.waves,
 		reached: r.reached,
 		cleared: !!r.cleared,
@@ -154,10 +258,12 @@ export function runEntry(r) {
 	};
 }
 
-/** append idempotently (an entry with the same `at` is the same run), capped, newest last
+/** append idempotently, capped, newest last: an entry of the same ROUND (or, for entries with
+ * no round, the same `at`) is the same run and is replaced
  * @param {any} log @param {ReturnType<typeof runEntry>} entry @param {number} cap */
 export function appendRun(log, entry, cap = 50) {
-	const list = Array.isArray(log) ? log.filter((e) => e && e.at !== entry.at) : [];
+	const same = (/** @type {any} */ e) => (typeof entry.round === 'number' && e.round === entry.round) || e.at === entry.at;
+	const list = Array.isArray(log) ? log.filter((e) => e && !same(e)) : [];
 	list.push(entry);
 	return list.slice(-cap);
 }

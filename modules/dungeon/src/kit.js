@@ -255,9 +255,26 @@ export function createKit(api) {
 		if (remote.floorIndex && remote.floorIndex !== state.floorIndex) showFloor(remote.floorIndex, { broadcast: false });
 	}
 
+	/** @type {any} */ let _focus = null;
 	/** @param {number} time */
 	function tick(time) {
-		if (floorGroup) animateFloor(floorGroup, time);
+		if (!floorGroup) return;
+		// P4: the vault shows only IN PLAY (the editor keeps its open view). 30b: the capped lights
+		// follow the VIEWER everywhere — the player in Interact/Play, the camera in the editor (a VR
+		// editor flying through the dungeon is lit wherever it looks)
+		// 30b: Interact is a game view too (VR enters it from Play) — the vault closes there as well
+		const playing = (typeof api.isPlaying === 'function' && !!api.isPlaying()) || api.editorMode?.() === 'interact';
+		const p = typeof api.playerPosition === 'function' ? api.playerPosition() : null;
+		// the contract's frame is the group's LOCAL one (core's world root may carry a VR Edit
+		// transform above it — C1 P5); the viewer is world
+		let focus = null;
+		if (p && floorGroup.parent) {
+			const v = (_focus ??= new THREE.Vector3()).set(p[0], p[1], p[2]);
+			floorGroup.parent.updateWorldMatrix(true, false);
+			floorGroup.parent.worldToLocal(v);
+			focus = { x: v.x, z: v.z };
+		}
+		animateFloor(floorGroup, time, { playing, player: focus });
 	}
 
 	return { kit, state, group, handleMessage, getState, applyState, tick, ensureGroup: group };

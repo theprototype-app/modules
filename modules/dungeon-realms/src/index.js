@@ -19,7 +19,7 @@ import { hash32 } from './hash.js';
 export default {
 	id: 'dungeon-realms',
 	name: 'Dungeon Realms',
-	version: '2.0.0',
+	version: '2.2.0',
 	description:
 		'Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors — every rule and readout a flow node. Requires the "dungeon" (Dungeon Kit) module.',
 
@@ -30,6 +30,7 @@ export default {
 
 		api.registerSystemGroup(GROUP_NAME);
 		api.registerInteractiveGroup(GROUP_NAME);
+		api.registerListedGroup?.(GROUP_NAME, { label: 'Dungeon Realms' }); // 30: its object-list row
 
 		// ---- module card buttons -------------------------------------------------
 		api.registerMenu('Generate dungeon', () => {
@@ -42,6 +43,7 @@ export default {
 		});
 
 		// ---- clicks: portals travel, gems collect (desktop editor + VR trigger) ---
+		// 30: portals and gems are PLAY pieces — Interact and Play; an Edit click selects
 		api.registerClickHandler((mesh) => {
 			let cursor = mesh;
 			while (cursor && !cursor.userData?.portal && cursor.name !== 'dr-gems') cursor = cursor.parent;
@@ -69,7 +71,7 @@ export default {
 				api.toast('Sealed — collect ' + (need - have) + ' more gem' + (need - have === 1 ? '' : 's'));
 			} else game.travel(game.state.floorIndex + 1);
 			return true;
-		});
+		}, { modes: ['interact', 'play'] });
 
 		// ---- netcode ---------------------------------------------------------------
 		api.onMessage((data) => game.handleMessage(data));
@@ -101,7 +103,10 @@ export default {
 		// test/debug hook (never serialized): the flight reaches the game here too, so
 		// it can assert before any dungeon exists
 		if (typeof window !== 'undefined') {
-			/** @type {any} */ (window).__dungeonRealms = { game, nodes };
+			// 30b: + the module's own `api` object, so a flight can stand in for SDK calls an older
+			// core lacks (setSpawn, playSound, music, effects, hapticPattern, announce) and prove
+			// exactly what this module sends them
+			/** @type {any} */ (window).__dungeonRealms = { game, nodes, api };
 		}
 	}
 };
