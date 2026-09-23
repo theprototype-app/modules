@@ -24,6 +24,7 @@ import { makeEdgeLayer, makeBackplate, makeHoverRing, makeBurst, makeGlobe, COLO
 import { generate3, edgeCrossings3, solvedSphere, arcPoints, arcSegments, normalize } from './sphere.js';
 import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, isUnlocked, bestOf, makeStorage } from './progress.js';
 import { makeMenuKinds } from './menu.js';
+import { makeSfx } from './sfx.js';
 
 const GROUP = 'untangle-module';
 /** the modes this build plays: the flat board and (P3) the globe */
@@ -298,7 +299,6 @@ export default {
 			redraw(lastCounts);
 			ensureSprite();
 			drawSprite('Level ' + level + '  ·  ' + (crossings === 0 ? 'solved!' : crossings + ' crossing' + (crossings === 1 ? '' : 's')), crossings === 0 ? '#4ade80' : '#e2e8f0');
-			ambientSetTension(crossings);
 			return crossings;
 		}
 
@@ -331,51 +331,20 @@ export default {
 			setLevel(l, true, m);
 		}
 
-		// ---------- generative audio (lazy — browsers gate audio on a gesture) ----------
-		let ac = null;
-		let padGain = null;
-		let padFilter = null;
-		function audio() {
-			if (ac) return ac;
-			ac = new (window.AudioContext || window.webkitAudioContext)();
-			padGain = ac.createGain();
-			padGain.gain.value = 0.03;
-			padFilter = ac.createBiquadFilter();
-			padFilter.type = 'lowpass';
-			padFilter.frequency.value = 400;
-			const lfo = ac.createOscillator();
-			const lfoGain = ac.createGain();
-			lfo.frequency.value = 0.13;
-			lfoGain.gain.value = 0.012;
-			lfo.connect(lfoGain).connect(padGain.gain);
-			for (const [type, freq] of [['triangle', 110], ['triangle', 110.7], ['sine', 220.3]]) {
-				const osc = ac.createOscillator();
-				osc.type = type;
-				osc.frequency.value = freq;
-				osc.connect(padFilter);
-				osc.start();
-			}
-			padFilter.connect(padGain).connect(ac.destination);
-			lfo.start();
-			return ac;
-		}
-		function ambientSetTension(count) {
-			if (!ac) return; // starts on the first interaction
-			padFilter.frequency.linearRampToValueAtTime(320 + Math.max(0, 24 - count) * 60, ac.currentTime + 0.6);
-		}
-		function blip(freq, duration = 0.07, gain = 0.12) {
-			const ctx = audio();
-			const osc = ctx.createOscillator();
-			const g = ctx.createGain();
-			osc.frequency.value = freq;
-			g.gain.setValueAtTime(gain, ctx.currentTime);
-			g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-			osc.connect(g).connect(ctx.destination);
-			osc.start();
-			osc.stop(ctx.currentTime + duration);
-		}
-		function winSting() {
-			[523.25, 659.25, 783.99, 1046.5].forEach((f, i) => setTimeout(() => blip(f, 0.22, 0.14), i * 110));
+		// ---------- sound, music, haptics (sfx.js) ----------
+		// 30b: ONE short sound per event and nothing per frame. The old generative pad (three
+		// never-stopped oscillators whose filter was re-ramped by every refresh — i.e. every
+		// frame of a drag) was the "weird sound while moving the dots"; it is gone.
+		const sfx = makeSfx(api);
+		/** a board point's WORLD position, for a spatial sound or an effect */
+		const worldOf = (v) => (group ? group.localToWorld(v.clone()).toArray() : undefined);
+		/** the solve: a chime, a sparkle, a banner (and on the unlock a level-up after it) */
+		function celebrate(unlocked, fromMe) {
+			const centre = worldOf(new THREE.Vector3(0, 0, 0));
+			sfx.play('success', centre);
+			if (centre && typeof api.effects?.burst === 'function') api.effects.burst(centre, { kind: 'sparkle', color: '#3ee08f', count: 48 });
+			if (typeof api.announce === 'function') api.announce('Level ' + level + ' solved', { sub: mode === '3d' ? 'Globe' : undefined, color: '#3ee08f' });
+			if (unlocked) setTimeout(() => sfx.play('levelup', centre), 650);
 		}
 
 		// ---------- events out (fireNodeTrigger replicates: pulse where it HAPPENED) ----------
@@ -400,13 +369,15 @@ export default {
 				if (clock.start !== null && clock.ms === null) clock.ms = performance.now() - clock.start;
 				// fork 9: whoever solves banks it LOCALLY — every peer that moved a dot on this
 				// board (the co-op partners too), never a spectator
+				let unlocked = false;
 				if (participated) {
 					const r = recordSolve(progress, mode, level, clock.ms);
 					progress = r.progress;
 					clock.newBest = r.newBest;
+					unlocked = r.unlockedNew;
 					saveProgress();
 				}
-				winSting();
+				celebrate(unlocked, fromMe);
 				burst?.start(
 					positions.map((q) => local(q)),
 					(c) => (mode === '3d' ? c.clone().normalize() : new THREE.Vector3(0, 0, 1)),
@@ -421,7 +392,7 @@ export default {
 						if (!won) return; // a restart got there first
 						setLevel(level + 1, fromMe);
 					}, 1200);
-				} else api.toast('Untangled!');
+				} else if (typeof api.announce !== 'function') api.toast('Untangled!'); // the banner says it on a 30b core
 			}
 		}
 		/** the authoritative drop of dot i at board point p (apply locally + send) */
@@ -530,7 +501,7 @@ export default {
 			carried = i;
 			carryHow = how;
 			paintDot(i);
-			blip(660);
+			sfx.play('pop', worldOf(local(positions[i])));
 		}
 		/** drop the carried dot where it is (after one last follow of the drop's own ray) */
 		function drop(how, event) {
@@ -542,7 +513,7 @@ export default {
 			paintDot(i);
 			lastDrop = how;
 			gesture.reset();
-			blip(440);
+			sfx.play('click', worldOf(local(positions[i])));
 			dropAt(i, positions[i]);
 		}
 		/** the renderer's canvas (or anything while a lock holds the pointer) — never a HUD box */
@@ -639,6 +610,9 @@ export default {
 				else if (clock.start === null) clock.start = performance.now();
 			}
 			wasUnderway = underway;
+			// 30b: the quiet puzzle music while the board is PLAYED (Play, or Interact — VR's
+			// play) and stands in the scene; sfx.music acts on the change only
+			sfx.music(!!group?.parent && built && (!!api.isPlaying?.() || api.editorMode?.() === 'interact'));
 			if (!group) return;
 			const t = performance.now() / 1000;
 			burst?.tick(t);
@@ -878,6 +852,8 @@ export default {
 			select: (lvl, md) => selectLevel(lvl, md ?? mode),
 			progress: () => JSON.parse(JSON.stringify(progress)),
 			storageKind: storage.kind,
+			/** 30b: every board sound / haptic asked for, the local voices still sounding, the music */
+			sfx: () => sfx.stats(),
 			clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),
 			/** P1: what the board is drawn with, as numbers a flight can assert */
 			look: () => {

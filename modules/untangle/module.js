@@ -1139,6 +1139,113 @@ function makeMenuKinds(ctx) {
   };
 }
 
+// modules/untangle/src/sfx.js
+var FALLBACK = {
+  pop: [[720, 1100, 0.07, 0.07, "sine"]],
+  click: [[1500, 1400, 0.03, 0.035, "triangle"]],
+  success: [
+    [523.25, 523.25, 0.18, 0.06, "triangle", 0],
+    [659.25, 659.25, 0.18, 0.06, "triangle", 0.09],
+    [783.99, 783.99, 0.26, 0.06, "triangle", 0.18],
+    [1046.5, 1046.5, 0.4, 0.05, "sine", 0.27]
+  ],
+  levelup: [
+    [587.33, 587.33, 0.12, 0.05, "sine", 0],
+    [880, 880, 0.24, 0.05, "sine", 0.1]
+  ]
+};
+var HAPTIC_FALLBACK = {
+  tap: [[0.25, 15]],
+  bump: [[0.5, 35]],
+  success: [[0.4, 40], [0.6, 40], [0.9, 80]]
+};
+var MUSIC_VOLUME = 0.35;
+var hasCoreSfx = (api) => typeof api?.music?.play === "function";
+function makeSfx(api, env = {}) {
+  const log = [];
+  let ac = null;
+  let live = 0;
+  let musicOn = false;
+  const later = env.setTimeout ?? ((fn, ms) => setTimeout(fn, ms));
+  function context() {
+    if (ac) return ac;
+    const make = env.audioContext ?? (() => {
+      const AC = typeof window !== "undefined" ? window.AudioContext || /** @type {any} */
+      window.webkitAudioContext : null;
+      return AC ? new AC() : null;
+    });
+    ac = make();
+    return ac;
+  }
+  function fallback(name) {
+    const voices = FALLBACK[name];
+    if (!voices) return;
+    let ctx;
+    try {
+      ctx = context();
+    } catch {
+      return;
+    }
+    if (!ctx) return;
+    if (ctx.state === "suspended") ctx.resume?.().catch?.(() => {
+    });
+    for (const [f0, f1, dur, gain, type, delay = 0] of voices) {
+      const t = ctx.currentTime + delay;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f0, t);
+      if (f1 !== f0) osc.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      g.gain.setValueAtTime(1e-4, t);
+      g.gain.exponentialRampToValueAtTime(gain, t + 8e-3);
+      g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+      osc.connect(g).connect(ctx.destination);
+      live++;
+      osc.onended = () => {
+        live--;
+        osc.disconnect();
+        g.disconnect();
+      };
+      osc.start(t);
+      osc.stop(t + dur + 0.02);
+    }
+  }
+  return {
+    /** one board sound (LOCAL, like every playSound) @param {string} name @param {number[]} [position] */
+    play(name, position) {
+      log.push(name);
+      if (hasCoreSfx(api)) api.playSound?.(name, position);
+      else fallback(name);
+    },
+    /** a haptic preset on one hand (or both) @param {'tap'|'bump'|'success'} name @param {'left'|'right'} [hand] */
+    haptic(name, hand) {
+      log.push("haptic:" + name + (hand ? ":" + hand : ""));
+      if (typeof api.hapticPattern === "function") {
+        api.hapticPattern(name, hand);
+        return;
+      }
+      if (typeof api.haptic !== "function") return;
+      let at = 0;
+      for (const [intensity, ms] of HAPTIC_FALLBACK[name] ?? []) {
+        if (at === 0) api.haptic(intensity, ms, hand);
+        else later(() => api.haptic(intensity, ms, hand), at);
+        at += ms + 60;
+      }
+    },
+    /** the puzzle music follows `on` — called every frame, acts only on a change @param {boolean} on */
+    music(on) {
+      if (on === musicOn) return;
+      musicOn = on;
+      if (typeof api.music?.play !== "function") return;
+      log.push(on ? "music:puzzle" : "music:stop");
+      if (on) api.music.play("puzzle", { volume: MUSIC_VOLUME });
+      else api.music.stop?.();
+    },
+    /** what the flights read: the log, the fallback voices sounding, whether music is on */
+    stats: () => ({ log: [...log], live, contexts: ac ? 1 : 0, music: musicOn, core: hasCoreSfx(api) })
+  };
+}
+
 // modules/untangle/src/index.js
 var GROUP = "untangle-module";
 var MODES_PLAYED = ["2d", "3d"];
@@ -1376,7 +1483,6 @@ var index_default = {
       redraw(lastCounts);
       ensureSprite();
       drawSprite("Level " + level + "  \xB7  " + (crossings === 0 ? "solved!" : crossings + " crossing" + (crossings === 1 ? "" : "s")), crossings === 0 ? "#4ade80" : "#e2e8f0");
-      ambientSetTension(crossings);
       return crossings;
     }
     function setLevel(lvl, announce = false, md = mode) {
@@ -1405,50 +1511,14 @@ var index_default = {
       api.send({ op: "restart", level: l, mode: m });
       setLevel(l, true, m);
     }
-    let ac = null;
-    let padGain = null;
-    let padFilter = null;
-    function audio() {
-      if (ac) return ac;
-      ac = new (window.AudioContext || window.webkitAudioContext)();
-      padGain = ac.createGain();
-      padGain.gain.value = 0.03;
-      padFilter = ac.createBiquadFilter();
-      padFilter.type = "lowpass";
-      padFilter.frequency.value = 400;
-      const lfo = ac.createOscillator();
-      const lfoGain = ac.createGain();
-      lfo.frequency.value = 0.13;
-      lfoGain.gain.value = 0.012;
-      lfo.connect(lfoGain).connect(padGain.gain);
-      for (const [type, freq] of [["triangle", 110], ["triangle", 110.7], ["sine", 220.3]]) {
-        const osc = ac.createOscillator();
-        osc.type = type;
-        osc.frequency.value = freq;
-        osc.connect(padFilter);
-        osc.start();
-      }
-      padFilter.connect(padGain).connect(ac.destination);
-      lfo.start();
-      return ac;
-    }
-    function ambientSetTension(count) {
-      if (!ac) return;
-      padFilter.frequency.linearRampToValueAtTime(320 + Math.max(0, 24 - count) * 60, ac.currentTime + 0.6);
-    }
-    function blip(freq, duration = 0.07, gain = 0.12) {
-      const ctx = audio();
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.frequency.value = freq;
-      g.gain.setValueAtTime(gain, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(1e-3, ctx.currentTime + duration);
-      osc.connect(g).connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + duration);
-    }
-    function winSting() {
-      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => setTimeout(() => blip(f, 0.22, 0.14), i * 110));
+    const sfx = makeSfx(api);
+    const worldOf = (v) => group ? group.localToWorld(v.clone()).toArray() : void 0;
+    function celebrate(unlocked, fromMe) {
+      const centre = worldOf(new THREE.Vector3(0, 0, 0));
+      sfx.play("success", centre);
+      if (centre && typeof api.effects?.burst === "function") api.effects.burst(centre, { kind: "sparkle", color: "#3ee08f", count: 48 });
+      if (typeof api.announce === "function") api.announce("Level " + level + " solved", { sub: mode === "3d" ? "Globe" : void 0, color: "#3ee08f" });
+      if (unlocked) setTimeout(() => sfx.play("levelup", centre), 650);
     }
     function fire(event) {
       if (typeof api.fireNodeTrigger === "function") api.fireNodeTrigger("utevent", (data) => (data?.event ?? "solved") === event);
@@ -1465,13 +1535,15 @@ var index_default = {
         won = true;
         solvedCount++;
         if (clock.start !== null && clock.ms === null) clock.ms = performance.now() - clock.start;
+        let unlocked = false;
         if (participated) {
           const r = recordSolve(progress, mode, level, clock.ms);
           progress = r.progress;
           clock.newBest = r.newBest;
+          unlocked = r.unlockedNew;
           saveProgress();
         }
-        winSting();
+        celebrate(unlocked, fromMe);
         burst?.start(
           positions.map((q) => local(q)),
           (c) => mode === "3d" ? c.clone().normalize() : new THREE.Vector3(0, 0, 1),
@@ -1486,7 +1558,7 @@ var index_default = {
             if (!won) return;
             setLevel(level + 1, fromMe);
           }, 1200);
-        } else api.toast("Untangled!");
+        } else if (typeof api.announce !== "function") api.toast("Untangled!");
       }
     }
     function dropAt(i, p) {
@@ -1575,7 +1647,7 @@ var index_default = {
       carried = i;
       carryHow = how;
       paintDot(i);
-      blip(660);
+      sfx.play("pop", worldOf(local(positions[i])));
     }
     function drop(how, event) {
       if (carried === -1) return;
@@ -1586,7 +1658,7 @@ var index_default = {
       paintDot(i);
       lastDrop = how;
       gesture.reset();
-      blip(440);
+      sfx.play("click", worldOf(local(positions[i])));
       dropAt(i, positions[i]);
     }
     function isViewport(event) {
@@ -1666,6 +1738,7 @@ var index_default = {
         else if (clock.start === null) clock.start = performance.now();
       }
       wasUnderway = underway;
+      sfx.music(!!group?.parent && built && (!!api.isPlaying?.() || api.editorMode?.() === "interact"));
       if (!group) return;
       const t = performance.now() / 1e3;
       burst?.tick(t);
@@ -1906,6 +1979,8 @@ var index_default = {
       select: (lvl, md) => selectLevel(lvl, md ?? mode),
       progress: () => JSON.parse(JSON.stringify(progress)),
       storageKind: storage.kind,
+      /** 30b: every board sound / haptic asked for, the local voices still sounding, the music */
+      sfx: () => sfx.stats(),
       clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),
       /** P1: what the board is drawn with, as numbers a flight can assert */
       look: () => {
