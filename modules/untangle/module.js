@@ -459,9 +459,11 @@ function makeBackplate(THREE, R) {
   grid.name = "untangle-grid";
   grid.position.z = -R * 0.055;
   group.add(grid);
-  const path = roundedRect(THREE, h, R * 0.16);
+  const outline = roundedRect(THREE, h, R * 0.16).getSpacedPoints(200);
+  outline.pop();
+  const path = new THREE.CatmullRomCurve3(outline.map((p) => new THREE.Vector3(p.x, p.y, 0)), true);
   const rimMat = new THREE.MeshBasicMaterial({ color: AMBER, toneMapped: false });
-  const rim = new THREE.Mesh(new THREE.TubeGeometry(path, 160, R * 0.014, 8, true), rimMat);
+  const rim = new THREE.Mesh(new THREE.TubeGeometry(path, 200, R * 0.014, 8, true), rimMat);
   rim.name = "untangle-rim";
   rim.position.z = -R * 0.05;
   group.add(rim);
