@@ -18,7 +18,7 @@ import { pitchHud } from './hud.js';
 export default {
 	id: 'football',
 	name: 'Football',
-	version: '1.0.0',
+	version: '1.1.0',
 	description:
 		'VR football on the knock: floating ball, two team gates, last-touch attribution, modes, per-player records and a saved match log — every rule a flow node.',
 

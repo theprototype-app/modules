@@ -21,7 +21,7 @@ function makeRng(seed) {
     t ^= t + Math.imul(t ^ t >>> 7, t | 61);
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
-  const rng = {
+  const rng2 = {
     seed: seed >>> 0,
     /** uniform [0,1) */
     next,
@@ -36,7 +36,7 @@ function makeRng(seed) {
     /** independent child stream — same label, same stream, always @param {string} label */
     fork: (label) => makeRng(hash32(seed, label))
   };
-  return rng;
+  return rng2;
 }
 function checksum32(arr, h = 2166136261) {
   for (let i = 0; i < arr.length; i++) {
@@ -93,11 +93,11 @@ var PLACES = [
 ];
 var SYL_A = ["Vor", "Mal", "Kar", "Thu", "Gor", "Zan", "Bel", "Dra", "Ny", "Ul", "Sha", "Mor"];
 var SYL_B = ["gul", "thak", "ric", "mash", "dun", "zir", "goth", "ral", "ssk", "bar", "nox", "vek"];
-function dungeonName(rng) {
-  const adjective = rng.pick(ADJECTIVES);
-  const place = rng.pick(PLACES);
-  if (rng.chance(0.6)) {
-    const owner = rng.pick(SYL_A) + (rng.chance(0.5) ? "'" : "") + rng.pick(SYL_B);
+function dungeonName(rng2) {
+  const adjective = rng2.pick(ADJECTIVES);
+  const place = rng2.pick(PLACES);
+  if (rng2.chance(0.6)) {
+    const owner = rng2.pick(SYL_A) + (rng2.chance(0.5) ? "'" : "") + rng2.pick(SYL_B);
     return "The " + adjective + " " + place + " of " + owner;
   }
   return "The " + adjective + " " + place;
@@ -115,7 +115,7 @@ var DEFAULT_PARAMS = {
   gemDensity: 1
 };
 var now = () => typeof performance !== "undefined" ? performance.now() : Date.now();
-function scatterRooms(rng, roomCount) {
+function scatterRooms(rng2, roomCount) {
   const candidates = Math.ceil(roomCount * 1.4);
   const rx = 2.4 * Math.sqrt(roomCount) + 4;
   const ry = rx * 0.72;
@@ -123,20 +123,20 @@ function scatterRooms(rng, roomCount) {
   for (let i = 0; i < candidates; i++) {
     let ux = 0, uy = 0;
     do {
-      ux = rng.float(-1, 1);
-      uy = rng.float(-1, 1);
+      ux = rng2.float(-1, 1);
+      uy = rng2.float(-1, 1);
     } while (ux * ux + uy * uy > 1);
-    const roll = rng.next();
+    const roll = rng2.next();
     const archetype = roll < 0.45 ? "small" : roll < 0.85 ? "medium" : "large";
     const [lo, hi] = archetype === "small" ? [5, 7] : archetype === "medium" ? [8, 12] : [13, 18];
-    const shapeRoll = rng.next();
+    const shapeRoll = rng2.next();
     const shape = shapeRoll < 0.6 ? "rect" : shapeRoll < 0.82 ? "ellipse" : "octagon";
     rooms.push({
       id: i,
       archetype,
       shape,
-      w: rng.int(lo, hi),
-      h: rng.int(lo, hi),
+      w: rng2.int(lo, hi),
+      h: rng2.int(lo, hi),
       fx: ux * rx,
       // float centers until separation snaps them
       fy: uy * ry
@@ -146,8 +146,8 @@ function scatterRooms(rng, roomCount) {
   for (let i = rooms.length - 1; i >= 0 && larges < 2; i--) {
     if (rooms[i].archetype === "large") continue;
     rooms[i].archetype = "large";
-    rooms[i].w = rng.int(13, 18);
-    rooms[i].h = rng.int(13, 18);
+    rooms[i].w = rng2.int(13, 18);
+    rooms[i].h = rng2.int(13, 18);
     larges++;
   }
   return rooms;
@@ -253,7 +253,7 @@ function delaunayEdges(points) {
   }
   return list;
 }
-function buildGraph(centers, delaunay, rng, loopChance) {
+function buildGraph(centers, delaunay, rng2, loopChance) {
   const length = ([u, v]) => Math.hypot(centers[u].x - centers[v].x, centers[u].y - centers[v].y);
   const inTree = /* @__PURE__ */ new Set([0]);
   const mst = [];
@@ -281,7 +281,7 @@ function buildGraph(centers, delaunay, rng, loopChance) {
   const rejected = [];
   remaining.forEach((edge) => {
     if (length(edge) > 2.2 * meanMst) return;
-    if (rng.chance(loopChance)) {
+    if (rng2.chance(loopChance)) {
       edges.push({ a: edge[0], b: edge[1], isLoop: true, isCritical: false });
       loops++;
     } else rejected.push(edge);
@@ -311,7 +311,7 @@ function graphDistances(roomCount, edges, from) {
   }
   return dist;
 }
-function assignSemantics(rooms, edges, rng) {
+function assignSemantics(rooms, edges, rng2) {
   const degree = new Int32Array(rooms.length);
   edges.forEach((e) => {
     degree[e.a]++;
@@ -367,16 +367,16 @@ function assignSemantics(rooms, edges, rng) {
   const leaves = rooms.map((r, i) => i).filter((i) => i !== boss && i !== entrance && degree[i] === 1).sort((a, b) => fromEntrance[b] - fromEntrance[a] || a - b);
   leaves.slice(0, 4).forEach((i) => rooms[i].type = "treasure");
   const shrineCandidates = rooms.map((r, i) => i).filter((i) => rooms[i].type === "combat" && !critical.has(i) && fromEntrance[i] >= 0.4 * maxDepth && fromEntrance[i] <= 0.7 * maxDepth);
-  const shrineCount = Math.min(shrineCandidates.length, rng.int(1, 2));
+  const shrineCount = Math.min(shrineCandidates.length, rng2.int(1, 2));
   for (let k = 0; k < shrineCount; k++) {
-    const pickIndex = rng.int(0, shrineCandidates.length - 1);
+    const pickIndex = rng2.int(0, shrineCandidates.length - 1);
     rooms[shrineCandidates[pickIndex]].type = "shrine";
     shrineCandidates.splice(pickIndex, 1);
   }
   const eliteCandidates = rooms.map((r, i) => i).filter((i) => rooms[i].type === "combat" && critical.has(i) && rooms[i].archetype !== "small" && fromEntrance[i] >= 0.55 * maxDepth && fromEntrance[i] <= 0.85 * maxDepth);
-  const eliteCount = Math.min(eliteCandidates.length, rng.int(1, 2));
+  const eliteCount = Math.min(eliteCandidates.length, rng2.int(1, 2));
   for (let k = 0; k < eliteCount; k++) {
-    const pickIndex = rng.int(0, eliteCandidates.length - 1);
+    const pickIndex = rng2.int(0, eliteCandidates.length - 1);
     rooms[eliteCandidates[pickIndex]].type = "elite";
     eliteCandidates.splice(pickIndex, 1);
   }
@@ -398,7 +398,7 @@ function inRoomShape(room, x, y) {
   const ey = Math.min(y - room.y, room.y + room.h - 1 - y);
   return ex + ey >= chamfer;
 }
-function rasterize(rooms, edges, semantics, rng) {
+function rasterize(rooms, edges, semantics, rng2) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   rooms.forEach((r) => {
     minX = Math.min(minX, r.x);
@@ -456,7 +456,7 @@ function rasterize(rooms, edges, semantics, rng) {
       const x0 = Math.min(a.cx, b.cx), x1 = Math.max(a.cx, b.cx);
       for (let x = x0; x <= x1; x++) stampCorridor(x, y, width, true);
     } else {
-      const horizontalFirst = rng.chance(0.5);
+      const horizontalFirst = rng2.chance(0.5);
       const stepX = a.cx <= b.cx ? 1 : -1;
       const stepY = a.cy <= b.cy ? 1 : -1;
       if (horizontalFirst) {
@@ -513,7 +513,7 @@ function rasterize(rooms, edges, semantics, rng) {
   }
   return { W, H, grid, roomOf, corridorCells, corridorSet, doorways, bfs };
 }
-function decorate(rooms, raster, semantics, params, rng) {
+function decorate(rooms, raster, semantics, params, rng2) {
   const { W, H, grid, roomOf, doorways, corridorSet } = raster;
   const props = [];
   const spawns = [];
@@ -566,16 +566,16 @@ function decorate(rooms, raster, semantics, params, rng) {
     const cells = freeCells(room);
     const count = Math.round(cells.length * 0.05 * params.decorDensity * (1.4 - room.difficulty));
     for (let k = 0; k < count && cells.length; k++) {
-      const cell = cells.splice(rng.int(0, cells.length - 1), 1)[0];
-      place("debris", cell.x, cell.y, room.id, { rot: rng.float(0, 6.283), scale: rng.float(0.5, 1.1) });
+      const cell = cells.splice(rng2.int(0, cells.length - 1), 1)[0];
+      place("debris", cell.x, cell.y, room.id, { rot: rng2.float(0, 6.283), scale: rng2.float(0.5, 1.1) });
     }
   });
   rooms.forEach((room) => {
     if (room.type !== "combat") return;
     const cells = freeCells(room, (x, y) => wallAdjacent(x, y) && !doorwayNear(x, y, 2));
-    const count = Math.min(cells.length, Math.max(0, Math.round(rng.int(2, 4) * params.decorDensity)));
+    const count = Math.min(cells.length, Math.max(0, Math.round(rng2.int(2, 4) * params.decorDensity)));
     for (let k = 0; k < count && cells.length; k++) {
-      const cell = cells.splice(rng.int(0, cells.length - 1), 1)[0];
+      const cell = cells.splice(rng2.int(0, cells.length - 1), 1)[0];
       place("crate", cell.x, cell.y, room.id);
     }
   });
@@ -590,7 +590,7 @@ function decorate(rooms, raster, semantics, params, rng) {
     } else if (room.type === "treasure") {
       const cells = freeCells(room, (x, y) => Math.abs(x - room.cx) <= 1 && Math.abs(y - room.cy) <= 1);
       if (cells.length) {
-        const cell = cells[rng.int(0, cells.length - 1)];
+        const cell = cells[rng2.int(0, cells.length - 1)];
         place("chest", cell.x, cell.y, room.id);
       }
     } else if (room.type === "shrine") {
@@ -602,7 +602,7 @@ function decorate(rooms, raster, semantics, params, rng) {
   });
   const gemCount = Math.max(4, Math.min(40, Math.round(rooms.length * 0.4 * (params.gemDensity ?? 1))));
   const gemRooms = rooms.filter((r) => r.type !== "entrance");
-  const gemRng = rng.fork("gems");
+  const gemRng = rng2.fork("gems");
   let gemsPlaced = 0;
   let attempts = gemCount * 8;
   while (gemsPlaced < gemCount && attempts-- > 0) {
@@ -623,7 +623,7 @@ function decorate(rooms, raster, semantics, params, rng) {
     place("gem", cell.x, cell.y, room.id, { index: gemsPlaced });
     gemsPlaced++;
   }
-  const spawnRng = rng.fork("spawns");
+  const spawnRng = rng2.fork("spawns");
   rooms.forEach((room) => {
     if (room.type !== "combat" && room.type !== "elite") return;
     const area = room.w * room.h;
@@ -691,13 +691,13 @@ function generateDungeon(seed, params = {}, floorIndex = 1) {
   let failures = [];
   for (let attempt = 0; attempt < 5; attempt++) {
     const attemptSeed = attempt === 0 ? seed >>> 0 : hash32(seed, "attempt", attempt);
-    const rng = makeRng(attemptSeed);
-    const rooms = separateRooms(scatterRooms(rng.fork("rooms"), merged.roomCount), merged.roomCount);
+    const rng2 = makeRng(attemptSeed);
+    const rooms = separateRooms(scatterRooms(rng2.fork("rooms"), merged.roomCount), merged.roomCount);
     const centers = rooms.map((r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 }));
-    const { edges, loops } = buildGraph(centers, delaunayEdges(centers), rng.fork("graph"), merged.loopChance);
-    const semantics = assignSemantics(rooms, edges, rng.fork("semantics"));
-    const raster = rasterize(rooms, edges, semantics, rng.fork("carve"));
-    const { props, spawns } = decorate(rooms, raster, semantics, merged, rng.fork("decor"));
+    const { edges, loops } = buildGraph(centers, delaunayEdges(centers), rng2.fork("graph"), merged.loopChance);
+    const semantics = assignSemantics(rooms, edges, rng2.fork("semantics"));
+    const raster = rasterize(rooms, edges, semantics, rng2.fork("carve"));
+    const { props, spawns } = decorate(rooms, raster, semantics, merged, rng2.fork("decor"));
     let floorTiles = 0, wallTiles = 0;
     for (let i = 0; i < raster.grid.length; i++) {
       if (raster.grid[i] === FLOOR) floorTiles++;
@@ -708,7 +708,7 @@ function generateDungeon(seed, params = {}, floorIndex = 1) {
       floorIndex,
       theme: null,
       // stamped by the campaign
-      name: dungeonName(rng.fork("name")),
+      name: dungeonName(rng2.fork("name")),
       W: raster.W,
       H: raster.H,
       grid: raster.grid,
@@ -817,12 +817,12 @@ function placePortals(dungeon, floorIndex, levelCount) {
   }
   if (floorIndex >= 2) addPortal("down", entrance, false);
 }
-function typeSpawns(dungeon, floorIndex, bestiaryTable, rng) {
+function typeSpawns(dungeon, floorIndex, bestiaryTable, rng2) {
   const legal = bestiaryTable.filter((b) => floorIndex >= b.floors[0] && floorIndex <= b.floors[1]);
   if (!legal.length) return;
   const total = legal.reduce((s, b) => s + b.weight, 0);
   dungeon.spawns.forEach((spawn) => {
-    let roll = rng.float(0, total);
+    let roll = rng2.float(0, total);
     spawn.type = legal[legal.length - 1].id;
     for (const b of legal) {
       roll -= b.weight;
@@ -836,7 +836,7 @@ function typeSpawns(dungeon, floorIndex, bestiaryTable, rng) {
     const present = new Set(dungeon.spawns.map((s) => s.type));
     const missing = legal.filter((b) => !present.has(b.id));
     missing.forEach((b) => {
-      const slot = dungeon.spawns[rng.int(0, dungeon.spawns.length - 1)];
+      const slot = dungeon.spawns[rng2.int(0, dungeon.spawns.length - 1)];
       slot.type = b.id;
     });
   }
@@ -910,7 +910,145 @@ function validateCampaign(campaign) {
   return failures;
 }
 
+// modules/dungeon/src/look.js
+var LOOK = {
+  /** the floor tiles' TOP, a hair above the editor grid (which draws at y = 0) */
+  floorTop: 0.015,
+  /** lifts applied to the theme tints (the themes were authored for a black void) */
+  floorLift: 1.5,
+  wallLift: 1.9,
+  /** every theme tint is pulled this far toward a warm stone grey before the lift, so a crypt
+   * reads as stone lit by torches rather than a flat green-teal */
+  stone: 9208436,
+  stoneMix: 0.45,
+  wallRoughness: 0.78,
+  /** flames: emissive over 1 so the bloom pass picks them up */
+  flameIntensity: 3.2,
+  /** point lights per floor — CAPPED (the frame budget). P4: four, and in play they follow the
+   * player to the nearest torches, so four light the torches around you (paired fps runs: 5 fell under 90%) */
+  lightBudget: 4,
+  lightIntensity: 18,
+  lightDistance: 10,
+  /** P4: the ceiling (play only — a single-sided plane facing DOWN: invisible from above, a dark
+   * vault from inside) and the torch props */
+  ceilingY: 2.32,
+  vaultMargin: 30,
+  ceilingTint: 2762274,
+  textureSize: 128,
+  /** seconds between re-assigning the capped lights to the torches nearest the player */
+  lightReassign: 0.25,
+  /** minimum Rec.709 luma (0..1, sRGB) a lifted wall tint must reach */
+  minWallLuma: 0.35
+};
+function mix(hex, to, t) {
+  const c = (shift) => Math.round((hex >> shift & 255) * (1 - t) + (to >> shift & 255) * t);
+  return c(16) << 16 | c(8) << 8 | c(0);
+}
+function stoneTint(hex, k) {
+  return lift(mix(hex, LOOK.stone, LOOK.stoneMix), k);
+}
+function lift(hex, k) {
+  const c = (shift) => Math.min(255, Math.round((hex >> shift & 255) * k));
+  return c(16) << 16 | c(8) << 8 | c(0);
+}
+function pickLights(spots, focus, budget, near = 3) {
+  if (budget <= 0 || !spots.length) return [];
+  const order = spots.map((_, i) => i);
+  const first = focus ? [...order].sort((a, b) => Math.hypot(spots[a].x - focus.x, spots[a].z - focus.z) - Math.hypot(spots[b].x - focus.x, spots[b].z - focus.z) || a - b).slice(0, Math.min(near, budget)) : [];
+  const rest = order.filter((i) => !first.includes(i));
+  const left = Math.min(budget - first.length, rest.length);
+  const spread = [];
+  for (let k = 0; k < left; k++) spread.push(rest[Math.floor(k * rest.length / left)]);
+  return [...first, ...spread];
+}
+function flameFlicker(time, x, z) {
+  return 1 + Math.sin(time * 11 + x * 2.3) * 0.12 + Math.sin(time * 27 + z * 3.1) * 0.07;
+}
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = a + 1831565813 >>> 0;
+    let t = a;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function stoneLayout(kind, size, seed) {
+  const r = rng(seed ^ (kind === "brick" ? 177 : 241));
+  const rows = kind === "brick" ? 4 : 3;
+  const cuts = (n, jitter) => {
+    const c = [0];
+    for (let i = 1; i < n; i++) c.push(Math.round((i / n + (r() - 0.5) * jitter / n) * size));
+    c.push(size);
+    return c;
+  };
+  const rowCut = cuts(rows, kind === "brick" ? 0.3 : 0.5);
+  const course = Array.from({ length: rows }, () => {
+    const n = kind === "brick" ? 2 + (r() < 0.5 ? 1 : 0) : 3;
+    const joints = cuts(n, 0.6).slice(0, -1);
+    const offset = Math.floor(r() * size);
+    return { joints: joints.map((j) => (j + offset) % size).sort((a, b) => a - b), shade: joints.map(() => 0.62 + r() * 0.38) };
+  });
+  return { r, rowCut, course };
+}
+function stoneTexture(kind, size = LOOK.textureSize, seed = 356371) {
+  const { r, rowCut, course } = stoneLayout(kind, size, seed);
+  const out = new Uint8Array(size * size * 4);
+  const G = 8;
+  const grime = Array.from({ length: G * G }, () => r());
+  const blotch = (x, y) => {
+    const gx = x / size * G, gy = y / size * G;
+    const x0 = Math.floor(gx), y0 = Math.floor(gy), fx = gx - x0, fy = gy - y0;
+    const at = (i, j) => grime[(j % G + G) % G * G + (i % G + G) % G];
+    return (at(x0, y0) * (1 - fx) + at(x0 + 1, y0) * fx) * (1 - fy) + (at(x0, y0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1) * fx) * fy;
+  };
+  const mortar = Math.max(1, Math.round(size / 64));
+  for (let y = 0; y < size; y++) {
+    let row = 0;
+    while (y >= rowCut[row + 1]) row++;
+    const c = course[row];
+    const dy = Math.min(y - rowCut[row], rowCut[row + 1] - 1 - y);
+    for (let x = 0; x < size; x++) {
+      let k = c.joints.length - 1;
+      for (let j = 0; j < c.joints.length; j++) if (x >= c.joints[j]) k = j;
+      let dx = size;
+      for (const j of c.joints) dx = Math.min(dx, Math.abs(x - j), size - Math.abs(x - j));
+      const edge = Math.min(dx, dy);
+      let v;
+      if (edge < mortar) v = 0.5 + r() * 0.08;
+      else {
+        v = c.shade[k];
+        v *= 1 - Math.max(0, 2 - (edge - mortar)) * 0.06;
+        v *= 0.9 + r() * 0.16;
+      }
+      v *= 0.82 + blotch(x, y) * 0.3;
+      const b = Math.max(0, Math.min(255, Math.round(v * 255)));
+      const i = (y * size + x) * 4;
+      out[i] = out[i + 1] = out[i + 2] = b;
+      out[i + 3] = 255;
+    }
+  }
+  return out;
+}
+
 // modules/dungeon/src/render.js
+var textures = null;
+function stoneTextures(THREE) {
+  if (textures) return textures;
+  const make = (kind) => {
+    const t = new THREE.DataTexture(stoneTexture(kind), LOOK.textureSize, LOOK.textureSize);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.magFilter = THREE.LinearFilter;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.generateMipmaps = true;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return t;
+  };
+  textures = { brick: make("brick"), flag: make("flag") };
+  return textures;
+}
 function cellNoise(x, y, seed, amp = 0.05) {
   let h = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ seed) >>> 0;
   h = Math.imul(h ^ h >>> 13, 1540483477) >>> 0;
@@ -937,15 +1075,17 @@ function buildFloorGroup(THREE, dungeon) {
     if (grid[i] === FLOOR) floorCount++;
     else if (grid[i] === WALL) wallCount++;
   }
+  const tex = stoneTextures(THREE);
   const floorMesh = new THREE.InstancedMesh(
     new THREE.BoxGeometry(1, 0.2, 1),
-    new THREE.MeshStandardMaterial({ color: 16777215, roughness: 0.95 }),
+    // matte stone: Lambert (the floor and the vault fill most of the frame — per-pixel cost)
+    new THREE.MeshLambertMaterial({ color: 16777215, map: tex.flag }),
     floorCount
   );
   floorMesh.name = "dk-floors";
   const wallMesh = new THREE.InstancedMesh(
     new THREE.BoxGeometry(1, 1, 1),
-    new THREE.MeshStandardMaterial({ color: 16777215, roughness: 0.9 }),
+    new THREE.MeshStandardMaterial({ color: 16777215, roughness: LOOK.wallRoughness, map: tex.brick, bumpMap: tex.brick, bumpScale: 1.8 }),
     wallCount
   );
   wallMesh.name = "dk-walls";
@@ -964,12 +1104,12 @@ function buildFloorGroup(THREE, dungeon) {
     for (let x = 0; x < W; x++) {
       const cell = grid[y * W + x];
       if (cell === FLOOR) {
-        matrix.makeTranslation(worldX(x), -0.1, worldZ(y));
+        matrix.makeTranslation(worldX(x), LOOK.floorTop - 0.1, worldZ(y));
         floorMesh.setMatrixAt(floorIndex, matrix);
         const roomId = roomOf[y * W + x];
-        const tint = roomId >= 0 ? theme.floorTints[roomId % theme.floorTints.length] : theme.corridorTint;
+        const tint = stoneTint(roomId >= 0 ? theme.floorTints[roomId % theme.floorTints.length] : theme.corridorTint, LOOK.floorLift);
         const ao = 1 - 0.09 * Math.min(wallsAround(x, y), 4);
-        color.setHex(tint).multiplyScalar(ao * cellNoise(x, y, dungeon.stats.seed) * (roomId >= 0 ? 1 : 0.9));
+        color.setHex(tint).multiplyScalar(ao * cellNoise(x, y, dungeon.stats.seed, 0.12) * (roomId >= 0 ? 1 : 0.9));
         floorMesh.setColorAt(floorIndex, color);
         floorIndex++;
       } else if (cell === WALL) {
@@ -978,13 +1118,26 @@ function buildFloorGroup(THREE, dungeon) {
         scale.set(1, height, 1);
         matrix.compose(position, quaternion, scale);
         wallMesh.setMatrixAt(wallIndex, matrix);
-        color.setHex(theme.wallTint).multiplyScalar(cellNoise(x, y, dungeon.stats.seed ^ 2577));
+        color.setHex(stoneTint(theme.wallTint, LOOK.wallLift)).multiplyScalar(cellNoise(x, y, dungeon.stats.seed ^ 2577, 0.16));
+        color.r *= cellNoise(x, y, dungeon.stats.seed ^ 3073, 0.05);
+        color.b *= cellNoise(x, y, dungeon.stats.seed ^ 3074, 0.05);
         wallMesh.setColorAt(wallIndex, color);
         wallIndex++;
       }
     }
   scale.set(1, 1, 1);
   group.add(floorMesh, wallMesh);
+  const VW = W + LOOK.vaultMargin * 2;
+  const VH = H + LOOK.vaultMargin * 2;
+  const vault = new THREE.PlaneGeometry(VW, VH);
+  const uv = vault.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * VW, uv.getY(i) * VH);
+  const ceiling = new THREE.Mesh(vault, new THREE.MeshLambertMaterial({ color: LOOK.ceilingTint, map: tex.brick }));
+  ceiling.name = "dk-ceiling";
+  ceiling.rotation.x = Math.PI / 2;
+  ceiling.position.set(ox + W / 2, LOOK.ceilingY, oy + H / 2);
+  ceiling.visible = false;
+  group.add(ceiling);
   const byKind = {};
   props.forEach((p) => (byKind[p.kind] ??= []).push(p));
   const instanced = (name, geometry, material, list, pose) => {
@@ -1005,14 +1158,14 @@ function buildFloorGroup(THREE, dungeon) {
   instanced(
     "dk-pillars",
     new THREE.CylinderGeometry(0.3, 0.38, 2.4, 8),
-    new THREE.MeshStandardMaterial({ color: theme.wallTint, roughness: 0.85 }),
+    new THREE.MeshStandardMaterial({ color: stoneTint(theme.wallTint, LOOK.wallLift), roughness: 0.8, map: tex.brick }),
     byKind.pillar,
     (p) => position.set(worldX(p.x), 1.2, worldZ(p.y))
   );
   instanced(
     "dk-debris",
     new THREE.BoxGeometry(0.32, 0.22, 0.32),
-    new THREE.MeshStandardMaterial({ color: theme.corridorTint, roughness: 1 }),
+    new THREE.MeshStandardMaterial({ color: stoneTint(theme.corridorTint, LOOK.floorLift), roughness: 1, map: tex.brick }),
     byKind.debris,
     (p) => {
       position.set(worldX(p.x), 0.1, worldZ(p.y));
@@ -1046,7 +1199,7 @@ function buildFloorGroup(THREE, dungeon) {
   instanced(
     "dk-crystals",
     new THREE.OctahedronGeometry(0.42, 0),
-    new THREE.MeshBasicMaterial({ color: theme.gemColor }),
+    new THREE.MeshStandardMaterial({ color: theme.gemColor, emissive: theme.gemColor, emissiveIntensity: 1.6, roughness: 0.3 }),
     byKind.crystal,
     (p) => {
       position.set(worldX(p.x), 1, worldZ(p.y));
@@ -1066,41 +1219,72 @@ function buildFloorGroup(THREE, dungeon) {
   );
   quaternion.identity();
   const torches = byKind.torch ?? [];
+  const onWall = (p, out) => ({ x: worldX(p.x) + (p.fx ?? 0) * out, z: worldZ(p.y) + (p.fy ?? 0) * out });
   instanced(
     "dk-torch-brackets",
-    new THREE.BoxGeometry(0.12, 0.34, 0.12),
-    new THREE.MeshStandardMaterial({ color: 3813670, roughness: 0.8 }),
+    new THREE.BoxGeometry(0.09, 0.42, 0.09),
+    new THREE.MeshStandardMaterial({ color: 2762016, roughness: 0.55, metalness: 0.6 }),
     torches,
-    (p) => position.set(worldX(p.x) + (p.fx ?? 0) * 0.42, 1.45, worldZ(p.y) + (p.fy ?? 0) * 0.42)
+    (p) => {
+      const w = onWall(p, 0.44);
+      position.set(w.x, 1.5, w.z);
+    }
   );
-  const flameSpots = torches.map((p) => ({
-    x: worldX(p.x) + (p.fx ?? 0) * 0.42,
-    y: 1.78,
-    z: worldZ(p.y) + (p.fy ?? 0) * 0.42
-  })).concat((byKind.brazier ?? []).map((p) => ({ x: worldX(p.x), y: 0.75, z: worldZ(p.y) })));
   instanced(
+    "dk-torch-bowls",
+    new THREE.CylinderGeometry(0.13, 0.06, 0.12, 10),
+    new THREE.MeshStandardMaterial({ color: 4864552, roughness: 0.45, metalness: 0.7 }),
+    torches,
+    (p) => {
+      const w = onWall(p, 0.4);
+      position.set(w.x, 1.74, w.z);
+    }
+  );
+  const flameSpots = torches.map((p) => ({ ...onWall(p, 0.4), y: 1.95 })).concat((byKind.brazier ?? []).map((p) => ({ x: worldX(p.x), y: 0.75, z: worldZ(p.y) })));
+  const flames = instanced(
     "dk-flames",
-    new THREE.ConeGeometry(0.11, 0.3, 6),
-    new THREE.MeshBasicMaterial({ color: theme.torchColor }),
+    new THREE.ConeGeometry(0.15, 0.46, 7),
+    new THREE.MeshStandardMaterial({ color: theme.torchColor, emissive: theme.torchColor, emissiveIntensity: LOOK.flameIntensity, roughness: 1 }),
     flameSpots,
     (p) => position.set(p.x, p.y, p.z)
   );
-  const budget = 8;
-  const step = Math.max(1, Math.ceil(flameSpots.length / budget));
-  for (let i = 0; i < flameSpots.length && i / step < budget; i += step) {
+  if (flames) flames.userData.spots = flameSpots;
+  const entrance = rooms.find((r) => r.type === "entrance");
+  const focus = entrance ? { x: entrance.x + ox + entrance.w / 2, z: entrance.y + oy + entrance.h / 2 } : null;
+  for (const i of pickLights(flameSpots, focus, LOOK.lightBudget)) {
     const spot = flameSpots[i];
-    const light = new THREE.PointLight(theme.torchColor, 5, 11, 2);
+    const light = new THREE.PointLight(theme.torchColor, LOOK.lightIntensity, LOOK.lightDistance, 2);
     light.name = "dk-light";
     light.position.set(spot.x, spot.y + 0.25, spot.z);
     group.add(light);
   }
-  group.userData._dk = { theme };
+  group.userData._dk = { theme, flameSpots, assignedAt: -1 };
   return group;
 }
-function animateFloor(group, time) {
+function animateFloor(group, time, view = {}) {
+  const dk = group.userData._dk;
+  if (view.player && dk?.flameSpots?.length && time - dk.assignedAt > LOOK.lightReassign) {
+    dk.assignedAt = time;
+    const lights = group.children.filter((c) => c.name === "dk-light");
+    const nearest = pickLights(dk.flameSpots, view.player, lights.length, lights.length);
+    nearest.forEach((i, k) => {
+      const spot = dk.flameSpots[i];
+      lights[k].position.set(spot.x, spot.y + 0.25, spot.z);
+    });
+  }
   group.children.forEach((child) => {
     if (child.name === "dk-light")
-      child.intensity = 5 + Math.sin(time * 9 + child.position.x * 3.7) * 0.9 + Math.sin(time * 23 + child.position.z * 5.1) * 0.5;
+      child.intensity = LOOK.lightIntensity * (1 + Math.sin(time * 9 + child.position.x * 3.7) * 0.18 + Math.sin(time * 23 + child.position.z * 5.1) * 0.1);
+    else if (child.name === "dk-ceiling") child.visible = !!view.playing;
+    else if (child.name === "dk-flames" && child.userData.spots) {
+      const m = child.userData._m ??= child.matrix.clone();
+      child.userData.spots.forEach((p, i) => {
+        const k = flameFlicker(time, p.x, p.z);
+        m.makeScale(1 / Math.sqrt(k), k, 1 / Math.sqrt(k)).setPosition(p.x, p.y + (k - 1) * 0.15, p.z);
+        child.setMatrixAt(i, m);
+      });
+      child.instanceMatrix.needsUpdate = true;
+    }
   });
 }
 
@@ -1388,7 +1572,10 @@ function createKit(api) {
     if (remote.floorIndex && remote.floorIndex !== state.floorIndex) showFloor(remote.floorIndex, { broadcast: false });
   }
   function tick(time) {
-    if (floorGroup) animateFloor(floorGroup, time);
+    if (!floorGroup) return;
+    const playing = typeof api.isPlaying === "function" && !!api.isPlaying();
+    const p = playing && typeof api.playerPosition === "function" ? api.playerPosition() : null;
+    animateFloor(floorGroup, time, { playing, player: p ? { x: p[0], z: p[2] } : null });
   }
   return { kit, state, group, handleMessage, getState, applyState, tick, ensureGroup: group };
 }
@@ -1584,7 +1771,7 @@ function registerToolbox(api, core) {
 var index_default = {
   id: "dungeon",
   name: "Dungeon Kit",
-  version: "2.0.0",
+  version: "2.1.0",
   description: "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) with a toolbox, a Dungeon node and the userData.play contract the app walks in play mode. The playable game is Dungeon Realms.",
   /** @param {any} api the module SDK surface */
   register(api) {

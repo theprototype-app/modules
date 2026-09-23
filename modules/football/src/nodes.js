@@ -10,7 +10,7 @@
 // targets the button object; Score Lamp targets one lamp. The two value nodes (Football
 // Value, Football Event) need no target at all.
 
-import { MODES, WIN_BY, SERVE, OWN_GOALS, ACTIONS, DEFAULT_RULES, teamOf } from './rules.js';
+import { MODES, WIN_BY, SERVE, OWN_GOALS, ACTIONS, DEFAULT_RULES, teamOf, matchClock } from './rules.js';
 import { RED, BLUE, LAMP_DIM } from './pitch.js';
 
 const EXPIRE_FRAMES = 40;
@@ -80,12 +80,14 @@ export function registerNodes(api, game) {
 			{
 				type: 'fbrecords',
 				label: 'Records',
-				defaults: { show: 'all', element: 'fb-sheet', scoreElement: 'fb-score', logElement: '' },
+				defaults: { show: 'all', element: 'fb-sheet', scoreElement: 'fb-score', logElement: '', clockElement: '', tickerElement: '' },
 				params: [
 					{ key: 'show', kind: 'select', options: ['goals', 'touches', 'owngoals', 'all'] },
 					{ key: 'element', kind: 'text', placeholder: 'HUD list id (sheet)', maxLength: 40 },
 					{ key: 'scoreElement', kind: 'text', placeholder: 'HUD list id (score)', maxLength: 40 },
-					{ key: 'logElement', kind: 'text', placeholder: 'HUD list id (match log)', maxLength: 40 }
+					{ key: 'logElement', kind: 'text', placeholder: 'HUD list id (match log)', maxLength: 40 },
+					{ key: 'clockElement', kind: 'text', placeholder: 'HUD list id (clock m:ss)', maxLength: 40 },
+					{ key: 'tickerElement', kind: 'text', placeholder: 'HUD list id (last touch)', maxLength: 40 }
 				]
 			},
 			{
@@ -214,7 +216,11 @@ export function registerNodes(api, game) {
 		const left = game.secondsLeft();
 		const score = [game.scoreLine(), touch, ...(left == null ? [] : [Math.ceil(left) + 's left']), ...(game.state.outcome ? [game.outcomeText()] : [])];
 		const log = game.matchLog().slice(-8).reverse().map((m) => 'RED ' + m.red + ' — ' + m.blue + ' BLUE · ' + m.winner);
-		const key = JSON.stringify([rows, score, log]);
+		// 30: the scoreboard clock, one m:ss row (pushed only when a clockElement is named)
+		const clock = data.clockElement ? [matchClock(game.rules(), game.elapsed())] : [];
+		// 30: the scoreboard's ticker — last touch only (the score is the board's own numbers)
+		const ticker = data.tickerElement ? [touch] : [];
+		const key = JSON.stringify([rows, score, log, clock, ticker]);
 		if (key === lastRows) return;
 		lastRows = key;
 		// an element field may name SEVERAL lists (comma-separated): the menu's sheet and
@@ -225,6 +231,8 @@ export function registerNodes(api, game) {
 		each(data.element, rows);
 		each(data.scoreElement, score);
 		each(data.logElement, log);
+		if (data.clockElement) each(data.clockElement, clock);
+		if (data.tickerElement) each(data.tickerElement, ticker);
 	});
 
 	// ---- the readable half: a number a core HUD Text / Compare can consume --------------------

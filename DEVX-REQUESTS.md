@@ -33,11 +33,15 @@ promise from core.
 | 19 | `api.game.setState(state, outcome)` — a module cannot move the game shell | `football` | yes — a Football Event node fires `start`/`over`/`reset` and the template wires it to Set Game State |
 | 20 | a scene-physics block write (`api.physics.setScene({gravity, knock, …})`) | `football` | yes — the template carries the block; the "Build pitch" recipe toasts the Inspector rows to set |
 | 21 | the XR room bounds and the colocation `roomAnchor` on the api | `football` | yes — "Fit to room" / "Centre on room" feature-detect `api.xrReferenceSpace` / `api.colocation.roomAnchor` and fall back to sliders |
-| 22 | a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value | `football` | yes — a `delay` node bridges the stamp into a numeric pulse |
-| 26 | no **pointer seam** (pointerdown/up, click-miss) and no module **dispose hook** | `untangle` | yes — window CAPTURE listeners, self-detaching when a newer copy owns the module's hook |
-| 27 | `api.game` cannot say **which** non-running state (menu vs over) | `untangle` | yes — the rising edge of `roundUnderway()` is enough for "Next" |
-| 28 | no **camera** on the api (the crosshair ray under a lock) | `untangle` | yes — `pointerRay().camera`, else the scene camera nearest `playerPosition()` |
-| 29 | a module HUD kind's `mount` gets no **editor** flag | `untangle` | yes — `el.closest('#hud-layer')` tells the runtime layer from the artboard |
+| 22 | a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value | `football`, `dungeon-realms` (30), `waves` | yes — a `delay` node bridges the stamp into a numeric pulse |
+| 23 | ~~no play-mode MENU surface~~ | `dungeon-realms` | **ANSWERED by core** — a HUD screen with `input: 'menu'` frees the pointer and core's HUD ring gives arrows/Enter/gamepad A; Dungeon Realms moved its Start/victory menu there in roadmap 30 (the DOM card stays for a graph with no HUD, `drmenu show`) |
+| 26 | no per-element HUD **visibility** (show a list only when it has rows, a panel only while…) | `waves` | yes — a list with `bg: 'transparent'` draws nothing while it is empty |
+| 27 | a template cannot place the **desktop play spawn** (outside a dungeon it is core's fixed `[0, 2, 3]`, whatever `view` says) | `football`, `waves` | yes — the football lamp strip moved onto the crossbar so the spawn's eye line stays clear; the ask is #23's `teleportPlayer`, or a def/scene `play.spawn` |
+| 28 | **BUG**: a HUD Text / Timer / list row ignores `style.align` unless it wraps — `.hud-text` is `display:flex`, so the text is a content-width flex item | `football`, `dungeon-realms`, `waves` | yes — the 30 menus are laid out left-aligned to their button column; a number that must sit centred gets a tight box |
+| 29 | no **pointer seam** (pointerdown/up, click-miss) and no module **dispose hook** | `untangle` | yes — window CAPTURE listeners, self-detaching when a newer copy owns the module's hook |
+| 30 | `api.game` cannot say **which** non-running state (menu vs over) | `untangle` | yes — the rising edge of `roundUnderway()` is enough for "Next" |
+| 31 | no **camera** on the api (the crosshair ray under a lock) | `untangle` | yes — `pointerRay().camera`, else the scene camera nearest `playerPosition()` |
+| 32 | a module HUD kind's `mount` gets no **editor** flag | `untangle` | yes — `el.closest('#hud-layer')` tells the runtime layer from the artboard |
 
 ---
 
@@ -592,3 +596,55 @@ Also in the same branch: user modules now install/update/disable/remove **LIVE**
 (A2 — no page reload while you iterate), and the manager grew a **Browse** tab
 reading this repo's `index.json` off jsDelivr (A3) — add your modules to
 `index.json` (id/name/version/description/author/source/zip) when they land.
+
+## 26. No per-element HUD visibility
+
+**Found in:** `modules/waves` (roadmap 30, the empty leaderboard). The kills list sat top-right
+as an EMPTY dark box until the first kill. A HUD element has no visibility channel: a screen
+shows or hides as a whole (`hudscreen`, `showWhile`), and a list's box is drawn whether or not it
+has rows.
+
+**Ask:** a `visible` input on the HUD nodes (HUD Text / Bar / List: a number > 0 shows the
+element), or a list style `hideEmpty: true`.
+
+**Meanwhile:** the list's `bg` is `'transparent'`, so an empty list draws nothing and the rows
+read over the scene when they arrive.
+
+## 27. A template cannot place the desktop play spawn
+
+**Found in:** `modules/football`, `modules/waves` (roadmap 30). Outside a Dungeon Kit level,
+entering play puts a desktop player at core's fixed `[0, 2, 3]` (Scene.svelte's `<Player
+position>`), not at the def's `view` and not at any object — so a template cannot choose where
+its game starts. Football's player lands just outside the blue-end glass, above the ceiling
+line, looking through the blue scoreboard.
+
+**Ask:** a scene-level `play.spawn {pos, yaw}` (a def field, saved + replicated with the play
+block), or #23's `api.teleportPlayer(position, lookAt)` so a module can do it on Start.
+
+**Meanwhile:** templates keep the line of sight from `[0, 2, 3]` clear (football's lamp strip
+rides the crossbar).
+
+## Roadmap 30 (30-visuals-mod) — felt again
+
+- **#19** (`api.game.setState`): Dungeon Realms' new `quit` action resets its own rules and
+  fires its `reset` EVENT so the template's Set Game State can follow — the event bridge again.
+- **#22** (HUD Button -> module input): every Dungeon Realms menu button is HUD Button
+  (perPlayer) -> Delay -> a new `drbutton` node; football's scoreboard needed none (values only).
+- **#23** (move the play-mode player): see #27 — the spawn half of the same gap.
+
+## 28. BUG — HUD text ignores `align` unless it wraps
+
+**Found in:** all three roadmap-30 game HUDs. `HudElement.svelte` renders a text / timer element as
+`<div class="hud-el hud-text" style="text-align: …">`, and `.hud-text` is `display: flex;
+align-items: center`. The label becomes an anonymous flex ITEM sized to its content, so
+`text-align: center` has nothing to centre: a title, a clock or a node-driven score always sits at
+the box's left edge. Wrapped text (`wrap: true`) happens to fill the box and centres. List rows
+(`.hud-list-row`, also flex) behave the same.
+
+**Ask:** map `style.align` onto `justify-content` (`flex-start` / `center` / `flex-end`) on the
+flex text elements and list rows — one line in `boxStyle`, every saved document keeps its look
+where it was left-aligned (the default).
+
+**Meanwhile:** the 30 game menus align left to their button column on purpose, and the few things
+that must look centred (the football clock, the waves banner) get a box barely wider than the text.
+

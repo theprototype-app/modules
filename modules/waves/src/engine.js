@@ -31,6 +31,9 @@ export function createWavesEngine(api) {
 	const doneSeen = new Map();
 	/** waves node id -> was the run active last sweep */
 	const runSeen = new Map();
+	/** waves node id -> the last round stamp it saw running (the shell has already left the
+	 * round by the time the `over` edge logs the run, so roundCutoff() alone reads null there) */
+	const roundSeen = new Map();
 	/** enemy uuid -> its parked pose (where it stands when no run is on) */
 	const parked = new Map();
 	/** health id -> the heal count we expect the counter to show once our local pulses
@@ -163,6 +166,8 @@ export function createWavesEngine(api) {
 			if (last !== null && !done) waveStart = last + interval;
 		}
 		const started = running && waveStart !== null && now() >= waveStart;
+		if (typeof cutoff === 'number' && Number.isFinite(cutoff)) roundSeen.set(node.id, cutoff);
+		const round = roundSeen.get(node.id) ?? null;
 		const goalUuid = selectorInto(g, node, 'goal');
 		const goalObject = objectOf(goalUuid);
 		return {
@@ -177,6 +182,9 @@ export function createWavesEngine(api) {
 			started,
 			waveStart,
 			clearedAt,
+			// the round this run belongs to (the shell's replicated startedAt, ms) — the run log's
+			// identity: every peer agrees on it, unlike a last-hit stamp a late knock can move
+			round,
 			interval,
 			alive: running || done ? aliveIn(wave, kills, curve).length : sizeOf(wave, curve),
 			size: sizeOf(wave, curve),
@@ -262,12 +270,13 @@ export function createWavesEngine(api) {
 	}
 
 	/** the run into gameState.vars — the same entry from every peer (deterministic inputs),
-	 * appended idempotently by its `at` @param {ReturnType<typeof derive>} s */
+	 * appended idempotently by its ROUND (30: a knock landing on a dead, hidden enemy after the
+	 * last kill moves its last-hit stamp, so `at` alone let two peers log one run twice) @param {ReturnType<typeof derive>} s */
 	function logRun(s) {
 		if (typeof s.clearedAt !== 'number') return;
 		const names = new Map((api.peerNames?.() ?? []).map((/** @type {any} */ p) => [p.id, p.label ?? p.name]));
 		const rows = (api.peerVars.all(KILLS_ROW) ?? []).map((/** @type {any} */ r) => ({ name: names.get(r.id) ?? 'peer ' + String(r.id).slice(0, 4), kills: r.value }));
-		const entry = runEntry({ at: s.clearedAt, waves: s.curve.waves, reached: s.wave, cleared: true, rows });
+		const entry = runEntry({ at: s.clearedAt, round: s.round, waves: s.curve.waves, reached: s.wave, cleared: true, rows });
 		const key = LOG_PREFIX + s.name;
 		const held = api.game.getVar(key, null);
 		api.game.setVar(key, { runs: appendRun(held && typeof held === 'object' ? held.runs : [], entry) });
@@ -330,6 +339,7 @@ export function createWavesEngine(api) {
 	function clear() {
 		state.clear();
 		waveSeen.clear();
+		roundSeen.clear();
 		doneSeen.clear();
 		runSeen.clear();
 		parked.clear();

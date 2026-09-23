@@ -346,7 +346,10 @@ run(async () => {
 	const rows = (page, id) => page.evaluate((id) => window.__stores.flowRuntime.hudRowsOf(id), id);
 	await eventually(() => rows(A.page, 'fb-score'), (r) => r.some((line) => /RED 0 — 1 BLUE/.test(line)), '16.7 the Records node wrote the score line into the HUD list (' + JSON.stringify(await rows(A.page, 'fb-score')) + ')');
 	await eventually(() => rows(B.page, 'fb-sheet'), (r) => r.some((line) => /BLUE/.test(line) && /goals/.test(line)), '16.8 B: the sheet rows carry the sheet');
-	await eventually(() => A.page.locator('#hud-layer').textContent(), (t) => /RED 0 — 1 BLUE/.test(t ?? ''), '16.9 the DOM HUD shows the score while playing');
+	// 30: in play the template's HUD shows the score as the scoreboard's own numbers (Football
+	// Value nodes the def wires; this recipe graph has none) — the Records rows it renders are
+	// the sheet; the RED x — y BLUE list sits on the over screen
+	await eventually(() => A.page.locator('#hud-layer').textContent(), (t) => /\(BLUE\) — \d+ goals/.test(t ?? ''), '16.9 the DOM HUD renders the Records sheet while playing (B\'s row)');
 	// a HUD Button press (perPlayer) reaches the Match Button through its `press` input
 	await A.page.evaluate(() => window.__stores.flowRuntime.fireHudButton('fb-join-blue'));
 	await eventually(() => snap(B.page), (s) => s?.slots.blue.includes(A.id) && !s.slots.red.includes(A.id), '16.10 A joined blue through the HUD button (hudbutton -> fbbutton.press)');

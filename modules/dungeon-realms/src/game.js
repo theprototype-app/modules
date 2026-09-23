@@ -288,6 +288,12 @@ export function createGame(api) {
 
 	function start(broadcast = true) {
 		if (state.seed == null || state.started) return;
+		// P4: whoever starts the adventure is IN it — a free slot is claimed for the starter
+		// ("0 in the party" while you walk the dungeon read as a bug)
+		if (broadcast && !Object.values(state.slots).some((s) => s?.peerId === me())) {
+			const free = ['p1', 'p2'].find((slot) => !state.slots[slot]);
+			if (free) claimSlot(free);
+		}
 		state.started = true;
 		state.startedAt = api.now();
 		state.wonAt = 0;
@@ -330,7 +336,14 @@ export function createGame(api) {
 		if (id === 'join-p1') claimSlot('p1');
 		else if (id === 'join-p2') claimSlot('p2');
 		else if (id === 'start') start();
-		else if (id === 'resume') {
+		else if (id === 'quit') {
+			// 30: back to the Start screen — the round resets on every peer (the rule state;
+			// the world and the collected gems stay, a new dungeon is the dice button)
+			if (state.started || state.wonAt) {
+				reset();
+				eventSink?.('reset');
+			}
+		} else if (id === 'resume') {
 			state._menuSuppressed = true;
 			guiDirty = true;
 		} else if (id === 'new-dungeon' || id === 'play-again' || id === 'generate') {

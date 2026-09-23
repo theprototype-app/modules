@@ -13,11 +13,12 @@ import { registerNodes } from './nodes.js';
 import { registerToolbox } from './toolbox.js';
 import { arenaHud, hudGraph } from './hud.js';
 import { DEFAULTS } from './curve.js';
+import { registerFx } from './fx.js';
 
 export default {
 	id: 'waves',
 	name: 'Waves',
-	version: '1.0.0',
+	version: '1.1.0',
 	description:
 		'Wave survival on the health module: enemies walk from spawn points to a goal, a wave ends when its last enemy dies, the run is over when the last wave does — derived on every peer, no authority.',
 
@@ -29,6 +30,7 @@ export default {
 		}
 		const engine = createWavesEngine(api);
 		registerNodes(api, engine);
+		const fx = registerFx(api, engine);
 		const toolbox = registerToolbox(api, engine);
 
 		api.hud.registerDebugLine(() => {
@@ -63,6 +65,7 @@ export default {
 			/** @type {any} */ (window).__waves = {
 				api,
 				engine,
+				fx,
 				toolbox,
 				hud: arenaHud,
 				hudGraph,

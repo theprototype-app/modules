@@ -30,18 +30,27 @@ export function run(check) {
 	check(JSON.stringify(arenaRecipe({ enemies: ['e1'], goal: 'g', options: o, row: 0, playerHealthId: null })) === JSON.stringify(arenaRecipe({ enemies: ['e1'], goal: 'g', options: o, row: 0, playerHealthId: null })), 'the recipe is deterministic');
 
 	const h = hudGraph({ name: 'enemy', playerName: 'me' });
-	check(h.nodes.filter((n) => n.type === 'hudbutton').length === 2 && h.nodes.filter((n) => n.type === 'setgamestate').length === 2, 'two HUD buttons, each into a Set Game State');
+	check(h.nodes.filter((n) => n.type === 'hudbutton').length === 5 && h.nodes.filter((n) => n.type === 'setgamestate').length === 4, 'five HUD buttons (Start, Again, Resume, Restart, Quit), four Set Game States');
+	const pk = h.nodes.findIndex((n) => n.type === 'keypress' && n.data.code === 'KeyP');
+	check(pk >= 0 && h.edges.some((e) => e.from === pk && h.nodes[e.to].type === 'hudscreen' && h.nodes[e.to].data.action === 'toggle' && h.nodes[e.to].data.screen === 'pause'), '30: P toggles the pause screen');
+	const btn = (/** @type {string} */ el) => h.nodes.findIndex((n) => n.type === 'hudbutton' && n.data.element === el);
+	check(h.edges.some((e) => e.from === btn('restart-btn') && h.nodes[e.to].type === 'setgamestate' && h.nodes[e.to].data.state === 'playing' && h.nodes[e.to].data.reset === true), '  Restart re-enters playing with a fresh round');
+	check(h.edges.some((e) => e.from === btn('quit-btn') && h.nodes[e.to].type === 'setgamestate' && h.nodes[e.to].data.state === 'menu'), '  Quit goes to the menu');
+	check(['resume-btn', 'restart-btn', 'quit-btn'].every((el) => h.edges.some((e) => e.from === btn(el) && h.nodes[e.to].type === 'hudscreen' && h.nodes[e.to].data.action === 'hide')), '  and every pause button closes the pause screen');
 	check(h.nodes.some((n) => n.type === 'healthvalue' && n.data.read === 'fraction') && h.nodes.some((n) => n.type === 'hudbar' && n.data.max === 1), 'the player bar reads the health fraction');
 	check(h.nodes.some((n) => n.type === 'leaderboard' && n.data.variable === 'kills'), 'the leaderboard shows the kills rows');
 	const screens = arenaHud().scene.screens.map((s) => s.id + ':' + (s.showWhile ?? '-'));
-	check(screens.join() === 'menu:menu,hud:playing,over:over', 'three screens following the shell (' + screens.join() + ')');
+	check(screens.join() === 'menu:menu,hud:playing,pause:-,over:over', 'four screens: menu / hud / over follow the shell, pause is toggled (' + screens.join() + ')');
+	const kills = arenaHud().scene.screens.find((sc) => sc.id === 'hud').elements.find((e) => e.id === 'wv-kills');
+	check(kills.style.bg === 'transparent' && kills.rows.length === 0, '30: the leaderboard has no box of its own — empty, it draws nothing');
 
 	const g = toGraph({ nodes: [{ type: 'a', x: 1, y: 2, data: { k: 1 } }, { type: 'b', x: 3, y: 4 }], edges: [{ from: 0, to: 1, handle: 'trigger' }, { from: 1, to: 0 }] }, 'p');
 	check(g.nodes[0].id === 'p0' && g.nodes[0].position.x === 1 && g.nodes[0].data.k === 1 && g.nodes[0].data.label === 'a', 'toGraph: ids, positions, data with a label');
 	check(g.edges[0].id === 'e-p0-p1.trigger' && g.edges[0].targetHandle === 'trigger' && g.edges[1].id === 'e-p1-p0' && !('targetHandle' in g.edges[1]), 'toGraph: canonical edge ids');
 	const d = wavesDef();
-	check(d.kind === 'game' && d.installModules.join() === 'health,waves' && d.objects.length === 10 && d.hud.scene.screens.length === 3, 'wavesDef: game, both modules, ten objects, three screens');
+	check(d.kind === 'game' && d.installModules.join() === 'health,waves' && d.objects.length === 11 && d.hud.scene.screens.length === 4, 'wavesDef: game, both modules, eleven objects (the ten rule objects + the Arena group), four screens');
 	check(d.graphs.scene.nodes.every((n) => n.id && n.position && n.data.label) && d.graphs.scene.edges.every((e) => e.id.startsWith('e-')), 'the def graph is in the author script\'s shape');
-	check(d.graphs.scene.nodes.filter((n) => n.type === 'objectselector').every((n) => d.objects.some((o) => o.name === n.data.selected)), 'every selector names an object of the def');
+	const allNames = (/** @type {any[]} */ list) => list.flatMap((o) => [o.name, ...allNames(o.children ?? [])]);
+	check(d.graphs.scene.nodes.filter((n) => n.type === 'objectselector').every((n) => allNames(d.objects).includes(n.data.selected)), 'every selector names an object of the def (groups included)');
 	check(JSON.stringify(wavesDef()) === JSON.stringify(wavesDef()), 'the def is deterministic (byte-identical twice)');
 }

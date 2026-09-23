@@ -257,7 +257,12 @@ export function createKit(api) {
 
 	/** @param {number} time */
 	function tick(time) {
-		if (floorGroup) animateFloor(floorGroup, time);
+		if (!floorGroup) return;
+		// P4: the vault shows and the lights follow the player only IN PLAY (the editor keeps its
+		// open, statically lit view)
+		const playing = typeof api.isPlaying === 'function' && !!api.isPlaying();
+		const p = playing && typeof api.playerPosition === 'function' ? api.playerPosition() : null;
+		animateFloor(floorGroup, time, { playing, player: p ? { x: p[0], z: p[2] } : null });
 	}
 
 	return { kit, state, group, handleMessage, getState, applyState, tick, ensureGroup: group };

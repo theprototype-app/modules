@@ -85,6 +85,8 @@ function spawnFor(i, points, fallback) {
 function runEntry(r) {
   return {
     at: r.at,
+    // 30: the round's stamp, the entry's identity when known (absent on an old entry)
+    ...typeof r.round === "number" ? { round: r.round } : {},
     waves: r.waves,
     reached: r.reached,
     cleared: !!r.cleared,
@@ -92,7 +94,8 @@ function runEntry(r) {
   };
 }
 function appendRun(log, entry, cap = 50) {
-  const list = Array.isArray(log) ? log.filter((e) => e && e.at !== entry.at) : [];
+  const same = (e) => typeof entry.round === "number" && e.round === entry.round || e.at === entry.at;
+  const list = Array.isArray(log) ? log.filter((e) => e && !same(e)) : [];
   list.push(entry);
   return list.slice(-cap);
 }
@@ -107,6 +110,7 @@ function createWavesEngine(api) {
   const waveSeen = /* @__PURE__ */ new Map();
   const doneSeen = /* @__PURE__ */ new Map();
   const runSeen = /* @__PURE__ */ new Map();
+  const roundSeen = /* @__PURE__ */ new Map();
   const parked = /* @__PURE__ */ new Map();
   const healExpected = /* @__PURE__ */ new Map();
   const listeners = /* @__PURE__ */ new Set();
@@ -205,6 +209,8 @@ function createWavesEngine(api) {
       if (last !== null && !done) waveStart = last + interval;
     }
     const started = running && waveStart !== null && now() >= waveStart;
+    if (typeof cutoff === "number" && Number.isFinite(cutoff)) roundSeen.set(node.id, cutoff);
+    const round = roundSeen.get(node.id) ?? null;
     const goalUuid = selectorInto(g, node, "goal");
     const goalObject = objectOf(goalUuid);
     return {
@@ -219,6 +225,9 @@ function createWavesEngine(api) {
       started,
       waveStart,
       clearedAt,
+      // the round this run belongs to (the shell's replicated startedAt, ms) — the run log's
+      // identity: every peer agrees on it, unlike a last-hit stamp a late knock can move
+      round,
       interval,
       alive: running || done ? aliveIn(wave, kills, curve).length : sizeOf(wave, curve),
       size: sizeOf(wave, curve),
@@ -293,7 +302,7 @@ function createWavesEngine(api) {
     if (typeof s.clearedAt !== "number") return;
     const names = new Map((api.peerNames?.() ?? []).map((p) => [p.id, p.label ?? p.name]));
     const rows = (api.peerVars.all(KILLS_ROW) ?? []).map((r) => ({ name: names.get(r.id) ?? "peer " + String(r.id).slice(0, 4), kills: r.value }));
-    const entry = runEntry({ at: s.clearedAt, waves: s.curve.waves, reached: s.wave, cleared: true, rows });
+    const entry = runEntry({ at: s.clearedAt, round: s.round, waves: s.curve.waves, reached: s.wave, cleared: true, rows });
     const key = LOG_PREFIX + s.name;
     const held = api.game.getVar(key, null);
     api.game.setVar(key, { runs: appendRun(held && typeof held === "object" ? held.runs : [], entry) });
@@ -347,6 +356,7 @@ function createWavesEngine(api) {
   function clear() {
     state.clear();
     waveSeen.clear();
+    roundSeen.clear();
     doneSeen.clear();
     runSeen.clear();
     parked.clear();
@@ -398,6 +408,16 @@ function registerNodes(api, engine) {
         params: [
           { key: "name", kind: "text", placeholder: DEFAULTS.name, maxLength: 40 },
           { key: "read", kind: "select", options: READS }
+        ]
+      },
+      {
+        // 30: the goal's crystal glows with a 0..1 value (fx.js) — the player's health
+        type: "wavescore",
+        label: "Goal Core",
+        defaults: { value: 1, floor: 0.15, spin: 0.6 },
+        params: [
+          { key: "floor", kind: "range", min: 0, max: 1, step: 0.05 },
+          { key: "spin", kind: "range", min: 0, max: 4, step: 0.1 }
         ]
       },
       {
@@ -695,8 +715,8 @@ function registerToolbox(api, engine) {
 }
 
 // modules/waves/src/hud.js
-var PANEL = { bg: "rgba(24, 20, 30, 0.92)", radius: 16, border: "1px solid rgba(220, 120, 120, 0.25)" };
-var BUTTON = (bg) => ({ size: 16, weight: "600", bg, color: "#ffffff", radius: 10 });
+var PANEL = { bg: "rgba(22, 18, 28, 0.92)", radius: 18, border: "1px solid rgba(255, 140, 100, 0.3)" };
+var BUTTON = (bg) => ({ size: 16, weight: "700", bg, color: "#ffffff", radius: 12 });
 function arenaHud() {
   return {
     scene: {
@@ -709,11 +729,13 @@ function arenaHud() {
           showWhile: "menu",
           input: "menu",
           elements: [
-            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 460, h: 340, z: 0, label: "", style: PANEL },
-            { id: "title", kind: "text", anchor: "center", x: 0, y: -120, w: 400, h: 54, z: 1, label: "WAVES", style: { size: 40, weight: "700", color: "#ff9c6b", align: "center" } },
-            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -66, w: 420, h: 44, z: 1, label: "Hold the goal. Every wave brings more enemies; the round ends when the last one falls.", style: { size: 14, color: "#e6dede", align: "center" }, wrap: true },
-            { id: "wv-start", kind: "button", anchor: "center", x: 0, y: 10, w: 220, h: 48, z: 1, label: "Start", enabled: true, style: BUTTON("#c94a4a") },
-            { id: "wv-log", kind: "list", anchor: "center", x: 0, y: 90, w: 420, h: 80, z: 1, label: "", rows: [], style: { size: 12, color: "#d6c8c8", align: "center" } }
+            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 480, h: 360, z: 0, label: "", style: PANEL },
+            { id: "menu-stripe", kind: "panel", anchor: "center", x: 0, y: -176, w: 480, h: 8, z: 1, label: "", style: { bg: "#ff7a4a", radius: 4 } },
+            { id: "title", kind: "text", anchor: "center", x: 0, y: -122, w: 420, h: 56, z: 1, label: "WAVES", style: { size: 46, weight: "800", color: "#ff9c6b", align: "left" } },
+            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -66, w: 420, h: 44, z: 1, label: "Hold the crystal. Every wave brings more enemies through the portals; the round ends when the last one falls.", style: { size: 14, color: "#e6dede", align: "left" }, wrap: true },
+            { id: "wv-start", kind: "button", anchor: "center", x: 0, y: 8, w: 420, h: 54, z: 1, label: "Start", enabled: true, style: { ...BUTTON("#d9533f"), size: 20 } },
+            { id: "wv-log", kind: "list", anchor: "center", x: 0, y: 92, w: 420, h: 76, z: 1, label: "", rows: [], style: { size: 12, color: "#d6c8c8", align: "left", bg: "transparent" } },
+            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 150, w: 420, h: 20, z: 1, label: "Knock them down: walk into them or grab and throw  \xB7  P pauses", style: { size: 11, color: "#9b8f8f", align: "left" } }
           ]
         },
         {
@@ -722,10 +744,24 @@ function arenaHud() {
           showWhile: "playing",
           input: "game",
           elements: [
-            { id: "wv-wave", kind: "text", anchor: "top-center", x: 0, y: 14, w: 320, h: 34, z: 1, label: "Wave 1", style: { size: 22, weight: "700", color: "#ff9c6b", align: "center" } },
-            { id: "wv-left", kind: "text", anchor: "top-center", x: 0, y: 48, w: 320, h: 24, z: 1, label: "", style: { size: 14, color: "#e6dede", align: "center" } },
-            { id: "wv-hp", kind: "bar", anchor: "bottom-center", x: 0, y: 24, w: 320, h: 18, z: 1, label: "", min: 0, max: 1, value: 1, orientation: "horizontal", showPercent: false, style: { color: "#6fcf7a", bg: "rgba(0,0,0,0.35)", radius: 9 } },
-            { id: "wv-kills", kind: "list", anchor: "top-right", x: 16, y: 14, w: 220, h: 100, z: 1, label: "", rows: [], style: { size: 12, color: "#d6c8c8", align: "right" } }
+            { id: "wv-banner", kind: "panel", anchor: "top-center", x: 0, y: 10, w: 150, h: 68, z: 0, label: "", style: { bg: "rgba(22, 18, 28, 0.78)", radius: 14, border: "1px solid rgba(255, 140, 100, 0.25)" } },
+            { id: "wv-wave", kind: "text", anchor: "top-center", x: 0, y: 14, w: 122, h: 34, z: 1, label: "Wave 1", style: { size: 24, weight: "800", color: "#ff9c6b", align: "left" } },
+            { id: "wv-left", kind: "text", anchor: "top-center", x: 0, y: 48, w: 122, h: 24, z: 1, label: "", style: { size: 14, color: "#e6dede", align: "left" } },
+            { id: "wv-hp-label", kind: "text", anchor: "bottom-center", x: 0, y: 46, w: 340, h: 18, z: 1, label: "HEALTH", style: { size: 10, weight: "700", color: "#c8e6cc", align: "left" } },
+            { id: "wv-hp", kind: "bar", anchor: "bottom-center", x: 0, y: 24, w: 340, h: 20, z: 1, label: "", min: 0, max: 1, value: 1, orientation: "horizontal", showPercent: false, style: { color: "#6fcf7a", bg: "rgba(0,0,0,0.45)", radius: 10 } },
+            { id: "wv-kills", kind: "list", anchor: "top-right", x: 16, y: 14, w: 220, h: 100, z: 1, label: "", rows: [], style: { size: 13, weight: "600", color: "#ffe0d0", align: "right", bg: "transparent" } }
+          ]
+        },
+        {
+          id: "pause",
+          name: "Pause",
+          input: "menu",
+          elements: [
+            { id: "pause-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 380, h: 300, z: 0, label: "", style: PANEL },
+            { id: "pause-title", kind: "text", anchor: "center", x: 0, y: -95, w: 260, h: 36, z: 1, label: "PAUSED", style: { size: 28, weight: "800", color: "#e6dede", align: "left" } },
+            { id: "resume-btn", kind: "button", anchor: "center", x: 0, y: -30, w: 260, h: 44, z: 1, label: "Resume", enabled: true, style: BUTTON("#3b7dd8") },
+            { id: "restart-btn", kind: "button", anchor: "center", x: 0, y: 24, w: 260, h: 44, z: 1, label: "Restart round", enabled: true, style: BUTTON("#d9533f") },
+            { id: "quit-btn", kind: "button", anchor: "center", x: 0, y: 78, w: 260, h: 44, z: 1, label: "Quit to menu", enabled: true, style: { size: 15, weight: "600", bg: "#3a3440", color: "#e6dede", radius: 12 } }
           ]
         },
         {
@@ -734,11 +770,11 @@ function arenaHud() {
           showWhile: "over",
           input: "menu",
           elements: [
-            { id: "over-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 460, h: 340, z: 0, label: "", style: PANEL },
-            { id: "over-title", kind: "text", anchor: "center", x: 0, y: -120, w: 420, h: 40, z: 1, label: "ARENA CLEARED", style: { size: 30, weight: "700", color: "#ff9c6b", align: "center" } },
-            { id: "wv-kills-over", kind: "list", anchor: "center", x: 0, y: -50, w: 420, h: 90, z: 1, label: "", rows: [], style: { size: 14, color: "#e6dede", align: "center" } },
-            { id: "wv-log-over", kind: "list", anchor: "center", x: 0, y: 40, w: 420, h: 70, z: 1, label: "", rows: [], style: { size: 12, color: "#d6c8c8", align: "center" } },
-            { id: "wv-again", kind: "button", anchor: "center", x: 0, y: 115, w: 220, h: 44, z: 1, label: "Again", enabled: true, style: BUTTON("#3b7dd8") }
+            { id: "over-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 480, h: 360, z: 0, label: "", style: PANEL },
+            { id: "over-title", kind: "text", anchor: "center", x: 0, y: -126, w: 420, h: 44, z: 1, label: "ARENA CLEARED", style: { size: 32, weight: "800", color: "#ff9c6b", align: "left" } },
+            { id: "wv-kills-over", kind: "list", anchor: "center", x: 0, y: -50, w: 420, h: 90, z: 1, label: "", rows: [], style: { size: 14, color: "#e6dede", align: "center", bg: "transparent" } },
+            { id: "wv-log-over", kind: "list", anchor: "center", x: 0, y: 40, w: 420, h: 70, z: 1, label: "", rows: [], style: { size: 12, color: "#d6c8c8", align: "center", bg: "transparent" } },
+            { id: "wv-again", kind: "button", anchor: "center", x: 0, y: 124, w: 260, h: 48, z: 1, label: "Again", enabled: true, style: BUTTON("#d9533f") }
           ]
         }
       ]
@@ -759,23 +795,103 @@ function hudGraph(o) {
     { type: "hudtext", x: x + 220, y: y + 300, data: { element: "wv-left", format: "{v} left", decimals: 0 } },
     { type: "healthvalue", x, y: y + 400, data: { name: o.playerName, read: "fraction" } },
     { type: "hudbar", x: x + 220, y: y + 400, data: { element: "wv-hp", min: 0, max: 1 } },
-    { type: "leaderboard", x, y: y + 500, data: { variable: "kills", element: "wv-kills,wv-kills-over", limit: 8 } }
+    { type: "leaderboard", x, y: y + 500, data: { variable: "kills", element: "wv-kills,wv-kills-over", limit: 8 } },
+    // 30: the pause menu — P toggles it, Resume hides it, Restart re-enters playing (a fresh
+    // round stamp) and Quit goes back to the menu; both close the pause screen
+    { type: "keypress", x, y: y + 600, data: { code: "KeyP", edge: "down", pulse: 0.3 } },
+    { type: "hudscreen", x: x + 220, y: y + 600, data: { screen: "pause", action: "toggle" } },
+    { type: "hudbutton", x, y: y + 700, data: { element: "resume-btn" } },
+    { type: "hudscreen", x: x + 220, y: y + 700, data: { screen: "pause", action: "hide" } },
+    { type: "hudbutton", x, y: y + 800, data: { element: "restart-btn" } },
+    { type: "setgamestate", x: x + 220, y: y + 800, data: { state: "playing", outcome: "", reset: true } },
+    { type: "hudscreen", x: x + 440, y: y + 800, data: { screen: "pause", action: "hide" } },
+    { type: "hudbutton", x, y: y + 900, data: { element: "quit-btn" } },
+    { type: "setgamestate", x: x + 220, y: y + 900, data: { state: "menu", outcome: "", reset: true } },
+    { type: "hudscreen", x: x + 440, y: y + 900, data: { screen: "pause", action: "hide" } }
   ];
   const edges = [
     { from: 0, to: 1, handle: "trigger" },
     { from: 2, to: 3, handle: "trigger" },
     { from: 4, to: 5, handle: "value" },
     { from: 6, to: 7, handle: "value" },
-    { from: 8, to: 9, handle: "value" }
+    { from: 8, to: 9, handle: "value" },
+    { from: 11, to: 12, handle: "trigger" },
+    { from: 13, to: 14, handle: "trigger" },
+    { from: 15, to: 16, handle: "trigger" },
+    { from: 15, to: 17, handle: "trigger" },
+    { from: 18, to: 19, handle: "trigger" },
+    { from: 18, to: 20, handle: "trigger" }
   ];
   return { nodes, edges };
+}
+
+// modules/waves/src/look.js
+var FLASH = { seconds: 0.18, peak: 3.5 };
+function flashLevel(age) {
+  if (!(age >= 0) || age >= FLASH.seconds) return 0;
+  return 1 - age / FLASH.seconds;
+}
+function coreGlow(fraction, floor = 0.15) {
+  const f = Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : 1;
+  return floor + (1 - floor) * f;
+}
+
+// modules/waves/src/fx.js
+function registerFx(api, engine) {
+  const flashes = /* @__PURE__ */ new Map();
+  const clock = () => typeof performance !== "undefined" ? performance.now() / 1e3 : 0;
+  const enemyUuids = () => new Set(engine.all().flatMap((s) => s.enemies.map((e) => e.uuid)));
+  if (typeof api.onHit === "function")
+    api.onHit((hit) => {
+      if (hit?.uuid && enemyUuids().has(hit.uuid)) flashes.set(hit.uuid, clock());
+    });
+  function paint(object, level) {
+    object.traverse((mesh) => {
+      const m = mesh.material;
+      if (!mesh.isMesh || !m?.emissive || Array.isArray(m)) return;
+      const base = m.userData.wvBase ??= { hex: m.emissive.getHex(), intensity: m.emissiveIntensity };
+      if (base.hex !== 0) return;
+      if (level > 0) {
+        m.emissive.setHex(16777215);
+        m.emissiveIntensity = FLASH.peak * level;
+      } else {
+        m.emissive.setHex(base.hex);
+        m.emissiveIntensity = base.intensity;
+      }
+    });
+  }
+  api.registerFrameTask(() => {
+    if (!flashes.size) return;
+    const t = clock();
+    for (const [uuid, at] of [...flashes]) {
+      const object = api.objectsGroup()?.getObjectByProperty("uuid", uuid);
+      const level = flashLevel(t - at);
+      if (object) paint(object, level);
+      if (level === 0) flashes.delete(uuid);
+    }
+  });
+  api.registerEffect(
+    "wavescore",
+    (object, base, data, time) => {
+      const m = object.material;
+      if (m?.emissive && !Array.isArray(m)) {
+        const full = m.userData.wvCore ??= m.emissiveIntensity || 1;
+        m.emissiveIntensity = full * coreGlow(Number(data.value), Number(data.floor ?? 0.15));
+      }
+      const spin = Number(data.spin ?? 0.6);
+      object.rotation.y = (base?.rot?.[1] ?? 0) + time * spin;
+      object.position.y = (base?.pos?.[1] ?? object.position.y) + Math.sin(time * 1.3) * 0.08;
+    },
+    { inputs: { value: "number" } }
+  );
+  return { flashes };
 }
 
 // modules/waves/src/index.js
 var index_default = {
   id: "waves",
   name: "Waves",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Wave survival on the health module: enemies walk from spawn points to a goal, a wave ends when its last enemy dies, the run is over when the last wave does \u2014 derived on every peer, no authority.",
   /** @param {any} api the module SDK surface */
   register(api) {
@@ -785,6 +901,7 @@ var index_default = {
     }
     const engine = createWavesEngine(api);
     registerNodes(api, engine);
+    const fx = registerFx(api, engine);
     const toolbox = registerToolbox(api, engine);
     api.hud.registerDebugLine(() => {
       const runs = engine.all();
@@ -814,6 +931,7 @@ var index_default = {
       window.__waves = {
         api,
         engine,
+        fx,
         toolbox,
         hud: arenaHud,
         hudGraph,
