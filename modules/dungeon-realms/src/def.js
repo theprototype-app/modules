@@ -181,15 +181,15 @@ export function realmsHud() {
 					input: 'menu',
 					elements: [
 						{ id: 'menu-panel', kind: 'panel', anchor: 'center', x: 0, y: 0, w: 480, h: 440, z: 0, label: '', style: PANEL },
-						text('title', 0, -170, 440, 44, 'DUNGEON REALMS', { size: 34, weight: '800', color: '#67e8f9', align: 'center' }),
-						{ id: 'dr-menu-level', kind: 'list', anchor: 'center', x: 0, y: -128, w: 440, h: 26, z: 1, label: '', rows: [], rowHeight: 20, style: { size: 14, weight: '600', color: '#e5e9f0', align: 'center', bg: 'transparent', pad: 0 } },
-						text('subtitle', 0, -92, 420, 40, 'Collect gems to unseal the portal, stand on it together, and climb to the dragon’s hoard.', { size: 13, color: '#aab4c3', align: 'center' }, { wrap: true }),
+						text('title', 0, -170, 412, 44, 'DUNGEON REALMS', { size: 34, weight: '800', color: '#67e8f9', align: 'left' }),
+						{ id: 'dr-menu-level', kind: 'list', anchor: 'center', x: 0, y: -128, w: 412, h: 26, z: 1, label: '', rows: [], rowHeight: 20, style: { size: 14, weight: '600', color: '#e5e9f0', align: 'left', bg: 'transparent', pad: 0 } },
+						text('subtitle', 0, -92, 412, 40, 'Collect gems to unseal the portal, stand on it together, and climb to the dragon’s hoard.', { size: 13, color: '#aab4c3', align: 'left' }, { wrap: true }),
 						button('dr-join-p1', -106, -30, 200, 44, 'Join as Player 1', BUTTON('#334155')),
 						button('dr-join-p2', 106, -30, 200, 44, 'Join as Player 2', BUTTON('#334155')),
 						button('dr-start', 0, 32, 412, 52, 'Start adventure', { ...BUTTON('#0ea5e9'), size: 18, weight: '700' }),
 						button('dr-new-dungeon', 0, 94, 412, 40, 'New dungeon 🎲', { size: 14, weight: '500', bg: '#2a3242', color: '#e5e9f0', radius: 10 }),
-						{ id: 'dr-menu-players', kind: 'list', anchor: 'center', x: 0, y: 146, w: 412, h: 44, z: 1, label: '', rows: [], rowHeight: 18, style: { size: 12, color: '#86efac', align: 'center', bg: 'transparent', pad: 0 } },
-						text('menu-hint', 0, 192, 440, 20, 'WASD walk  ·  walk over gems  ·  P pauses  ·  ↑↓ + Enter work too', { size: 11, color: '#64748b', align: 'center' })
+						{ id: 'dr-menu-players', kind: 'list', anchor: 'center', x: 0, y: 146, w: 412, h: 44, z: 1, label: '', rows: [], rowHeight: 18, style: { size: 12, color: '#86efac', align: 'left', bg: 'transparent', pad: 0 } },
+						text('menu-hint', 0, 192, 412, 20, 'WASD walk  ·  walk over gems  ·  P pauses  ·  ↑↓ + Enter work too', { size: 11, color: '#64748b', align: 'left' })
 					]
 				},
 				{
@@ -216,7 +216,7 @@ export function realmsHud() {
 					input: 'menu',
 					elements: [
 						{ id: 'pause-panel', kind: 'panel', anchor: 'center', x: 0, y: 0, w: 380, h: 300, z: 0, label: '', style: PANEL },
-						{ id: 'pause-title', kind: 'text', anchor: 'center', x: 0, y: -95, w: 340, h: 36, z: 1, label: 'PAUSED', style: { size: 26, weight: '700', color: '#e5e9f0', align: 'center' } },
+						{ id: 'pause-title', kind: 'text', anchor: 'center', x: 0, y: -95, w: 260, h: 36, z: 1, label: 'PAUSED', style: { size: 26, weight: '700', color: '#e5e9f0', align: 'left' } },
 						{ id: 'resume-btn', kind: 'button', anchor: 'center', x: 0, y: -30, w: 260, h: 44, z: 1, label: 'Resume', enabled: true, style: BUTTON('#0ea5e9') },
 						{ id: 'dr-restart', kind: 'button', anchor: 'center', x: 0, y: 24, w: 260, h: 44, z: 1, label: 'Restart — new dungeon', enabled: true, style: BUTTON('#3f7f5f') },
 						{ id: 'quit-btn', kind: 'button', anchor: 'center', x: 0, y: 78, w: 260, h: 44, z: 1, label: 'Quit to menu', enabled: true, style: { size: 15, weight: '500', bg: '#3a4150', color: '#e5e9f0', radius: 10 } }
@@ -229,8 +229,8 @@ export function realmsHud() {
 					input: 'menu',
 					elements: [
 						{ id: 'over-panel', kind: 'panel', anchor: 'center', x: 0, y: 0, w: 460, h: 300, z: 0, label: '', style: { ...PANEL, border: '1px solid rgba(255, 212, 94, 0.4)' } },
-						{ id: 'over-title', kind: 'text', anchor: 'center', x: 0, y: -100, w: 420, h: 40, z: 1, label: 'THE HOARD IS YOURS', style: { size: 28, weight: '800', color: '#ffd45e', align: 'center' } },
-						{ id: 'dr-taken-over', kind: 'text', anchor: 'center', x: 0, y: -56, w: 420, h: 24, z: 1, label: 'Every floor cleared — a new dungeon waits', style: { size: 13, color: '#c8d0dc', align: 'center' } },
+						{ id: 'over-title', kind: 'text', anchor: 'center', x: 0, y: -100, w: 400, h: 40, z: 1, label: 'THE HOARD IS YOURS', style: { size: 28, weight: '800', color: '#ffd45e', align: 'left' } },
+						{ id: 'dr-taken-over', kind: 'text', anchor: 'center', x: 0, y: -56, w: 400, h: 24, z: 1, label: 'Every floor cleared — a new dungeon waits', style: { size: 13, color: '#c8d0dc', align: 'left' } },
 						{ id: 'dr-play-again', kind: 'button', anchor: 'center', x: 0, y: 10, w: 280, h: 50, z: 1, label: 'Play again 🎲', enabled: true, style: { ...BUTTON('#0ea5e9'), size: 17 } },
 						{ id: 'dr-over-menu', kind: 'button', anchor: 'center', x: 0, y: 72, w: 280, h: 42, z: 1, label: 'Back to menu', enabled: true, style: { size: 15, weight: '500', bg: '#3a4150', color: '#e5e9f0', radius: 10 } }
 					]
@@ -251,7 +251,7 @@ export function realmsDef(entrance) {
 		license: 'CC0-1.0',
 		author: 'theprototype',
 		tags: ['co-op', 'procedural', 'vr', 'dungeon'],
-		modules: [{ id: 'dungeon', version: '2.0.0' }, { id: 'dungeon-realms', version: '2.0.0' }],
+		modules: [{ id: 'dungeon', version: '2.1.0' }, { id: 'dungeon-realms', version: '2.1.0' }],
 		installModules: ['dungeon', 'dungeon-realms'],
 		// 30: a custom dusk — a violet gradient sky, fog that turns far corridors to depth, a cool
 		// moon and a warm-floored sky fill so the stone reads; torches, gems and portals glow

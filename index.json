@@ -60,8 +60,8 @@
 	{
 		"id": "dungeon",
 		"name": "Dungeon Kit",
-		"version": "2.0.0",
-		"description": "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) with a toolbox, a Dungeon node and the userData.play contract the app walks in play mode. The playable game is Dungeon Realms.",
+		"version": "2.1.0",
+		"description": "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) rendered as torch-lit stone — glowing, flickering flames, a capped light budget that favours the entrance hall — with a toolbox, a Dungeon node and the userData.play contract the app walks in play mode. The playable game is Dungeon Realms.",
 		"author": "theprototype-app",
 		"source": "modules/dungeon",
 		"zip": "dungeon.zip",
@@ -75,8 +75,8 @@
 	{
 		"id": "dungeon-realms",
 		"name": "Dungeon Realms",
-		"version": "2.0.0",
-		"description": "Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors - every rule and readout a flow node. Requires the dungeon (Dungeon Kit) module.",
+		"version": "2.1.0",
+		"description": "Co-op dungeon crawl on the Dungeon Kit: explore five torch-lit floors under a dusk sky, collect glowing gems to unseal the portal, stand on it together and climb to the dragon's hoard. A clickable start menu (mouse, keys or gamepad), pause and victory screens - every rule and readout a flow node. Requires the dungeon (Dungeon Kit) module.",
 		"author": "theprototype-app",
 		"source": "modules/dungeon-realms",
 		"zip": "dungeon-realms.zip",
@@ -119,8 +119,8 @@
 	{
 		"id": "football",
 		"name": "Football",
-		"version": "1.0.0",
-		"description": "VR football on the knock: floating ball, two team gates, last-touch attribution, modes, per-player records and a saved match log - every rule a flow node.",
+		"version": "1.1.0",
+		"description": "VR football in a floodlit glass arena: hit the floating ball with your hands and put it through the glowing gate. Pick a side, Start - a live scoreboard with a match clock, score lamps over each gate, last-touch attribution, modes, per-player records and a saved match log - every rule a flow node.",
 		"author": "theprototype-app",
 		"source": "modules/football",
 		"zip": "football.zip",
@@ -280,8 +280,8 @@
 	{
 		"id": "waves",
 		"name": "Waves",
-		"version": "1.0.0",
-		"description": "Wave survival on the health module: enemies walk from spawn points to a goal, a wave ends when its last enemy dies, the run when the last wave does - derived on every peer, kills on each player's own row, the run log in the saved scene.",
+		"version": "1.1.0",
+		"description": "Wave survival in a sunset arena: enemies march out of glowing portals toward your crystal tower, and its core dims as your health falls. Knock them down - each hit flashes - clear every wave to win; kills on each player's own row, the run log in the saved scene, derived on every peer. Needs the health module.",
 		"author": "theprototype-app",
 		"source": "modules/waves",
 		"zip": "waves.zip",

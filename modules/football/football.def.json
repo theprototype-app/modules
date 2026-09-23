@@ -14,7 +14,7 @@
 	"modules": [
 		{
 			"id": "football",
-			"version": "1.0.0"
+			"version": "1.1.0"
 		}
 	],
 	"installModules": [
@@ -1885,7 +1885,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -150,
-							"w": 440,
+							"w": 424,
 							"h": 54,
 							"z": 1,
 							"label": "FOOTBALL",
@@ -1893,7 +1893,7 @@
 								"size": 44,
 								"weight": "800",
 								"color": "#ffd45e",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -1902,14 +1902,14 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -98,
-							"w": 440,
+							"w": 424,
 							"h": 44,
 							"z": 1,
 							"label": "Pick a side, then Start. Hit the floating ball with your hands; a ball through the other gate is a goal.",
 							"style": {
 								"size": 14,
 								"color": "#d8dee9",
-								"align": "center"
+								"align": "left"
 							},
 							"wrap": true
 						},
@@ -1995,14 +1995,14 @@
 							"anchor": "center",
 							"x": 0,
 							"y": 176,
-							"w": 440,
+							"w": 424,
 							"h": 30,
 							"z": 1,
 							"label": "Walk into the ball to knock it  ·  Grab: hold click  ·  Pause: P",
 							"style": {
 								"size": 12,
 								"color": "#8b97a8",
-								"align": "center"
+								"align": "left"
 							},
 							"wrap": true
 						}
@@ -2051,7 +2051,7 @@
 							"anchor": "top-center",
 							"x": -134,
 							"y": 20,
-							"w": 118,
+							"w": 100,
 							"h": 16,
 							"z": 2,
 							"label": "RED",
@@ -2059,7 +2059,7 @@
 								"size": 11,
 								"weight": "800",
 								"color": "rgba(255,255,255,0.85)",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -2068,7 +2068,7 @@
 							"anchor": "top-center",
 							"x": -134,
 							"y": 34,
-							"w": 118,
+							"w": 100,
 							"h": 42,
 							"z": 2,
 							"label": "0",
@@ -2076,7 +2076,7 @@
 								"size": 34,
 								"weight": "800",
 								"color": "#ffffff",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -2100,7 +2100,7 @@
 							"anchor": "top-center",
 							"x": 134,
 							"y": 20,
-							"w": 118,
+							"w": 100,
 							"h": 16,
 							"z": 2,
 							"label": "BLUE",
@@ -2108,7 +2108,7 @@
 								"size": 11,
 								"weight": "800",
 								"color": "rgba(255,255,255,0.85)",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -2117,7 +2117,7 @@
 							"anchor": "top-center",
 							"x": 134,
 							"y": 34,
-							"w": 118,
+							"w": 100,
 							"h": 42,
 							"z": 2,
 							"label": "0",
@@ -2125,7 +2125,7 @@
 								"size": 34,
 								"weight": "800",
 								"color": "#ffffff",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -2134,7 +2134,7 @@
 							"anchor": "top-center",
 							"x": 0,
 							"y": 24,
-							"w": 130,
+							"w": 74,
 							"h": 34,
 							"z": 2,
 							"label": "",
@@ -2155,7 +2155,7 @@
 							"anchor": "top-center",
 							"x": 0,
 							"y": 58,
-							"w": 130,
+							"w": 62,
 							"h": 18,
 							"z": 2,
 							"label": "FOOTBALL",
@@ -2250,7 +2250,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -95,
-							"w": 340,
+							"w": 260,
 							"h": 36,
 							"z": 1,
 							"label": "PAUSED",
@@ -2258,7 +2258,7 @@
 								"size": 28,
 								"weight": "800",
 								"color": "#e5e9f0",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -2356,7 +2356,7 @@
 								"size": 34,
 								"weight": "800",
 								"color": "#ffd45e",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{

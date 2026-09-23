@@ -14,11 +14,11 @@
 	"modules": [
 		{
 			"id": "dungeon",
-			"version": "2.0.0"
+			"version": "2.1.0"
 		},
 		{
 			"id": "dungeon-realms",
-			"version": "2.0.0"
+			"version": "2.1.0"
 		}
 	],
 	"installModules": [
@@ -1270,7 +1270,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -170,
-							"w": 440,
+							"w": 412,
 							"h": 44,
 							"z": 1,
 							"label": "DUNGEON REALMS",
@@ -1278,7 +1278,7 @@
 								"size": 34,
 								"weight": "800",
 								"color": "#67e8f9",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -1287,7 +1287,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -128,
-							"w": 440,
+							"w": 412,
 							"h": 26,
 							"z": 1,
 							"label": "",
@@ -1297,7 +1297,7 @@
 								"size": 14,
 								"weight": "600",
 								"color": "#e5e9f0",
-								"align": "center",
+								"align": "left",
 								"bg": "transparent",
 								"pad": 0
 							}
@@ -1308,14 +1308,14 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -92,
-							"w": 420,
+							"w": 412,
 							"h": 40,
 							"z": 1,
 							"label": "Collect gems to unseal the portal, stand on it together, and climb to the dragon’s hoard.",
 							"style": {
 								"size": 13,
 								"color": "#aab4c3",
-								"align": "center"
+								"align": "left"
 							},
 							"wrap": true
 						},
@@ -1410,7 +1410,7 @@
 							"style": {
 								"size": 12,
 								"color": "#86efac",
-								"align": "center",
+								"align": "left",
 								"bg": "transparent",
 								"pad": 0
 							}
@@ -1421,14 +1421,14 @@
 							"anchor": "center",
 							"x": 0,
 							"y": 192,
-							"w": 440,
+							"w": 412,
 							"h": 20,
 							"z": 1,
 							"label": "WASD walk  ·  walk over gems  ·  P pauses  ·  ↑↓ + Enter work too",
 							"style": {
 								"size": 11,
 								"color": "#64748b",
-								"align": "center"
+								"align": "left"
 							}
 						}
 					]
@@ -1634,7 +1634,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -95,
-							"w": 340,
+							"w": 260,
 							"h": 36,
 							"z": 1,
 							"label": "PAUSED",
@@ -1642,7 +1642,7 @@
 								"size": 26,
 								"weight": "700",
 								"color": "#e5e9f0",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -1732,7 +1732,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -100,
-							"w": 420,
+							"w": 400,
 							"h": 40,
 							"z": 1,
 							"label": "THE HOARD IS YOURS",
@@ -1740,7 +1740,7 @@
 								"size": 28,
 								"weight": "800",
 								"color": "#ffd45e",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{
@@ -1749,14 +1749,14 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -56,
-							"w": 420,
+							"w": 400,
 							"h": 24,
 							"z": 1,
 							"label": "Every floor cleared — a new dungeon waits",
 							"style": {
 								"size": 13,
 								"color": "#c8d0dc",
-								"align": "center"
+								"align": "left"
 							}
 						},
 						{

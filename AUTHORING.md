@@ -359,6 +359,67 @@ recipe and the `window.__stores` debug hook the checks read.
 
 ---
 
+## 7a. A game template that looks finished (roadmap 30)
+
+A module that ships a Games-tab template (football, dungeon-realms, waves, untangle) owns a
+`<id>.def.json` the core author script builds (`npm run build:<id>` emits it; core's
+`scripts/author-templates.cjs` has THE DEF SCHEMA comment block with every field). Since
+core's 30 author kit a def can say, all additive (absent = the old behaviour):
+
+| Area | Fields |
+|---|---|
+| Primitives | `box` + `bevel` (rounded) · `sphere` · `cylinder` · `cone` · `torus` · `capsule` (r, h) · `plane` (faces +Z) · `ring` (r, inner) · `icosahedron` / `dodecahedron` · `group` / `empty` with `children` · `camera` (lookAt, fov) |
+| Lights | `light` kind `point` / `spot` (angle, penumbra, target, castShadow, shadowMapSize) / `directional` (shadow frustum FITTED to the built meshes; `fit: false`) / `hemisphere` |
+| Materials | color, roughness, metalness, emissive + emissiveIntensity, opacity, flatShading, side, `toon`, `physical` (or any of clearcoat, clearcoatRoughness, transmission, thickness, ior, sheen, iridescence, specularIntensity) |
+| Flags | `physics`, `shadow: false`, `pick: 'through'` (select-through shells), `origin` (a door's hinge), `anim: '<preset>'` (door, drawer, elevator, turntable, pulse, fade — an AUTHORED clip, run it with a Play Animation node), `particles: '<preset>' \| {preset, ...overrides}` (sparkles, fire, smoke, dust, confetti, sparks) |
+| Sky | `env: {preset: 'custom', base, exposure, background: {top, bottom}, fog, ground, sun: {color, intensity, dir}, hemi}` |
+| Card | `view {pos, target}` (the editor camera the file opens on) and `thumb.camera` (a camera object's name — the card renders through it with the scene's own look) |
+
+**The standard shell** every Games-tab game meets: a Start screen with a mouse-clickable Start
+(Enter / gamepad A too), a HUD, Pause on P (Resume / Restart / Quit), an over screen with a
+restart, `view` + `thumb.camera`, shells `pick: 'through'`, a real ground, exposure >= 0.9,
+post AO -> AgX -> bloom -> SMAA, one of the kit's animation/particle presets where it reads.
+
+What cost time in 30-visuals-mod (football, dungeon-realms, waves):
+
+- **The editor grid draws at y = 0.** A floor whose TOP is exactly 0 z-fights it (the grid
+  showed through the football pitch in play). Put a floor's top a hair above (0.01-0.02 m) and
+  give the game a ground plane of its own: the custom sky's `ground` disc sits at -0.01, UNDER
+  the grid, so it does not hide it in the editor.
+- **Desktop play spawns at a fixed `[0, 2, 3]`** outside a dungeon (core's Player), whatever
+  the def's `view` says — keep that line of sight clear (football's lamp strip moved onto the
+  crossbar for it). No api moves the play-mode player (DEVX #23).
+- **Put the decoration in ONE top-level group** (`Arena`). A game's suite counts top-level
+  objects; one group moves that count by exactly one, and a resize ("Fit pitch") moves or
+  stretches the whole look in one `api.moveObject`. Nothing in it should be a body or carry a
+  name another rule reads (waves reads every top-level `Spawn…` object as a spawn point).
+- **A `group` with `physics` is ONE body** whose collider fits the group's box (the collider
+  spec measures children). That is how a waves enemy is a capsule figure with a glowing visor
+  and still one dynamic body for the health/knock contract.
+- **Glass**: `physical` + `transmission`, `shadow: false` (a ceiling that casts shadows puts the
+  whole pitch in the floodlights' shade) and `pick: 'through'`; keep a low `opacity` too if a
+  toolbox recipe rebuilds the object (a recipe only knows colour/opacity).
+- **A menu on core HUD screens beats module DOM.** A screen with `input: 'menu'` frees the
+  pointer in play (clicks land), and core's HUD ring gives arrows/Enter/gamepad A for free.
+  Drive module rules from its buttons through HUD Button (perPlayer) -> Delay -> your module
+  node's number input (DEVX #22). Dungeon Realms moved its Start/victory menu there and its
+  `drmenu` node's `show: 'never'` stands the old DOM card down.
+- **HUD text ignores `align` unless it wraps** (DEVX #28: `.hud-text` is a flex box). Lay a menu
+  out left-aligned to its button column, and give a number that must look centred a tight box.
+- **Late knocks move last-hit stamps.** A knock on a dead, hidden enemy still pulses its damage
+  counter, so an identity built from "the last hit" drifts by a millisecond between peers —
+  key a run on the round (`api.game.roundCutoff()`, remembered while it runs), not on a hit.
+- **An empty HUD list with `bg: 'transparent'` draws nothing** — the way to hide a leaderboard
+  until it has rows (there is no per-element visibility node).
+- **Play Animation acts on its trigger's VALUE edge.** A module EVENT output (`fbevent`) is a
+  stamp: bridge it with a zero-second Delay, exactly like a HUD Button.
+- **Particle emitters are capped (8 per scene).** Put presets on a few objects that read —
+  portals, a lantern — never one per torch; a torch flame glows (emissive > 1 + bloom) instead.
+- **The default AO radius (1.5) smears over big flat planes** (colour blotches on a stadium
+  floor, a dungeon's tiles): 0.6-0.8 with intensity ~1.5 reads clean.
+- Measure the look, do not describe it: the centre half of a 1540x774 play frame, Rec.709 luma,
+  must read >= 0.25 on the GPU backend (the before/after numbers are in the lane handover).
+
 ## 8. Friction log
 
 Things that cost real time while writing the modules in this repo. Add to this

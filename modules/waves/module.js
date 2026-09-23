@@ -891,7 +891,7 @@ function registerFx(api, engine) {
 var index_default = {
   id: "waves",
   name: "Waves",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Wave survival on the health module: enemies walk from spawn points to a goal, a wave ends when its last enemy dies, the run is over when the last wave does \u2014 derived on every peer, no authority.",
   /** @param {any} api the module SDK surface */
   register(api) {
