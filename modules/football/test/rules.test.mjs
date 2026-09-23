@@ -4,7 +4,8 @@
 import {
 	normalizeRules, DEFAULT_RULES, emptySlots, teamOf, canJoin, applySlot, freeVanished, swapSlots,
 	attributeGoal, applyGoal, matchOutcome, secondsLeft, serveDirection, serveImpulse,
-	matchLogEntry, appendMatchLog, scoreLine, hash32
+	matchLogEntry, appendMatchLog, scoreLine, hash32,
+	balancedTeam, goldenGoal, matchPhase, countdownNumber, startKickTeam, kickoffImpulse, playedSeconds, bannerScore, CELEBRATE_SECONDS, teamSpawn
 } from '../src/rules.js';
 
 /** @param {(ok: boolean, label: string) => void} check */
@@ -69,14 +70,17 @@ export function run(check) {
 	const rt = { ...DEFAULT_RULES, winBy: 'time', matchSeconds: 60 };
 	check(matchOutcome({ score: { red: 1, blue: 0 }, rules: rt, elapsed: 60 }) ?.reason === 'time', 'time: the clock ends it');
 	check(matchOutcome({ score: { red: 1, blue: 0 }, rules: rt, elapsed: 59 }) === null, '  counterfactual: one second early ends nothing');
-	check(matchOutcome({ score: { red: 2, blue: 2 }, rules: rt, elapsed: 60 }) ?.winner === 'draw', '  level on time is a draw');
+	check(matchOutcome({ score: { red: 2, blue: 2 }, rules: { ...rt, tie: 'draw' }, elapsed: 60 }) ?.winner === 'draw', "  level on time is a draw with tie: 'draw'");
+	check(matchOutcome({ score: { red: 2, blue: 2 }, rules: rt, elapsed: 60 }) === null, "  30b: level on time plays on (golden goal, the default tie)");
+	check(matchOutcome({ score: { red: 3, blue: 2 }, rules: rt, elapsed: 75 }) ?.winner === 'red', '  30b: ...and the next goal wins it');
 	check(matchOutcome({ score: { red: 9, blue: 0 }, rules: rt, elapsed: 10 }) === null, '  time mode ignores goals');
 	const re = { ...DEFAULT_RULES, winBy: 'either', goalsToWin: 3, matchSeconds: 60 };
 	check(matchOutcome({ score: { red: 3, blue: 0 }, rules: re, elapsed: 10 }) ?.reason === 'goals' && matchOutcome({ score: { red: 1, blue: 0 }, rules: re, elapsed: 60 }) ?.reason === 'time', 'either: first of the two');
 	check(matchOutcome({ score: { red: 9, blue: 0 }, rules: { ...r5, mode: 'practice' }, elapsed: 9999 }) === null, 'practice never ends');
 	const rf = { ...DEFAULT_RULES, mode: 'freeforall', goalsToWin: 2 };
 	check(matchOutcome({ score: { red: 0, blue: 0 }, rules: rf, elapsed: 0, playerGoals: { A: 2, B: 1 } }) ?.winner === 'A', 'free for all: the player reaching the goals wins');
-	check(matchOutcome({ score: { red: 0, blue: 0 }, rules: { ...rf, winBy: 'time', matchSeconds: 30 }, elapsed: 30, playerGoals: { A: 1, B: 1 } }) ?.winner === 'draw', '  free for all on time with a tie is a draw');
+	check(matchOutcome({ score: { red: 0, blue: 0 }, rules: { ...rf, winBy: 'time', matchSeconds: 30, tie: 'draw' }, elapsed: 30, playerGoals: { A: 1, B: 1 } }) ?.winner === 'draw', "  free for all on time with a tie is a draw (tie: 'draw')");
+	check(matchOutcome({ score: { red: 0, blue: 0 }, rules: { ...rf, winBy: 'time', matchSeconds: 30 }, elapsed: 30, playerGoals: { A: 1, B: 1 } }) === null, '  30b: ...a golden goal by default');
 	check(secondsLeft(rt, 20) === 40 && secondsLeft(r5, 20) === null, 'secondsLeft counts down in time mode and is null in goals mode');
 
 	// ---- the serve ----
@@ -105,4 +109,56 @@ export function run(check) {
 	check(draw.winner === 'draw' && draw.scorers.length === 0, '  a scoreless draw logs with no scorers');
 	const capped = appendMatchLog([{ at: 1 }], { at: 2 }, 1);
 	check(capped.length === 1 && capped[0].at === 2, '  counterfactual: cap 1 keeps only the newest');
+
+	// ---- 30b: the casual defaults and the match flow ----
+	check(DEFAULT_RULES.winBy === 'either' && DEFAULT_RULES.goalsToWin === 5 && DEFAULT_RULES.matchSeconds === 180 && DEFAULT_RULES.tie === 'golden', '30b defaults: first to 5 OR 3:00, a tie goes to a golden goal');
+	check(normalizeRules({ tie: 'nope' }).tie === 'golden' && normalizeRules({ tie: 'draw' }).tie === 'draw', '  tie normalises (unknown -> golden)');
+	const d = { ...DEFAULT_RULES };
+	check(matchOutcome({ score: { red: 5, blue: 1 }, rules: d, elapsed: 10 }) ?.reason === 'goals', '  the defaults end on the fifth goal...');
+	check(matchOutcome({ score: { red: 2, blue: 1 }, rules: d, elapsed: 180 }) ?.reason === 'time', '  ...or on the 3:00 whistle with a lead');
+	check(matchOutcome({ score: { red: 2, blue: 1 }, rules: d, elapsed: 179 }) === null, '  counterfactual: 2:59 ends nothing');
+	check(goldenGoal({ score: { red: 1, blue: 1 }, rules: d, elapsed: 181 }) === true, 'goldenGoal: level past the whistle');
+	check(goldenGoal({ score: { red: 2, blue: 1 }, rules: d, elapsed: 181 }) === false && goldenGoal({ score: { red: 1, blue: 1 }, rules: d, elapsed: 100 }) === false, '  counterfactual: a lead, or time left, is no golden goal');
+	check(goldenGoal({ score: { red: 1, blue: 1 }, rules: { ...d, tie: 'draw' }, elapsed: 181 }) === false && goldenGoal({ score: { red: 1, blue: 1 }, rules: { ...d, winBy: 'goals' }, elapsed: 9999 }) === false, "  counterfactual: tie 'draw' or a goals-only match never goes golden");
+
+	let bal = emptySlots();
+	check(balancedTeam(bal, 'blue') === 'blue' && balancedTeam(bal) === 'red', 'balancedTeam: an empty pitch seats you in the half you stand in');
+	bal = applySlot(bal, 'red', 'A');
+	check(balancedTeam(bal, 'red') === 'blue', '  ...and otherwise on the smaller team, whatever half you stand in');
+	bal = applySlot(bal, 'blue', 'B');
+	check(balancedTeam(bal, 'blue') === 'blue', '  counterfactual: level teams go back to your half');
+
+	const st = { started: true, outcome: null, celebrateUntil: 0, serveAt: 0 };
+	check(matchPhase({ started: false, outcome: null }, 5) === 'menu' && matchPhase({ started: false, outcome: { winner: 'red' } }, 5) === 'over', 'matchPhase: menu before a match, over after one');
+	check(matchPhase({ ...st, serveAt: 10 }, 8) === 'countdown' && matchPhase(st, 8) === 'live', '  countdown while a kick-off is due, live otherwise');
+	check(matchPhase({ ...st, celebrateUntil: 10, serveAt: 13 }, 9) === 'celebrate' && matchPhase({ ...st, celebrateUntil: 10, serveAt: 13 }, 11) === 'countdown', '  a goal celebrates first, then counts down');
+	check(CELEBRATE_SECONDS >= 2 && CELEBRATE_SECONDS <= 3, '  the celebration is 2-3 s (' + CELEBRATE_SECONDS + ')');
+	check(countdownNumber(13, 10) === 3 && countdownNumber(13, 10.5) === 3 && countdownNumber(13, 11.2) === 2 && countdownNumber(13, 12.9) === 1, 'countdownNumber reads 3, 2, 1');
+	check(countdownNumber(13, 13) === 0 && countdownNumber(0, 5) === 0, '  counterfactual: 0 once the kick-off is due, or with none pending');
+	let reds = 0;
+	for (let at = 0; at < 64; at++) if (startKickTeam(at + 0.123) === 'red') reds++;
+	check(startKickTeam(42.5) === startKickTeam(42.5) && reds > 10 && reds < 54, 'startKickTeam is seeded by the stamp and fair-ish (' + reds + '/64 red)');
+
+	const redG = [0, 1.35, -2.45];
+	const blueG = [0, 1.35, 2.45];
+	const kr = kickoffImpulse('red', redG, blueG, 0.45, 0.5, 100);
+	const kb = kickoffImpulse('blue', redG, blueG, 0.45, 0.5, 100);
+	check(kr[2] < 0 && kb[2] > 0 && kr[1] === 0, "kickoffImpulse rolls the ball into the KICKING team's own half (red -z, blue +z)");
+	check(Math.abs(Math.hypot(...kr) - 0.225) < 1e-9, '  impulse = mass x speed (0.45 x 0.5)');
+	const lean = Math.abs(kr[0]) / Math.hypot(kr[0], kr[2]);
+	check(lean > 0.5 && lean < 0.65, '  it leans ~35 degrees to the side, never straight at the team\'s own net (' + lean.toFixed(2) + ')');
+	const turned = kickoffImpulse('red', [2.45, 1, 0], [-2.45, 1, 0], 1, 1, 100);
+	check(turned[0] > 0.7, '  counterfactual: a pitch along x rolls toward the red gate on +x');
+
+	check(playedSeconds({ clockBase: 0, liveSince: 0 }, 50) === 0 && playedSeconds({ clockBase: 12, liveSince: 0 }, 50) === 12, 'playedSeconds: a stopped clock holds its base');
+	check(playedSeconds({ clockBase: 12, liveSince: 40 }, 50) === 22, '  a live stretch adds to it');
+	check(bannerScore({ red: 2, blue: 1 }) === 'Red 2 - 1 Blue', 'bannerScore reads "Red 2 - 1 Blue"');
+
+	const faces = (yaw) => [-Math.sin(yaw), -Math.cos(yaw)];
+	const sb = teamSpawn('blue', redG, blueG);
+	check(Math.abs(sb.position[2] - 1.6) < 1e-9 && sb.position[1] === 0 && Math.abs(faces(sb.yaw)[1] + 1) < 1e-9, 'teamSpawn: blue starts 1.6 m into its own half (+z), feet at 0, facing the red gate (-z)');
+	const sr = teamSpawn('red', redG, blueG);
+	check(Math.abs(sr.position[2] + 1.6) < 1e-9 && Math.abs(faces(sr.yaw)[1] - 1) < 1e-9, '  counterfactual: red starts in the red half facing +z');
+	const sx = teamSpawn('red', [2.45, 1, 0], [-2.45, 1, 0]);
+	check(Math.abs(sx.position[0] - 1.6) < 1e-9 && Math.abs(faces(sx.yaw)[0] + 1) < 1e-9, '  a pitch along x: red at +x facing -x');
 }

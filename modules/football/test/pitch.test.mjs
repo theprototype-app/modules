@@ -30,7 +30,7 @@ export function run(check) {
 	check(small.length === 2 && small.width === 1.5 && small.gateWidth <= small.width, 'normalizeDims clamps to a playable room and keeps the gate narrower than the pitch');
 	const wide = pitchObjects({ length: 10, width: 6 });
 	check(wide.find((o) => o.name === NAMES.redGate).pos[2] < red.pos[2], '  counterfactual: a longer pitch puts the gates further out');
-	check(createCommand(ball) === '/create Sphere 0.22' && createCommand(red).startsWith('/create Box 1.2 0.8 0.5'), 'createCommand renders the /create the app parses');
+	check(createCommand(ball) === '/create Sphere 0.22' && createCommand(red).startsWith('/create Box 1.5 1 0.5'), 'createCommand renders the /create the app parses');
 
 	// graph
 	const g = pitchGraph();
@@ -46,7 +46,12 @@ export function run(check) {
 	check(g.nodes.filter((n) => n.type === 'fbbutton').length === 4 && !g.nodes.some((n) => n.type === 'hudbutton'), 'four Match Buttons; no HUD buttons unless asked');
 	const withHud = pitchGraph(undefined, { hudButtons: true });
 	const fbButtons = withHud.nodes.filter((n) => n.type === 'hudbutton' && String(n.data.element).startsWith('fb-'));
-	check(fbButtons.length === 6 && fbButtons.every((n) => n.data.perPlayer === true), '  counterfactual: hudButtons adds six perPlayer HUD Buttons (menu x3, over, pause) wired into `press` (' + fbButtons.length + ')');
+	check(fbButtons.length === 7 && fbButtons.every((n) => n.data.perPlayer === true), '  counterfactual: hudButtons adds seven perPlayer HUD Buttons (menu x3, over x2 — Rematch + Menu, pause) wired into `press` (' + fbButtons.length + ')');
+	// 30b: several HUD-driven Match Buttons share ONE target (New match); only the object's own
+	// node may claim a click on it, or a click on the physical New match could run Rematch
+	const physical = withHud.nodes.filter((n) => n.type === 'fbbutton' && n.data.physical !== false);
+	check(physical.length === 4 && new Set(physical.map((n) => withHud.edges.find((e) => e.source === n.id && !e.targetHandle)?.target)).size === 4, '30b: exactly four PHYSICAL Match Buttons, one per button object');
+	check(withHud.nodes.some((n) => n.type === 'fbbutton' && n.data.action === 'rematch' && n.data.physical === false), '  the Rematch node is HUD-only (physical: false)');
 	// THE BRIDGE: a hudbutton has no runtime value in core, so it must reach a Match
 	// Button THROUGH a Delay (which re-emits the stamp as a pulse). A direct edge would
 	// read `undefined` in the module and silently do nothing — the bug this guards.
@@ -81,7 +86,22 @@ export function run(check) {
 	check(new Set(strip.map((l) => l.pos[1])).size === 1 && strip.every((l) => Math.abs(l.pos[0]) < DEFAULT_DIMS.width / 2 - 0.1),
 		'30: each gate\'s ten lamps are ONE strip inside the pitch width');
 	check(ball.clearcoat === 1 && objects.filter((o) => o.physics?.mode === 'dynamic').length === 1, '30: the ball is lacquered (clearcoat) and still the one dynamic body');
-	check(red.physics.sensor && red.size.join() === '1.2,0.8,0.5' && Math.abs(red.pos[2] + 2.45) < 1e-9, '30: the rules geometry did not move (red sensor 1.2 x 0.8 x 0.5 at z -2.45)');
+	check(red.physics.sensor && red.size.join() === '1.5,1,0.5' && Math.abs(red.pos[2] + 2.45) < 1e-9, '30b: the gate mouth is 1.5 x 1.0 (was 1.2 x 0.8), the sensor still 0.5 deep at z -2.45');
+	// 30b: the consoles ("the tables inside the court") stand OUTSIDE the touchline and the glass
+	const wallRight = byName.get('Wall right');
+	const glassX = wallRight.pos[0] + wallRight.size[0] / 2;
+	const consoles = [NAMES.joinRed, NAMES.joinBlue, NAMES.start, NAMES.newMatch].map((n) => byName.get(n));
+	check(consoles.every((c) => c.pos[0] - c.size[0] / 2 > glassX), '30b: all four button consoles stand outside the right-hand glass (x > ' + glassX.toFixed(3) + ')');
+	check(consoles.every((c) => c.pos[0] - c.size[0] / 2 < glassX + 0.5), '  ...within arm\'s reach of it (a player at the glass can press them)');
+	check(byName.get(NAMES.joinRed).pos[2] < byName.get(NAMES.start).pos[2] && byName.get(NAMES.start).pos[2] < byName.get(NAMES.newMatch).pos[2] && byName.get(NAMES.newMatch).pos[2] < byName.get(NAMES.joinBlue).pos[2], '  in one row: Join red (red end), Start, New match, Join blue (blue end)');
+	const inside = pitchObjects().filter((o) => o.physics?.mode === 'static' && !/^Wall|^Ceiling$|^Pitch$|gate$|post|bar|lamp/i.test(o.name));
+	check(inside.every((o) => Math.abs(o.pos[0]) > DEFAULT_DIMS.width / 2), '  counterfactual: nothing else static stands inside the court (' + inside.filter((o) => Math.abs(o.pos[0]) <= DEFAULT_DIMS.width / 2).map((o) => o.name).join(', ') + ')');
+	const boards = arenaObjects()[0].children.filter((k) => /^Perimeter board/.test(k.name));
+	check(boards.every((b) => Math.abs(b.pos[0]) > consoles[0].pos[0] + 0.25), '  the perimeter boards stand past the consoles');
+	check(def.physics.play.spawn?.position?.[2] > 0 && def.physics.play.spawn.yaw === 0 && def.physics.play.locomotion === undefined, '30b: the play block spawns the player on the blue half facing the red gate; no fly / teleport (locomotion absent)');
+	const menuTexts = hud.screens.find((sc) => sc.id === 'menu').elements.filter((e) => /^howto-\d/.test(e.id)).map((e) => e.label).join(' ');
+	check(/golden goal/i.test(menuTexts) && /First to 5/.test(menuTexts) && /conceded kicks off/.test(menuTexts) && /controller/.test(menuTexts), '30b: the menu says how to play (hit, score, first to 5 / 3:00, golden goal, the kick-off)');
+	check(hudIds.has('fb-rematch'), '  the results panel has Rematch');
 	const arena = arenaObjects();
 	check(arena.length === 1 && arena[0].type === 'group' && arena[0].name === ARENA, 'arenaObjects: ONE top-level group (the scene gains one object)');
 	const kids = arena[0].children;

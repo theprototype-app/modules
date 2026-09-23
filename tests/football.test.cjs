@@ -88,7 +88,8 @@ const hitBall = (page, uuid, speed = 4) =>
  *      what makes a second goal into the SAME gate assertable.
  */
 const teleport = async (page, uuid, pos) => {
-	await eventually(() => snap(page), (s) => s?.started && s.serveAt === 0, '  (premise) no serve pending');
+	// 30b: a goal is followed by a 2.5 s celebration and a 3 s kick-off countdown
+	await eventually(() => page.evaluate(() => ({ s: window.__football?.snapshot(), phase: window.__football?.game.phase() })), (v) => v.s?.started && v.s.serveAt === 0 && v.phase === 'live', '  (premise) no serve pending', 15000);
 	await page.evaluate(
 		({ uuid, y }) => window.__stores.physics.applyThrow({ uuid, pos: [0, y, 0], rot: [0, 0, 0], linvel: [0, 0, 0], angvel: [0, 0, 0] }),
 		{ uuid, y: pos[1] }
@@ -223,11 +224,13 @@ run(async () => {
 	// ---- 6. Start serves --------------------------------------------------------------------
 	// a gentle kick-off for the flight (the template serves at 3 m/s): the ball must not
 	// reach a gate on its own between two assertions
-	check((await setRules(A.page, { serveSpeed: 0.8 })) === 'node', '6.0 serveSpeed 0.8 written on the live Match Rules node');
+	// 30b: the default match is first-to-5 OR 3:00; this flight's premise is goals-only (the
+	// time case is section 13)
+	check((await setRules(A.page, { serveSpeed: 0.8, winBy: 'goals' })) === 'node', '6.0 serveSpeed 0.8 + goals-only written on the live Match Rules node');
 	await eventually(() => snap(B.page), (s) => s?.rules.serveSpeed === 0.8, '  (premise) B reads it');
 	check(await clickObject(A.page, names['Start match']), '6.1 A presses Start');
 	await eventually(() => snap(B.page), (s) => s?.started === true, '6.2 B: the match started');
-	await eventually(() => snap(A.page), (s) => s?.serves >= 1, '6.3 A: the kick-off was served (serveDelay 2s)', 8000);
+	await eventually(() => snap(A.page), (s) => s?.serves >= 1, '6.3 A: the kick-off was served (the 3 s countdown)', 10000);
 	await eventually(() => speedOf(A.page, ball), (v) => v != null && v > 0.2, '6.4 the ball moves on the initiator (|v| > 0.2)');
 	await eventually(() => snap(B.page), (s) => s?.serves >= 1, '6.5 B logged the serve');
 
@@ -247,7 +250,7 @@ run(async () => {
 	await eventually(() => myVar(B.page, 'goals'), (v) => v === 1, '8.3 B\'s OWN goals row = 1');
 	check((await myVar(A.page, 'goals')) === 0, '8.4 A\'s goals row stays 0');
 	await eventually(() => rowOf(A.page, 'goals', B.id), (v) => v === 1, '8.5 A\'s leaderboard shows B = 1 (peerVars replicated)');
-	await eventually(() => snap(A.page), (s) => s?.serves > servesBefore8, '8.6 the ball is re-served after the goal', 8000);
+	await eventually(() => snap(A.page), (s) => s?.serves > servesBefore8, '8.6 the ball is re-served after the goal (celebration + countdown)', 15000);
 
 	// ---- 9. a defender's last touch is an OWN GOAL on the sheet ----------------------------------
 	const aHit = await hitBall(A.page, ball, 4);
@@ -258,7 +261,7 @@ run(async () => {
 	await eventually(() => snap(A.page), (s) => s?.score.blue === 2, '9.3 blue 2 — the own goal counts for blue');
 	await eventually(() => myVar(A.page, 'owngoals'), (v) => v === 1, '9.4 A\'s owngoals row = 1');
 	check((await myVar(A.page, 'goals')) === 0 && (await myVar(B.page, 'goals')) === 1, '9.5 nobody\'s goals row moved');
-	await eventually(() => snap(A.page), (s) => s?.serves > servesBefore9, '9.6 re-served', 8000);
+	await eventually(() => snap(A.page), (s) => s?.serves > servesBefore9, '9.6 re-served', 15000);
 
 	// ---- 10. counterfactual: ownGoals 'ignore' scores nothing ----------------------------------------
 	check((await setRules(A.page, { ownGoals: 'ignore' })) === 'node', '10.1 the rule is edited on the live Match Rules node (replicated graph)');
@@ -267,7 +270,7 @@ run(async () => {
 	await eventually(() => snap(A.page), (s) => s?.lastTouch?.by === A.id, '10.3 A touched it');
 	const servesBefore10 = (await snap(A.page)).serves;
 	await teleport(A.page, ball, redPos);
-	await eventually(() => snap(A.page), (s) => s?.serves > servesBefore10, '10.4 the ball is re-served (the goal was seen)...', 8000);
+	await eventually(() => snap(A.page), (s) => s?.serves > servesBefore10, '10.4 the ball is re-served (the goal was seen)...', 15000);
 	check((await snap(A.page)).score.blue === 2 && (await myVar(A.page, 'owngoals')) === 1, '10.5 ...but the score and the sheet did not move');
 	await setRules(A.page, { ownGoals: 'count' });
 
@@ -329,7 +332,7 @@ run(async () => {
 	await A.page.evaluate(() => window.__stores.hudDocs.setHudDocFor('scene', window.__football.hud().scene));
 	// play one more goal for the lamps: A starts, B touches, ball into the red gate
 	await A.page.evaluate(() => window.__football.game.act('start'));
-	await eventually(() => snap(A.page), (s) => s?.started && s.serves > 0 && s.serveAt === 0, '16.1 a fresh match is served', 8000);
+	await eventually(() => snap(A.page), (s) => s?.started && s.serves > 0 && s.serveAt === 0, '16.1 a fresh match is served', 12000);
 	await hitBall(B.page, ball, 4);
 	await eventually(() => snap(A.page), (s) => s?.lastTouch?.by === B.id, '16.2 B touched it');
 	await teleport(A.page, ball, redPos);

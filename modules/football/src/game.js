@@ -36,16 +36,31 @@ import {
 	serveImpulse,
 	matchLogEntry,
 	appendMatchLog,
-	scoreLine
+	scoreLine,
+	balancedTeam,
+	CELEBRATE_SECONDS,
+	goldenGoal,
+	matchPhase,
+	countdownNumber,
+	startKickTeam,
+	kickoffImpulse,
+	playedSeconds,
+	bannerScore,
+	teamSpawn
 } from './rules.js';
+import { createFx } from './fx.js';
+import { DEDUPE_MS, MAX_KICK_SPEED } from './kick.js';
 
 export const MODULE_ID = 'football';
 /** gameState.vars key the saved sheet lives under (B5) */
 export const LOG_VAR = 'football';
+/** 30b: the team colours as CSS, for banners and confetti */
+export const TEAM_CSS = { red: '#e0524f', blue: '#4f86e6' };
 
 /** @param {any} api */
 export function createGame(api) {
 	const THREE = api.THREE;
+	const fx = createFx(api);
 
 	const state = {
 		/** rules from the toolbox when no Match Rules node is alive */
@@ -67,6 +82,17 @@ export function createGame(api) {
 		playerGoals: /** @type {Record<string, number>} */ ({}),
 		/** @type {{winner: string, reason: string} | null} */
 		outcome: null,
+		// 30b: the match flow (rules.js matchPhase) — all derived from op stamps
+		/** a goal's celebration runs until this synced second (0 = none) */
+		celebrateUntil: 0,
+		/** the gate (sensor uuid) the last goal went into — the ball rests there */
+		goalGate: '',
+		/** @type {'red'|'blue'} who takes the next kick-off */
+		kickTeam: /** @type {'red'|'blue'} */ ('red'),
+		/** seconds played before the current live stretch; the clock stops between them */
+		clockBase: 0,
+		/** when the current live stretch began (0 = the clock is stopped) */
+		liveSince: 0,
 		/** the last op stamp — a late joiner adopts the newer state */
 		at: 0
 	};
@@ -157,7 +183,13 @@ export function createGame(api) {
 		state.lastTouch = null;
 		state.outcome = null;
 		state.goals = 0;
+		// 30b: a match opens on the kick-off countdown; the clock starts at the kick-off
 		state.serveAt = at + rules().serveDelay;
+		state.celebrateUntil = 0;
+		state.goalGate = '';
+		state.kickTeam = startKickTeam(at);
+		state.clockBase = 0;
+		state.liveSince = 0;
 		emit('start');
 		fireEvent('start');
 		api.game?.setState?.('playing', '');
@@ -175,6 +207,10 @@ export function createGame(api) {
 		state.lastTouch = null;
 		state.outcome = null;
 		state.serveAt = 0;
+		state.celebrateUntil = 0;
+		state.goalGate = '';
+		state.clockBase = 0;
+		state.liveSince = 0;
 		emit('reset');
 		fireEvent('reset');
 		api.game?.setState?.('menu', '');
@@ -206,10 +242,16 @@ export function createGame(api) {
 		// F7: my row is mine alone to write
 		if (a.by === me() && a.credit && api.peerVars?.setMine) api.peerVars.setMine(a.credit, api.peerVars.mine(a.credit, 0) + 1);
 		state.lastTouch = null;
-		state.serveAt = rules().serve === 'auto' ? at + rules().serveDelay : 0;
+		// 30b: the clock stops, the ball rests in the net, then the CONCEDING team kicks off
+		if (state.liveSince) state.clockBase += Math.max(0, at - state.liveSince);
+		state.liveSince = 0;
+		state.celebrateUntil = at + CELEBRATE_SECONDS;
+		state.goalGate = String(data.gate ?? '');
+		state.kickTeam = data.gateTeam === 'blue' ? 'blue' : 'red';
+		state.serveAt = rules().serve === 'auto' ? state.celebrateUntil + rules().serveDelay : 0;
 		const gate = api.objectsGroup()?.getObjectByProperty('uuid', data.gate);
 		const where = gate ? gate.getWorldPosition(new THREE.Vector3()).toArray() : undefined;
-		if (a.counts) api.playSound?.('ding', where);
+		presentGoal(a, where);
 		emit('goal', a);
 		fireEvent('goal');
 		if (a.counts && a.team) fireEvent(a.team + 'goal');
@@ -218,10 +260,16 @@ export function createGame(api) {
 
 	/** @param {{at: number, dir?: number[]}} data */
 	function applyServeOp(data) {
-		stamp(data);
+		const at = stamp(data);
 		state.serves++;
 		state.serveAt = 0;
 		state.lastTouch = null;
+		// 30b: a kick-off starts the clock again (a rest re-serve mid-play leaves it running)
+		if (state.started && !state.liveSince) state.liveSince = at;
+		if (state.started && data.why !== 'rest') {
+			fx.sound('whistle', ballWorld());
+			fx.announce('GO!', { ms: 700, color: TEAM_CSS[state.kickTeam] });
+		}
 		emit('serve');
 		fireEvent('serve');
 		return true;
@@ -234,7 +282,11 @@ export function createGame(api) {
 		state.started = false;
 		state.endedAt = at;
 		state.serveAt = 0;
+		state.celebrateUntil = 0;
+		if (state.liveSince) state.clockBase += Math.max(0, at - state.liveSince);
+		state.liveSince = 0;
 		state.outcome = { winner: String(data.winner ?? 'draw'), reason: String(data.reason ?? '') };
+		presentOver();
 		emit('over', state.outcome);
 		fireEvent('over');
 		api.game?.setState?.('over', outcomeText());
@@ -251,6 +303,34 @@ export function createGame(api) {
 
 	// ---- the actions a button, a HUD button or the toolbox can take -------------------
 
+	/** 30b: this viewer chose to watch — never auto-seated (LOCAL, like the choice itself) */
+	let spectating = false;
+
+	/** 30b: the half THIS player stands in — the tie-break when auto-balancing @returns {'red'|'blue'} */
+	function myHalf() {
+		const p = typeof api.playerPosition === 'function' ? api.playerPosition() : null;
+		const red = gateLocal('red');
+		const blue = gateLocal('blue');
+		if (!p || !red || !blue) return 'red';
+		const d = (/** @type {number[]} */ g) => Math.hypot(p[0] - g[0], p[2] - g[2]);
+		return d(red) <= d(blue) ? 'red' : 'blue';
+	}
+
+	/** 30b: seat this player on the smaller team when they have no seat and did not choose to
+	 * watch — pressing Start or touching the ball is enough to play (no "Join" needed).
+	 * @returns {boolean} whether a seat was taken */
+	function autoJoin() {
+		const mode = rules().mode;
+		if (spectating || mode === 'freeforall' || mode === 'practice') return false;
+		if (teamOf(state.slots, me())) return false;
+		const team = balancedTeam(state.slots, myHalf());
+		if (!canJoin(state.slots, team, me(), mode).ok) return false;
+		const data = { op: 'slot', team, peerId: me(), name: nameOf(me()), at: now() };
+		applySlotOp(data);
+		api.send(data);
+		return true;
+	}
+
 	/** @param {string} action @returns {boolean} */
 	function act(action) {
 		const at = now();
@@ -264,6 +344,7 @@ export function createGame(api) {
 					api.toast('Football: ' + verdict.reason);
 					return false;
 				}
+				spectating = team === 'none';
 				const data = { op: 'slot', team, peerId: me(), name: nameOf(me()), at };
 				applySlotOp(data);
 				api.send(data);
@@ -271,7 +352,8 @@ export function createGame(api) {
 			}
 			case 'start': {
 				if (state.started) return false;
-				const data = { op: 'start', at };
+				autoJoin();
+				const data = { op: 'start', at: now() };
 				applyStart(data);
 				api.send(data);
 				return true;
@@ -281,6 +363,11 @@ export function createGame(api) {
 				applyReset(data);
 				api.send(data);
 				return true;
+			}
+			case 'rematch': {
+				// 30b: the results panel's Rematch — same sides, straight to the kick-off
+				act('new-match');
+				return act('start');
 			}
 			case 'swap-sides': {
 				const data = { op: 'swap', at };
@@ -304,7 +391,52 @@ export function createGame(api) {
 
 	// ---- the authority's half: serve, goal detection, the end ---------------------------
 
-	/** @param {'auto'|'button'|'rest'} why */
+	/** a top-level object's position in the OBJECTS GROUP's frame (the physics frame) @param {string} uuid */
+	function localPos(uuid) {
+		const o = uuid ? api.objectsGroup()?.getObjectByProperty('uuid', uuid) : null;
+		return o ? o.position.toArray() : null;
+	}
+	/** the gate sensor a team defends, local frame @param {'red'|'blue'} team */
+	function gateLocal(team) {
+		const uuid = Object.keys(config.gates).find((u) => config.gates[u].team === team);
+		return uuid ? localPos(uuid) : null;
+	}
+	/** 30b: the centre spot at mouth height — where every kick-off starts (local frame) */
+	function kickoffSpot() {
+		const red = gateLocal('red');
+		const blue = gateLocal('blue');
+		if (!red || !blue) return null;
+		return [(red[0] + blue[0]) / 2, (red[1] + blue[1]) / 2, (red[2] + blue[2]) / 2];
+	}
+	/** the ball's WORLD position (sounds, confetti) */
+	function ballWorld() {
+		const o = ball();
+		return o ? o.getWorldPosition(new THREE.Vector3()).toArray() : undefined;
+	}
+
+	/**
+	 * 30b: the authority PLACES the ball (a celebration in the net, the centre spot for a
+	 * kick-off). On the peer stepping the world a pose written from outside is an EXTERNAL
+	 * hold (core physics' deviation rule): the body goes kinematic, stays where it was put,
+	 * and 250 ms after the last write drops back to dynamic at rest. Re-placed only when it
+	 * drifted (a hand knocked it during the countdown), so a resting ball costs no message.
+	 * Only while a simulation runs: in Edit the ball is the gizmo's.
+	 * @param {number[]} spot @returns {boolean} whether a move was sent
+	 */
+	function placeBall(spot) {
+		const o = ball();
+		if (!o || !spot || !api.physics?.running?.()) return false;
+		const p = o.position;
+		if (Math.hypot(p.x - spot[0], p.y - spot[1], p.z - spot[2]) < 0.02) return false;
+		api.moveObject?.(o.uuid, { pos: spot, rot: [0, 0, 0] });
+		return true;
+	}
+
+	/** a kick-off nudge the physics refused (the ball was still held): retried until then
+	 * @type {{impulse: number[], after: number, until: number} | null} */
+	let pendingNudge = null;
+
+	/** @param {'auto'|'button'|'rest'|'kickoff'} why */
 	function serve(why) {
 		if (!isAuthority()) return false;
 		const object = ball();
@@ -312,10 +444,25 @@ export function createGame(api) {
 		const at = now();
 		const mass = Number(object.userData?.physics?.mass) || 1;
 		const r = rules();
-		const centre = pitchCentre();
-		centre[1] = object.position.y;
-		const impulse = serveImpulse(object.position.toArray(), centre, mass, r.serveSpeed, at);
-		const pushed = api.physics.applyImpulse(object.uuid, impulse);
+		let pushed = false;
+		if (why === 'rest') {
+			// a ball stuck mid-play drifts back toward the centre (never a kick-off)
+			const centre = pitchCentre();
+			centre[1] = object.position.y;
+			pushed = api.physics.applyImpulse(object.uuid, serveImpulse(object.position.toArray(), centre, mass, Math.max(r.serveSpeed, 0.8), at));
+		} else {
+			// 30b: the KICK-OFF — from the centre spot, a slow nudge into the kicking team's half
+			const red = gateLocal('red') ?? [0, 0, -1];
+			const blue = gateLocal('blue') ?? [0, 0, 1];
+			const moved = placeBall(kickoffSpot() ?? object.position.toArray());
+			const impulse = kickoffImpulse(state.kickTeam, red, blue, mass, r.serveSpeed, at);
+			// a ball just re-placed is about to go under the placement's hold, which would eat
+			// an impulse given now: nudge it once the hold has let go
+			pushed = !moved && api.physics.applyImpulse(object.uuid, impulse);
+			const ms = performance.now();
+			pendingNudge = pushed ? null : { impulse, after: moved ? ms + 350 : 0, until: ms + 1800 };
+			why = why === 'button' ? 'button' : 'kickoff';
+		}
 		const data = { op: 'serve', at, why };
 		applyServeOp(data);
 		api.send(data);
@@ -344,6 +491,7 @@ export function createGame(api) {
 		if (!object) return;
 		object.getWorldPosition(_pos);
 		const group = api.objectsGroup();
+		const live = matchPhase(state, now()) === 'live';
 		for (const [uuid, gate] of Object.entries(config.gates)) {
 			const sensor = group?.getObjectByProperty('uuid', uuid);
 			if (!sensor) continue;
@@ -351,8 +499,9 @@ export function createGame(api) {
 			const isIn = _box.containsPoint(_pos);
 			const was = !!inside[uuid];
 			inside[uuid] = isIn;
-			// ENTER edge only, and only while a match runs with no serve pending
-			if (!isIn || was || !state.started || state.serveAt) continue;
+			// ENTER edge only, and only while the ball is LIVE (not resting in a net after a
+			// goal, not waiting on the centre spot for a kick-off)
+			if (!isIn || was || !live) continue;
 			const r = rules();
 			const a = attributeGoal({ gateTeam: gate.team, lastTouch: state.lastTouch, slots: state.slots, mode: r.mode, ownGoals: r.ownGoals });
 			const data = { op: 'goal', gate: uuid, gateTeam: gate.team, team: a.team, by: a.by, own: a.own, counts: a.counts, credit: a.credit, at: now() };
@@ -366,7 +515,7 @@ export function createGame(api) {
 	/** a ball that sits still mid-match for REST_SECONDS is re-served toward the centre */
 	function watchRest(t) {
 		const object = ball();
-		if (!object || !state.started || state.serveAt) {
+		if (!object || matchPhase(state, now()) !== 'live') {
 			restPos = null;
 			return;
 		}
@@ -384,13 +533,33 @@ export function createGame(api) {
 
 	function watchEnd() {
 		if (!state.started) return;
-		const outcome = matchOutcome({ score: state.score, rules: rules(), elapsed: now() - state.startedAt, playerGoals: state.playerGoals });
+		// a winning goal is celebrated first; the final whistle blows when it ends
+		if (matchPhase(state, now()) === 'celebrate') return;
+		const outcome = matchOutcome({ score: state.score, rules: rules(), elapsed: elapsed() ?? 0, playerGoals: state.playerGoals });
 		if (!outcome) return;
 		const data = { op: 'over', at: now(), ...outcome };
 		applyOver(data);
 		api.send(data);
 		writeMatchLog();
 	}
+
+	/** 30b: the authority keeps the ball where the phase wants it */
+	function driveBall() {
+		const phase = matchPhase(state, now());
+		if (phase === 'celebrate') placeBall(localPos(state.goalGate) ?? kickoffSpot() ?? []);
+		else if (phase === 'countdown') placeBall(kickoffSpot() ?? []);
+		else if (phase === 'live' && state.celebrateUntil && placedFor !== state.celebrateUntil) {
+			// serve: 'button' — the celebration is over and nobody kicks off by clock: the
+			// ball waits on the centre spot for the Serve button
+			placedFor = state.celebrateUntil;
+			if (rules().serve !== 'auto') placeBall(kickoffSpot() ?? []);
+		}
+		if (pendingNudge && performance.now() >= pendingNudge.after) {
+			const o = ball();
+			if (!o || performance.now() > pendingNudge.until || api.physics.applyImpulse(o.uuid, pendingNudge.impulse)) pendingNudge = null;
+		}
+	}
+	let placedFor = 0;
 
 	// ---- B5: the saved sheet ------------------------------------------------------------
 
@@ -414,14 +583,90 @@ export function createGame(api) {
 	/** @param {any} hit */
 	function onHit(hit) {
 		if (!hit || !config.ballUuid || hit.uuid !== config.ballUuid) return;
-		const by = String(hit.by ?? '');
+		// 30b: a SOLO session stamps no peer id on its own hits (by = ''), which dropped
+		// every touch of a player alone in a headset; my own hit is mine whatever it carries
+		const by = String(hit.by || (hit.local ? me() : ''));
 		if (!by) return;
+		// 30b: every knock on the ball sounds (every peer hears it, like the hit itself), and
+		// the kicker learns the hand's core hit so one swing is never two touches
+		coreHitAt.set(by, performance.now());
+		lastTouchPerf = performance.now();
+		fx.sound('kick', ballWorld());
+		if (by === me()) onCoreHitByMe();
 		const team = teamOf(state.slots, by);
 		// a spectator's hit moves the ball (that is physics) but attributes nothing
 		state.lastTouch = { by, team, at: Number(hit.at) || now() };
 		if (by === me() && state.started && api.peerVars?.setMine) api.peerVars.setMine('touches', api.peerVars.mine('touches', 0) + 1);
 		emit('touch', state.lastTouch);
-		if (by === me()) fireEvent('touch');
+		if (by === me()) {
+			fireEvent('touch');
+			if (hit.local !== false) touchedByMe();
+		}
+	}
+
+	/** @type {Map<string, number>} peer id -> its last core knock on the ball (performance.now) */
+	const coreHitAt = new Map();
+	/** performance.now of the ball's last touch of any kind (the bounce sound waits it out) */
+	let lastTouchPerf = -Infinity;
+	/** the kicker's hook (index.js wires it) */
+	let onCoreHitByMe = () => {};
+
+	/**
+	 * 30b: a KICK — a controller tip swung through the ball, or a click on it (kicker.js). Every
+	 * peer applies the touch (last touch, the sound, the sheet); the physics INITIATOR alone
+	 * applies the impulse (AUTHORING §4.1: authoritative), and drops one that follows the same
+	 * peer's core knock within DEDUPE_MS — the kicker's own dedupe cannot see a knock the
+	 * initiator logged first.
+	 * @param {{uuid: string, impulse: number[], speed?: number, by?: string, at?: number, probe?: string}} data
+	 * @param {boolean} local born on this peer
+	 */
+	function applyKick(data, local) {
+		if (!config.ballUuid || data?.uuid !== config.ballUuid) return false;
+		const by = String(data.by || (local ? me() : ''));
+		let impulse = Array.isArray(data.impulse) ? data.impulse.slice(0, 3).map((n) => Number(n) || 0) : null;
+		// never trust the sender's numbers: at most a MAX_KICK_SPEED change of the ball's speed
+		const mass = Number(ball()?.userData?.physics?.mass) || 0.45;
+		const size = impulse ? Math.hypot(impulse[0], impulse[1], impulse[2]) : 0;
+		if (impulse && size > MAX_KICK_SPEED * mass) impulse = impulse.map((n) => (n * MAX_KICK_SPEED * mass) / size);
+		if (impulse && api.physics?.isInitiator?.()) {
+			const recent = coreHitAt.get(by) ?? -Infinity;
+			if (local || performance.now() - recent >= DEDUPE_MS) api.physics.applyImpulse(data.uuid, impulse);
+		}
+		lastTouchPerf = performance.now();
+		fx.sound('kick', ballWorld());
+		if (!by) return true;
+		state.lastTouch = { by, team: teamOf(state.slots, by), at: Number(data.at) || now() };
+		if (by === me() && state.started && api.peerVars?.setMine) api.peerVars.setMine('touches', api.peerVars.mine('touches', 0) + 1);
+		emit('touch', state.lastTouch);
+		if (by === me() && local) {
+			fireEvent('touch');
+			touchedByMe();
+		}
+		return true;
+	}
+
+	/**
+	 * 30b: MY touch in play does what a casual player expects — with no match running it
+	 * KICKS ONE OFF (seating me on the smaller team first), and mid-match an unseated player
+	 * is seated. "When the ball reaches the gate nothing changes" was a match nobody could
+	 * start: the DOM menu does not draw in a headset, so no Start was ever pressed.
+	 */
+	function touchedByMe() {
+		if (!localActive()) return;
+		const phase = matchPhase(state, now());
+		if (phase === 'menu') act('start');
+		else if (state.started && !teamOf(state.slots, me())) {
+			if (autoJoin()) state.lastTouch = { by: me(), team: teamOf(state.slots, me()), at: state.lastTouch?.at ?? now() };
+		}
+	}
+
+	/** 30b: is THIS viewer playing — Play, Interact, or a headset outside Edit? (C1: VR Play
+	 * enters Interact; a core before C1 has no VR editor mode, so a headset counts) */
+	function localActive() {
+		if (api.isPlaying?.()) return true;
+		const mode = typeof api.editorMode === 'function' ? api.editorMode() : 'edit';
+		if (mode === 'interact') return true;
+		return !!api.isVR?.() && typeof api.setSpawn !== 'function';
 	}
 
 	/** A2's seam, feature-detected; the debug hook is the A1-only fallback. */
@@ -436,6 +681,111 @@ export function createGame(api) {
 			return '__stores.knock';
 		}
 		return 'none';
+	}
+
+	// ---- 30b: the presentation — every peer shows what every peer applied -------------------
+
+	/** @param {import('./rules.js').Attribution} a @param {number[] | undefined} where the gate, world */
+	function presentGoal(a, where) {
+		if (!a.counts) {
+			fx.announce('NO GOAL', { sub: a.reason === 'practice' ? 'Practice — nothing counts' : 'Own goals are ignored', ms: 1400, color: '#c8d0dc' });
+			fx.sound('whistle', where);
+			return;
+		}
+		const team = a.team;
+		const colour = team ? TEAM_CSS[team] : '#ffd45e';
+		let sub = bannerScore(state.score);
+		if (!team && a.by) sub = nameOf(a.by) + ' — ' + (state.playerGoals[a.by] ?? 0);
+		else if (a.by) sub = (a.own ? 'Own goal by ' : '') + nameOf(a.by) + ' · ' + bannerScore(state.score);
+		fx.announce(a.own ? 'OWN GOAL!' : 'GOAL!', { sub, ms: 2200, color: colour, toast: true });
+		fx.sound('goal', where);
+		fx.sound('cheer', where);
+		if (where) fx.burst(where, { kind: 'confetti', color: colour, count: 90 });
+		const mine = teamOf(state.slots, me());
+		if (team && mine === team) fx.haptic('success');
+		else if (team && mine) fx.haptic('fail');
+		else if (!team && a.by === me()) fx.haptic('success');
+	}
+
+	function presentOver() {
+		const o = state.outcome;
+		if (!o) return;
+		const winner = o.winner;
+		const colour = winner === 'red' || winner === 'blue' ? TEAM_CSS[winner] : '#ffd45e';
+		const title = winner === 'draw' ? 'DRAW' : winner === 'red' ? 'RED WINS!' : winner === 'blue' ? 'BLUE WINS!' : nameOf(winner).toUpperCase() + ' WINS!';
+		fx.sound('whistle', ballWorld());
+		fx.announce(title, { sub: bannerScore(state.score) + (goldenPlayed ? ' · golden goal' : ''), ms: 3200, color: colour, toast: true });
+		if (winner !== 'draw') fx.sound('cheer', ballWorld());
+		const mine = teamOf(state.slots, me());
+		if (mine && mine === winner) fx.haptic('success');
+		else if (mine && winner !== 'draw') fx.haptic('fail');
+		else if (winner === me()) fx.haptic('success');
+	}
+
+	/** what the countdown last showed (a key) and whether golden goal was announced */
+	let shownCount = '';
+	let goldenPlayed = false;
+	let musicOn = false;
+	/**
+	 * Per frame, EVERY peer: the 3-2-1 before a kick-off and the golden-goal banner, each
+	 * derived from replicated stamps (no message), and the stadium music while this viewer
+	 * plays on a pitch.
+	 */
+	function presentTick() {
+		const t = now();
+		if (state.started && state.serveAt && matchPhase(state, t) === 'countdown') {
+			const n = countdownNumber(state.serveAt, t);
+			const key = state.serveAt + ':' + n;
+			if (n > 0 && n <= 3 && key !== shownCount) {
+				shownCount = key;
+				const team = state.kickTeam;
+				fx.announce(String(n), { sub: (team === 'red' ? 'Red' : 'Blue') + ' kicks off', ms: 800, color: TEAM_CSS[team] });
+				fx.sound('click', ballWorld());
+			}
+		}
+		const golden = state.started && goldenGoal({ score: state.score, rules: rules(), elapsed: elapsed() ?? 0, playerGoals: state.playerGoals });
+		if (golden && !goldenPlayed) {
+			goldenPlayed = true;
+			fx.sound('whistle', ballWorld());
+			fx.announce('GOLDEN GOAL', { sub: 'Level at full time — the next goal wins', ms: 2600, color: '#ffd45e', toast: true });
+		}
+		if (!state.started && !state.outcome) goldenPlayed = false;
+		const want = !!config.ballUuid && localActive();
+		const ms = performance.now();
+		if (want !== musicOn) {
+			musicOn = want;
+			musicTry = ms;
+			if (want) fx.music('stadium', { volume: 0.55 });
+			else fx.stopMusic();
+		} else if (want && fx.hasMusic() && fx.musicNow() !== 'stadium' && ms - musicTry > 2000) {
+			// the core refused (the mode had not flipped yet) or something else took the music:
+			// ask again, at most every 2 s
+			musicTry = ms;
+			fx.music('stadium', { volume: 0.55 });
+		}
+		placeSpawn();
+	}
+	let musicTry = 0;
+
+	/** the spawn this peer last asked for (a key), so setSpawn runs on a CHANGE only */
+	let spawnKey = '';
+	/**
+	 * 30b C1: entering Interact/Play puts the player on THEIR team's half, facing the gate they
+	 * attack (red defends -z, so a red player starts in the red half looking +z); unseated, the
+	 * blue half (the scene's own play.spawn). Feature-detected: a core before C1 has no setSpawn.
+	 */
+	function placeSpawn() {
+		if (typeof api.setSpawn !== 'function' || !config.ballUuid) return;
+		const red = gateLocal('red');
+		const blue = gateLocal('blue');
+		if (!red || !blue) return;
+		const team = teamOf(state.slots, me()) ?? 'blue';
+		const key = team + ':' + red.map((n) => n.toFixed(2)).join() + ':' + blue.map((n) => n.toFixed(2)).join();
+		if (key === spawnKey) return;
+		spawnKey = key;
+		const { position, yaw } = teamSpawn(team, red, blue);
+		fx.note('spawn', team, { position, yaw });
+		api.setSpawn(position, yaw);
 	}
 
 	// ---- events into the graph -----------------------------------------------------------
@@ -480,6 +830,8 @@ export function createGame(api) {
 					return applyOver(data);
 				case 'rules':
 					return applyRulesOp(data);
+				case 'kick':
+					return applyKick(data, false);
 				default:
 					return false;
 			}
@@ -504,7 +856,12 @@ export function createGame(api) {
 			serves: state.serves,
 			goals: state.goals,
 			playerGoals: { ...state.playerGoals },
-			outcome: state.outcome ? { ...state.outcome } : null
+			outcome: state.outcome ? { ...state.outcome } : null,
+			celebrateUntil: state.celebrateUntil,
+			goalGate: state.goalGate,
+			kickTeam: state.kickTeam,
+			clockBase: state.clockBase,
+			liveSince: state.liveSince
 		};
 	}
 
@@ -527,6 +884,13 @@ export function createGame(api) {
 		state.goals = Number(remote.goals) || 0;
 		state.playerGoals = { ...(remote.playerGoals ?? {}) };
 		state.outcome = remote.outcome ? { winner: String(remote.outcome.winner), reason: String(remote.outcome.reason ?? '') } : null;
+		// 30b: absent on an older peer's state = no celebration, red kicks off, the clock
+		// derived as before (seconds since the start)
+		state.celebrateUntil = Number(remote.celebrateUntil) || 0;
+		state.goalGate = String(remote.goalGate ?? '');
+		state.kickTeam = remote.kickTeam === 'blue' ? 'blue' : 'red';
+		state.clockBase = Number(remote.clockBase) || 0;
+		state.liveSince = remote.clockBase == null && remote.liveSince == null ? state.startedAt : Number(remote.liveSince) || 0;
 		lastOpLocal = true;
 		emit('state');
 	}
@@ -545,6 +909,11 @@ export function createGame(api) {
 		state.goals = 0;
 		state.playerGoals = {};
 		state.outcome = null;
+		state.celebrateUntil = 0;
+		state.goalGate = '';
+		state.kickTeam = 'red';
+		state.clockBase = 0;
+		state.liveSince = 0;
 		state.at = 0;
 		config.gates = {};
 		config.ballUuid = null;
@@ -566,8 +935,10 @@ export function createGame(api) {
 				emit('slots');
 			}
 		}
+		presentTick();
 		if (!isAuthority()) return;
-		if (state.started && state.serveAt && now() >= state.serveAt) serve('auto');
+		if (state.started && state.serveAt && now() >= state.serveAt) serve('kickoff');
+		driveBall();
 		watchGoals();
 		watchRest(t);
 		watchEnd();
@@ -604,9 +975,14 @@ export function createGame(api) {
 			me: id === me()
 		}));
 	}
-	const left = () => (state.started ? secondsLeft(rules(), now() - state.startedAt) : null);
-	/** 30: seconds played — running while started, frozen at the whistle, null before */
-	const elapsed = () => (state.started ? now() - state.startedAt : state.endedAt && state.startedAt ? state.endedAt - state.startedAt : null);
+	/** 30: seconds played — running while started, frozen at the whistle, null before. 30b:
+	 * only LIVE play counts (the clock stops for a celebration and a countdown) */
+	const elapsed = () => (state.started || (state.endedAt && state.startedAt) ? playedSeconds(state, now()) : null);
+	const left = () => (state.started ? secondsLeft(rules(), elapsed() ?? 0) : null);
+	/** 30b: is a level score past the whistle being played on? */
+	const golden = () => state.started && goldenGoal({ score: state.score, rules: rules(), elapsed: elapsed() ?? 0, playerGoals: state.playerGoals });
+	/** 30b: where the match stands now (menu / countdown / live / celebrate / over) */
+	const phase = () => matchPhase(state, now());
 
 	return {
 		state,
@@ -630,6 +1006,16 @@ export function createGame(api) {
 		writeMatchLog,
 		secondsLeft: left,
 		elapsed,
+		golden,
+		phase,
+		fx,
+		localActive,
+		kickoffSpot,
+		applyKick,
+		lastTouchMs: () => lastTouchPerf,
+		onCoreHitByMe: (/** @type {() => void} */ fn) => {
+			onCoreHitByMe = fn;
+		},
 		scoreLine: () => scoreLine(state.score),
 		outcomeText,
 		pitchCentre,

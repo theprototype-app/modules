@@ -30,11 +30,11 @@ export function footballDef() {
 		slug: 'football',
 		title: 'Football',
 		description:
-			'VR football: hit the floating ball with your hands, a ball through the other gate is a goal. Pick a side, Start, five goals wins. Colocation-ready.',
+			'VR football: swing a controller through the floating ball and put it through the other gate. Hit the ball to kick off; first to 5 or 3:00, golden goal on a tie. Colocation-ready.',
 		license: 'CC0-1.0',
 		author: 'theprototype',
 		tags: ['vr', 'competitive', 'colocation', 'physics'],
-		modules: [{ id: 'football', version: '1.1.0' }],
+		modules: [{ id: 'football', version: '1.2.0' }],
 		installModules: ['football'],
 		// 30: a floodlit stadium at dusk — a gradient sky, fog on the horizon, a low warm
 		// sun + a cool sky fill, exposure over the 0.9 floor

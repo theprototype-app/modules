@@ -42,13 +42,14 @@ export function lampX(i, width) {
 	return (i - (LAMPS_PER_GATE + 1) / 2) * pitch;
 }
 
-/** B3 defaults: a living room. Mouths centred at chest height, ball served at 1.3 m. */
+/** B3 defaults: a living room. Mouths centred at chest height, ball served at 1.3 m. 30b: the
+ * mouth is 1.5 x 1.0 m (was 1.2 x 0.8) — a casual game's goal is one you can hit with a swing */
 export const DEFAULT_DIMS = {
 	length: 5,
 	width: 3,
 	height: 2.4,
-	gateWidth: 1.2,
-	gateHeight: 0.8,
+	gateWidth: 1.5,
+	gateHeight: 1.0,
 	mouthY: 1.35,
 	ballY: 1.3,
 	ballRadius: 0.22,
@@ -92,6 +93,25 @@ export const NAMES = {
 	newMatch: 'New match',
 	lamp: (/** @type {string} */ team, /** @type {number} */ i) => (team === 'red' ? 'Red' : 'Blue') + ' lamp ' + i
 };
+
+/** 30b: how far OUTSIDE the right-hand glass the button consoles stand (the user: "the tables
+ * are for some reason inside of the football court") — beyond the touchline and the glass,
+ * a short reach (or the laser) from a player standing at the side of the pitch */
+export const CONSOLE_OUT = 0.45;
+
+/** 30b: the four consoles in a row along the right touchline, outside the glass: Join red at the
+ * red end, Start and New match either side of halfway, Join blue at the blue end
+ * @param {any} d normalized dims @returns {Record<string, number[]>} name -> [x, y, z] */
+export function consolePositions(d) {
+	const x = d.width / 2 + CONSOLE_OUT;
+	const far = Math.min(1.3, d.length / 2 - 0.7);
+	return {
+		[NAMES.joinRed]: [x, 1.05, -far],
+		[NAMES.start]: [x, 1.05, -0.42],
+		[NAMES.newMatch]: [x, 1.05, 0.42],
+		[NAMES.joinBlue]: [x, 1.05, far]
+	};
+}
 
 /**
  * Every object of a pitch, in creation order. Static everything, one dynamic ball.
@@ -166,21 +186,22 @@ export function pitchObjects(dims) {
 				physics: stat()
 			});
 		}
-		// the join button stands AT the gate: claiming a team is walking to your end
+		// the join button stands at its team's END of the console row (30b: outside the glass)
+		const joinName = team === 'red' ? NAMES.joinRed : NAMES.joinBlue;
 		out.push({
 			type: 'box',
-			name: team === 'red' ? NAMES.joinRed : NAMES.joinBlue,
+			name: joinName,
 			color,
 			emissive: color,
 			emissiveIntensity: 1.2,
 			size: [0.3, 0.12, 0.3],
-			pos: [sign * -1 * (hw - 0.3), 1.05, sign * (mouthZ - 0.6)],
+			pos: consolePositions(d)[joinName],
 			physics: stat()
 		});
 	}
-	// Start / New match at the pitch's side, within reach from the centre line
-	out.push({ type: 'box', name: NAMES.start, color: 0x4c9e6a, emissive: 0x4c9e6a, emissiveIntensity: 1.2, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, -0.35], physics: stat() });
-	out.push({ type: 'box', name: NAMES.newMatch, color: 0xe8e2d0, emissive: 0xd8d2c0, emissiveIntensity: 0.9, size: [0.3, 0.12, 0.3], pos: [hw - 0.3, 1.05, 0.35], physics: stat() });
+	// Start / New match either side of halfway, on the same row outside the glass
+	out.push({ type: 'box', name: NAMES.start, color: 0x4c9e6a, emissive: 0x4c9e6a, emissiveIntensity: 1.2, size: [0.3, 0.12, 0.3], pos: consolePositions(d)[NAMES.start], physics: stat() });
+	out.push({ type: 'box', name: NAMES.newMatch, color: 0xe8e2d0, emissive: 0xd8d2c0, emissiveIntensity: 0.9, size: [0.3, 0.12, 0.3], pos: consolePositions(d)[NAMES.newMatch], physics: stat() });
 	// the ball, last: one dynamic body, floating (the scene's zero-g block keeps it up)
 	out.push({
 		type: 'sphere',
@@ -204,7 +225,9 @@ export const PITCH_PHYSICS = {
 	damping: { linear: 0.35, angular: 0.5 },
 	ccd: true,
 	knock: { enabled: true, gain: 1, maxSpeed: 10, spin: 0.8 },
-	play: { interaction: 'grab', grounded: false, simOnPlay: true }
+	// 30b C1: Play/Interact puts the player on the pitch's blue half facing the red gate (a core
+	// before C1 ignores the field); no fly, no teleport (locomotion absent = walk)
+	play: { interaction: 'grab', grounded: false, simOnPlay: true, spawn: { position: [0, 0, 1.6], yaw: 0 } }
 };
 
 /** The `/create` command for one object. @param {any} o */
@@ -311,8 +334,11 @@ export function pitchGraph(names, opts = {}) {
 	if (opts.hudButtons) {
 		// the over screen's and the pause menu's New match buttons: their own Match Button
 		// nodes (two edges into one `press` handle would not OR — the last wins)
-		for (const [id, element] of [['bnewover', 'fb-new-match'], ['bnewpause', 'fb-new-match-pause']]) {
-			N(id, 'fbbutton', 'Button: new-match (' + element + ')', 280, y, { action: 'new-match' });
+		// 30b: the results panel's Rematch (same sides, straight to the kick-off) beside its Menu
+		for (const [id, element, action] of [['bnewover', 'fb-new-match', 'new-match'], ['bnewpause', 'fb-new-match-pause', 'new-match'], ['brematch', 'fb-rematch', 'rematch']]) {
+			// `physical: false`: this node is its HUD button's, not the object's — the object it
+			// targets (New match) keeps ITS own action on a click (30b: Rematch shares it)
+			N(id, 'fbbutton', 'Button: ' + action + ' (' + element + ')', 280, y, { action, physical: false });
 			E(id, 'selbnew');
 			N('h' + id, 'hudbutton', 'HUD ' + element, 40, y, { element, perPlayer: true });
 			N('d' + id, 'delay', 'HUD ' + element + ' press', 160, y, { seconds: 0.05, pulse: 0.3 });

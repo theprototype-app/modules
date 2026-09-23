@@ -703,3 +703,31 @@ which a module cannot reach.
 
 **Meanwhile:** the untangle hold scales on the stick's Y (forward grows, back shrinks) — the
 axis snap turn does not use — and claims `'locomotion'` for the left hand.
+
+## 30. A module cannot reseat a dynamic body (put the ball back on the centre spot)
+
+**Found in:** `modules/football` (30b). After a goal the ball must rest in the net, then go back
+to the centre spot for the kick-off. `api.physics` can push a body (`applyImpulse`) but not PLACE
+one: there is no module path to core's `applyThrow` (reseat + velocity), and `setBodyVelocity` is
+not on the api either.
+
+**Meanwhile:** the authority writes the ball's pose with `api.moveObject` while a simulation runs.
+Core's physics reads a pose it did not write as an EXTERNAL hold (the deviation rule): the body
+goes kinematic where it was put and drops back to dynamic, at rest, 250 ms after the last write.
+Football re-places only when the ball drifted more than 2 cm (a hand knocked it during the
+countdown), and retries a kick-off nudge the hold refused. It works, but it leans on an internal
+rule and costs a `move` message per re-place.
+
+**Ask:** `api.physics.placeBody(uuid, pos, {rot?, linvel?, angvel?})` — the initiator's
+`applyThrow`, replicated through the move stream like every other initiator write.
+
+## 31. A squeezed grip silences the hand's knock
+
+**Found in:** `modules/football` (30b, the Quest 3 feedback "I should be able to knock the ball
+with the controller"). Core's knock skips a GRIPPED hand ("a gripped hand is carrying, not
+knocking"), and a player swinging at a ball squeezes the grip. Football now kicks with its own
+controller-TIP sphere (kick.js), which does not care about the grip, and drops a tip kick that
+follows the same peer's core knock within 250 ms so one swing is never two touches.
+
+**Ask:** gate the knock on "holding something" (a user hold on a body) rather than on the grip
+button; then football's tip kick could retire to just the `kick` sound and the scaled haptic.

@@ -12,18 +12,29 @@ export const MODES = ['duel', 'teams', 'freeforall', 'practice'];
 export const WIN_BY = ['goals', 'time', 'either'];
 export const SERVE = ['auto', 'button'];
 export const OWN_GOALS = ['count', 'ignore'];
-export const ACTIONS = ['none', 'join-red', 'join-blue', 'spectate', 'start', 'new-match', 'swap-sides', 'serve'];
+export const ACTIONS = ['none', 'join-red', 'join-blue', 'spectate', 'start', 'new-match', 'swap-sides', 'serve', 'rematch'];
+/** 30b: what a level score at the whistle means — a GOLDEN GOAL (the next goal wins) or a draw */
+export const TIE = ['golden', 'draw'];
 
+/** 30b: the casual-VR-football defaults — first to 5 OR the higher score after 3:00, a level
+ * score at the whistle goes to a golden goal; `serveDelay` is the kick-off COUNTDOWN (3-2-1)
+ * and `serveSpeed` the kick-off NUDGE (a slow roll into the kicking team's half, never a
+ * shot — see kickoffImpulse) */
 export const DEFAULT_RULES = {
 	mode: 'teams',
-	winBy: 'goals',
+	winBy: 'either',
 	goalsToWin: 5,
 	matchSeconds: 180,
 	serve: 'auto',
-	serveDelay: 2,
+	serveDelay: 3,
 	ownGoals: 'count',
-	serveSpeed: 3
+	serveSpeed: 0.5,
+	tie: 'golden'
 };
+
+/** 30b: the celebration after a goal — the ball rests in the net this long before it goes
+ * back to the centre spot for the kick-off countdown */
+export const CELEBRATE_SECONDS = 2.5;
 
 /** how many matches the saved sheet keeps (B5, fork 3) */
 export const MATCH_LOG_CAP = 50;
@@ -54,7 +65,8 @@ export function normalizeRules(raw) {
 		serve: pick(r.serve, SERVE, d.serve),
 		serveDelay: num(r.serveDelay, 0.5, 5, d.serveDelay),
 		ownGoals: pick(r.ownGoals, OWN_GOALS, d.ownGoals),
-		serveSpeed: num(r.serveSpeed, 0.5, 10, d.serveSpeed)
+		serveSpeed: num(r.serveSpeed, 0.2, 10, d.serveSpeed),
+		tie: pick(r.tie, TIE, d.tie)
 	};
 }
 
@@ -138,6 +150,17 @@ export function swapSlots(slots) {
 	return { red: [...slots.blue], blue: [...slots.red] };
 }
 
+/** 30b: the team a player who never picked one is put on — the SMALLER team, and on a tie
+ * `prefer` (the half they stand in). Casual games auto-balance: nobody has to understand
+ * "Join" to play. @param {Slots} slots @param {'red'|'blue'} [prefer] @returns {'red'|'blue'} */
+export function balancedTeam(slots, prefer = 'red') {
+	const r = slots.red.length;
+	const b = slots.blue.length;
+	if (r < b) return 'red';
+	if (b < r) return 'blue';
+	return prefer === 'blue' ? 'blue' : 'red';
+}
+
 // ---- goals --------------------------------------------------------------------------
 
 /**
@@ -214,9 +237,11 @@ export function matchOutcome({ score, rules, elapsed, playerGoals }) {
 					tie = false;
 				} else if (n === best.n) tie = true;
 			}
+			if (tie && r.tie === 'golden') return null; // 30b: level at the whistle plays on
 			return { winner: best && !tie ? best.id : 'draw', reason: 'time' };
 		}
-		if (score.red === score.blue) return { winner: 'draw', reason: 'time' };
+		// 30b: level at the whistle is a GOLDEN GOAL — play on, the next goal decides it
+		if (score.red === score.blue) return r.tie === 'golden' ? null : { winner: 'draw', reason: 'time' };
 		return { winner: score.red > score.blue ? 'red' : 'blue', reason: 'time' };
 	}
 	return null;
@@ -258,6 +283,124 @@ export function serveImpulse(pos, centre, mass, speed, at) {
 	const dir = dist > 0.5 ? [dx / dist, 0, dz / dist] : serveDirection(at);
 	const m = Math.max(0.01, mass || 1) * Math.max(0, speed);
 	return [dir[0] * m, dir[1] * m, dir[2] * m];
+}
+
+// ---- 30b: the match flow — kick-off, celebration, the clock that stops ----------------------
+//
+// A goal is a moment, not a number: the ball rests in the net for CELEBRATE_SECONDS, goes
+// back to the centre spot, a 3-2-1 countdown runs and the team that CONCEDED kicks off with
+// a slow nudge into its own half. All of it is a pure function of stamps every peer already
+// holds (the goal op's `at`, the start op's `at`), so every peer shows the same countdown
+// with no message of its own; only the authority moves the ball.
+
+/**
+ * Is a level score past the whistle being played on (golden goal)?
+ * @param {{score: {red: number, blue: number}, rules: any, elapsed: number, playerGoals?: Record<string, number>}} input
+ */
+export function goldenGoal({ score, rules, elapsed, playerGoals }) {
+	const r = normalizeRules(rules);
+	if (r.mode === 'practice' || r.tie !== 'golden') return false;
+	if (r.winBy !== 'time' && r.winBy !== 'either') return false;
+	if (!(elapsed >= r.matchSeconds)) return false;
+	if (r.mode === 'freeforall') {
+		const counts = Object.values(playerGoals ?? {});
+		const best = counts.length ? Math.max(...counts) : 0;
+		return counts.filter((n) => n === best).length !== 1;
+	}
+	return score.red === score.blue;
+}
+
+/**
+ * Where a match stands at `now` (synced seconds): 'menu' (no match), 'over' (results),
+ * 'celebrate' (a goal just went in), 'countdown' (3-2-1 before a kick-off) or 'live'.
+ * @param {{started: boolean, outcome: any, celebrateUntil?: number, serveAt?: number}} s @param {number} now
+ */
+export function matchPhase(s, now) {
+	if (!s.started) return s.outcome ? 'over' : 'menu';
+	if (s.celebrateUntil && now < s.celebrateUntil) return 'celebrate';
+	if (s.serveAt) return 'countdown';
+	return 'live';
+}
+
+/** The number a countdown shows at `now` — 3, 2, 1 — or 0 once the kick-off is due.
+ * @param {number} serveAt @param {number} now */
+export function countdownNumber(serveAt, now) {
+	if (!serveAt || now >= serveAt) return 0;
+	return Math.max(1, Math.ceil(serveAt - now - 1e-9));
+}
+
+/** Who kicks off the FIRST time, seeded by the start stamp so every peer agrees.
+ * @param {number} at @returns {'red'|'blue'} */
+export function startKickTeam(at) {
+	return (hash32(Math.floor(at * 1000), 'kickoff') >>> 16) & 1 ? 'blue' : 'red';
+}
+
+/**
+ * The kick-off NUDGE: a slow roll from the centre spot into `team`'s own half — toward the
+ * gate that team defends, leaning 35 degrees to one side (seeded) so a nudge nobody touches
+ * can never roll straight into that team's own net. `redGate` / `blueGate` are the two gate
+ * positions (x, z used), so the pitch may face any way. Impulse = mass x speed.
+ * @param {'red'|'blue'} team @param {number[]} redGate @param {number[]} blueGate
+ * @param {number} mass @param {number} speed @param {number} at
+ */
+export function kickoffImpulse(team, redGate, blueGate, mass, speed, at) {
+	const toward = team === 'blue' ? blueGate : redGate;
+	const away = team === 'blue' ? redGate : blueGate;
+	let ax = toward[0] - away[0];
+	let az = toward[2] - away[2];
+	const len = Math.hypot(ax, az);
+	if (len < 1e-6) {
+		ax = 0;
+		az = team === 'blue' ? 1 : -1;
+	} else {
+		ax /= len;
+		az /= len;
+	}
+	const side = (hash32(Math.floor(at * 1000), 'lean') >>> 16) & 1 ? 1 : -1;
+	const c = Math.cos(0.61); // ~35 degrees
+	const s = Math.sin(0.61) * side;
+	const dx = ax * c - az * s;
+	const dz = ax * s + az * c;
+	const m = Math.max(0.01, mass || 1) * Math.max(0, speed);
+	return [dx * m, 0, dz * m];
+}
+
+/** Seconds PLAYED: the clock runs only while the ball is live (it stops for a celebration
+ * and a countdown, the casual-game convention). @param {{clockBase?: number, liveSince?: number}} s @param {number} now */
+export function playedSeconds(s, now) {
+	const base = Number(s.clockBase) || 0;
+	const since = Number(s.liveSince) || 0;
+	return base + (since ? Math.max(0, now - since) : 0);
+}
+
+/**
+ * 30b C1: where a player of `team` starts when they enter Interact/Play — `depth` metres from
+ * the centre spot into their OWN half (the side of the gate they defend), feet on the pitch
+ * (y 0), facing the gate they attack. `yaw` in three's convention: 0 faces -z.
+ * @param {'red'|'blue'} team @param {number[]} redGate @param {number[]} blueGate
+ * @returns {{position: number[], yaw: number}}
+ */
+export function teamSpawn(team, redGate, blueGate, depth = 1.6) {
+	const own = team === 'red' ? redGate : blueGate;
+	const cx = (redGate[0] + blueGate[0]) / 2;
+	const cz = (redGate[2] + blueGate[2]) / 2;
+	let dx = own[0] - cx;
+	let dz = own[2] - cz;
+	const d = Math.hypot(dx, dz);
+	if (d < 1e-6) {
+		dx = 0;
+		dz = team === 'red' ? -1 : 1;
+	} else {
+		dx /= d;
+		dz /= d;
+	}
+	// facing = -(dx, dz); a three.js yaw y faces (-sin y, -cos y), so y = atan2(dx, dz)
+	return { position: [cx + dx * depth, 0, cz + dz * depth], yaw: Math.atan2(dx, dz) };
+}
+
+/** `Red 2 - 1 Blue`, the announce banner's sub line @param {{red: number, blue: number}} score */
+export function bannerScore(score) {
+	return 'Red ' + (score.red ?? 0) + ' - ' + (score.blue ?? 0) + ' Blue';
 }
 
 // ---- the sheet -------------------------------------------------------------------------
