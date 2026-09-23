@@ -1511,11 +1511,17 @@ var index_default = {
         }
       });
     }
+    const attached = (o, scene) => {
+      for (let p = o; p; p = p.parent) if (p === scene) return true;
+      return false;
+    };
     function build() {
       const scene = api.scene();
       if (!scene) return;
+      let parent = scene;
       if (group) {
-        scene.remove(group);
+        if (group.parent && attached(group, scene)) parent = group.parent;
+        group.removeFromParent();
         disposeGroup(group);
       }
       group = new THREE.Group();
@@ -1553,7 +1559,7 @@ var index_default = {
       group.add(hoverRing);
       burst = makeBurst(THREE);
       group.add(burst.points, burst.wave);
-      scene.add(group);
+      parent.add(group);
       placeGroup();
       group.userData._ut = {
         state: () => ({ level, positions, edges, board: { ...board }, won, crossings, solvedCount, carried, sprite: !!sprite }),
@@ -1802,18 +1808,13 @@ var index_default = {
       if (mode === "3d") {
         const hit = globeHit(ray, true);
         if (!hit) return false;
-        localHit.copy(hit);
-        group.worldToLocal(localHit);
-        localHit.applyQuaternion(globeQuat.clone().invert());
-        positions[carried] = normalize([localHit.x, localHit.y, localHit.z]);
+        carryToWorld(hit.toArray());
         return true;
       }
-      planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
-      dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
+      const s = surface();
+      dragPlane.setFromNormalAndCoplanarPoint(planeNormal.fromArray(s.normal), hitPoint.fromArray(s.point));
       if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return false;
-      localHit.copy(hitPoint);
-      group.worldToLocal(localHit);
-      positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+      carryToWorld(hitPoint.toArray());
       return true;
     }
     function pick(i, how) {
@@ -2151,7 +2152,7 @@ var index_default = {
       carried = -1;
       gesture?.reset();
       if (group) {
-        api.scene()?.remove(group);
+        group.removeFromParent();
         group = null;
       }
       built = false;

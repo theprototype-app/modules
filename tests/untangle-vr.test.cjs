@@ -12,6 +12,11 @@
 //      touch grabs with the other hand and the dot rides the tip across the board; the other
 //      hand's trigger is ignored mid-carry; Edit mode never grabs; the globe; a VR drop that
 //      solves pulses 'success' on the dropping hand
+//   W  the board follows the WORLD: hung under the real world rig (what core's world root
+//      does for module content, 30b-vr-modes P5) and the rig turned / moved / scaled, the
+//      dots follow it; a real mouse drag and a VR laser drag on the turned board land where
+//      aimed (the drag plane is WORLD space); a level change rebuilds the board under the
+//      rig with no orphan left behind; a scene clear takes it out of the rig
 //
 // VR EMULATION: headless Chromium has no WebXR, so `isVRMode` is set on the store (what the
 // core vr* suites do) and the controllers' WORLD poses are fed through the module's test seam
@@ -76,7 +81,8 @@ const boardFrame = (page) =>
 		const n = w([1, 0]).sub(c).cross(w([0, 1]).sub(c)).normalize();
 		const faceQ = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), n.clone().negate()).toArray();
 		const away = c.clone().add(new THREE.Vector3(0, 6, 0)).add(n.clone().multiplyScalar(4)).toArray();
-		return { c: c.toArray(), n: n.toArray(), faceQ, away };
+		const r = w([1, 0]).sub(c).normalize();
+		return { c: c.toArray(), n: n.toArray(), r: r.toArray(), faceQ, away };
 	});
 
 run(async () => {
@@ -292,6 +298,94 @@ run(async () => {
 	await A.page.evaluate(() => window.__untangle.select(12, '2d'));
 	await A.page.evaluate(() => window.__untangle.vrSim(null));
 	await A.page.evaluate(() => window.__stores.isVRMode.set(false));
+
+	// ---- W. the board follows the world ----------------------------------------------------------
+	await eventually(() => state(B.page), (s) => s.level === 12 && s.mode === '2d', 'W.0 (premise) both peers back on the flat level 12');
+	const w1 = await A.page.evaluate(async () => {
+		const THREE = window.__stores.THREE;
+		let rig, scene;
+		window.__stores.worldRig.subscribe((v) => (rig = v))();
+		window.__stores.globalScene.subscribe((v) => (scene = v))();
+		const g = scene.getObjectByName('untangle-module');
+		const n = window.__untangle.state().positions.length;
+		const before = [...Array(n)].map((_, i) => window.__untangle.dotWorld(i));
+		const identity = rig.position.length() < 1e-9 && Math.abs(rig.quaternion.w) > 1 - 1e-9 && Math.abs(rig.scale.x - 1) < 1e-9;
+		rig.add(g); // module content under the world, as core's world root hangs it
+		rig.position.set(0.6, 0.1, -0.5);
+		rig.rotation.set(0, 0.6, 0);
+		rig.scale.setScalar(1.3);
+		rig.updateMatrixWorld(true);
+		await new Promise((r) => setTimeout(r, 300)); // frames run: nothing may pull it back
+		const after = [...Array(n)].map((_, i) => window.__untangle.dotWorld(i));
+		const err = Math.max(...before.map((p, i) => new THREE.Vector3(...p).applyMatrix4(rig.matrixWorld).distanceTo(new THREE.Vector3(...after[i]))));
+		return { identity, parentIsRig: g.parent === rig, err };
+	});
+	check(w1.identity, 'W.0b (premise) the world rig starts at identity on a desktop');
+	check(w1.parentIsRig && w1.err < 1e-6, 'W.1 hung under the turned, moved and 1.3x-scaled world rig, every dot follows it (max error ' + w1.err.toExponential(1) + ' m)');
+	// a REAL mouse drag on the turned board, the camera OBLIQUE to it (head-on, every point of
+	// a view ray maps to the same board x,y, so a drag on the wrong plane would still land)
+	const wb = await boardFrame(A.page);
+	await A.page.evaluate((f) => {
+		let cam, controls;
+		window.__stores.globalCamera.subscribe((v) => (cam = v))();
+		window.__stores.orbitControls.subscribe((v) => (controls = v))();
+		cam.position.set(f.c[0] + f.n[0] * 3.4 + f.r[0] * 2, f.c[1] + f.n[1] * 3.4 + f.r[1] * 2 + 0.6, f.c[2] + f.n[2] * 3.4 + f.r[2] * 2);
+		controls.target.set(...f.c);
+		controls.update();
+	}, wb);
+	await A.page.waitForTimeout(500);
+	const TW = [-0.4, -0.5];
+	await drag(A.page, await dotPx(A.page, 2), await boardPx(A.page, TW));
+	const w2 = await state(A.page);
+	check(w2.carried === -1 && near(w2.positions[2], TW), 'W.2 a real mouse drag on the turned board drops dot 2 where aimed (' + TW + ' vs ' + w2.positions[2].map((v) => v.toFixed(3)) + ')');
+	await eventually(() => state(B.page), (s) => JSON.stringify(s.positions[2]) === JSON.stringify(w2.positions[2]), 'W.3 B (no rig turn) lands on the identical board position — positions are board units');
+	// a VR laser drag on the turned board
+	await A.page.evaluate(() => window.__stores.isVRMode.set(true));
+	const TV = [0.45, 0.5];
+	const d3w = await A.page.evaluate(() => window.__untangle.dotWorld(3));
+	const tvW = await A.page.evaluate((p) => window.__untangle.boardWorld(p), TV);
+	const RW = wb.c.map((v, k) => v + wb.n[k] * 1.4 + [0.2, -0.3, 0][k]);
+	await setHands(A.page, { right: await aimPose(A.page, RW, d3w, false), left: await aimPose(A.page, wb.away, wb.c, false) });
+	await A.page.waitForTimeout(80);
+	await setHands(A.page, { right: await aimPose(A.page, RW, d3w, true) });
+	await A.page.waitForTimeout(100);
+	for (let k = 1; k <= 8; k++) {
+		await setHands(A.page, { right: await aimPose(A.page, RW, d3w.map((v, j) => v + ((tvW[j] - v) * k) / 8), true) });
+		await A.page.waitForTimeout(40);
+	}
+	await setHands(A.page, { right: await aimPose(A.page, RW, tvW, false) });
+	await A.page.waitForTimeout(150);
+	const w4 = await state(A.page);
+	check(w4.carried === -1 && near(w4.positions[3], TV), 'W.4 a VR laser drag on the turned board drops dot 3 where aimed (' + TV + ' vs ' + w4.positions[3].map((v) => v.toFixed(3)) + ')');
+	await A.page.evaluate(() => window.__untangle.vrSim(null));
+	await A.page.evaluate(() => window.__stores.isVRMode.set(false));
+	// a level change rebuilds the board: under the rig again, and only ONE board in the scene
+	await A.page.evaluate(() => window.__untangle.select(13));
+	await A.page.waitForTimeout(300);
+	const w5 = await A.page.evaluate(() => {
+		let rig, scene;
+		window.__stores.worldRig.subscribe((v) => (rig = v))();
+		window.__stores.globalScene.subscribe((v) => (scene = v))();
+		const boards = [];
+		scene.traverse((o) => o.name === 'untangle-module' && boards.push(o));
+		return { count: boards.length, underRig: boards.every((b) => b.parent === rig), level: window.__untangle.state().level };
+	});
+	check(w5.level === 13 && w5.count === 1 && w5.underRig, 'W.5 a level change rebuilds the board UNDER the rig, no orphan left (' + w5.count + ' board(s), under the rig ' + w5.underRig + ')');
+	// a scene clear takes it out of the rig (and nothing is left there)
+	const w6 = await A.page.evaluate(() => {
+		let rig, scene;
+		window.__stores.worldRig.subscribe((v) => (rig = v))();
+		window.__stores.globalScene.subscribe((v) => (scene = v))();
+		window.__stores.moduleSDK.runSceneClearHandlers();
+		const boards = [];
+		scene.traverse((o) => o.name === 'untangle-module' && boards.push(o));
+		rig.position.set(0, 0, 0);
+		rig.rotation.set(0, 0, 0);
+		rig.scale.setScalar(1);
+		rig.updateMatrixWorld(true);
+		return boards.length;
+	});
+	check(w6 === 0, 'W.6 a scene clear removes the board from under the rig (' + w6 + ' left)');
 
 	await finish(browser);
 });
