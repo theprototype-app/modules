@@ -8,6 +8,7 @@ import { run as gunTests } from './guns.test.mjs';
 import { run as abilityTests } from './abilities.test.mjs';
 import { run as levelTests } from './levels.test.mjs';
 import { run as menuTests } from './menu.test.mjs';
+import { run as figureTests } from './figures.test.mjs';
 
 let failures = 0;
 function check(ok, label) {
@@ -30,5 +31,7 @@ console.log('\n=== levels.test.mjs ===');
 levelTests(check);
 console.log('\n=== menu.test.mjs ===');
 menuTests(check);
+console.log('\n=== figures.test.mjs ===');
+figureTests(check);
 console.log('\n' + (failures === 0 ? 'ALL PASS' : failures + ' FAILURES'));
 process.exit(failures === 0 ? 0 : 1);

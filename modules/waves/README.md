@@ -1,5 +1,11 @@
 # waves — a VR wave shooter on the health module, derived on every peer
 
+**2.1.0 (30c): real models.** The three guns are Meshy-made sci-fi guns held at the grip, and
+the grunts, runners and tanks are rigged robots that WALK (a walk clip played at the speed they
+really move, a flinch when hit, a fall when they die), with a Meshy crystal on the tower. The
+models ride inside the zip (`assets/`, 6.6 MB); every rule, hit volume and name is the 30b one.
+See [The models](#the-models-30c).
+
 **2.0.0 (30b): the template is a shooter.** A gun rides your controller (desktop: the view,
 click to fire), five levels of waves pour out of three portals — grunts, then runners, then
 tanks — and every enemy that reaches the crystal explodes against it. Pick a gun and an
@@ -23,6 +29,11 @@ modules/waves/
   src/vr.js        PURE (30b): aim rays, ray x board, press edges, the in-game gate
   src/prefs.js     (30b) the loadout + options, on this device (api.storage)
   src/weapon.js    (30b) the gun in the hand / the view, hitscan, damage, the beam's heat
+  src/assets.js    (30c) the GLB loader (three's, bundled on the runtime three) + the models
+  src/figures.js   PURE (30c): the stand-in layer, gait, walk rate, facing, the death, gun fits
+  src/avatars.js   (30c) the walking figures + the crystal, following the enemy objects
+  build-gltf.mjs   (30c) builds src/gltf/loader.chunk (GLTFLoader + SkeletonUtils, three shimmed)
+  assets/          (30c) gun-*.glb, enemy-*.glb, crystal.glb — Meshy-made, post-processed
   src/powers.js    (30b) the ability on the free hand's grip / Q, its looks
   src/juice.js     (30b) tracers, muzzle flashes, the kill pop — pooled, LOCAL
   src/feel.js      (30b) sounds + haptics through the options, feature-detected
@@ -175,3 +186,46 @@ an enemy down with a hand at a real reach, a 3+ player run, and the arena toolbo
 non-dark themes. Object regen is not offered (see the health README); wave hp scaling
 (`hpScale` in the plan) is not: it would need per-wave `max` writes (replicated node data
 from every peer) — the size curve is the difficulty curve.
+
+## The models (30c)
+
+| file | what | tris | size |
+|---|---|---|---|
+| `assets/gun-blaster.glb` | the Blaster: slate + brass, oak grip, cyan strips | 2.8k | 0.59 MB |
+| `assets/gun-scatter.glb` | the Scatter: a sawn-off double barrel, orange cell | 2.7k | 0.61 MB |
+| `assets/gun-beam.glb` | the Beam: coil ring emitter, magenta orb | 2.6k | 0.67 MB |
+| `assets/enemy-grunt.glb` | a stocky orange robot, cyan visor — walk / run / hit / death | 7.2k, 24 joints | 1.37 MB |
+| `assets/enemy-runner.glb` | a lean lime sprinter, red visor — runs | 7.3k, 24 joints | 1.29 MB |
+| `assets/enemy-tank.glb` | a gunmetal + brass brute, violet chest, yellow visor — walks heavy | 7.3k, 24 joints | 1.54 MB |
+| `assets/crystal.glb` | the defended crystal (its own emission map) | 0.8k | 0.57 MB |
+
+Made with Meshy.ai through the budgeted pipeline (`packs` repo `tools/meshy`, requester
+`30c-game-assets`): text-to-3D preview → keep → PBR refine; the enemies auto-rigged (`rig`, 5 cr —
+Meshy's walking + running clips) plus `animate` (Hit Reaction + Shot and Fall Backward, 3 cr each),
+merged by `meshy-rigged` (clips by bone name, the refine's normal + roughness maps put back, the
+rig's self-lit emissive dropped). The tank's first paint carried a number-like shoulder badge (no
+text/logos): a 10 cr retexture with the original UVs, swapped onto the same rig (`--retexture`).
+Guns and crystal through `meshy-post` (30 cm / 1.1 m, barrel down −Z, 1024² JPEG).
+
+**How they stand in.** The enemy OBJECTS are untouched: names, capsule bodies, health chains —
+a shot still meets the capsule. A figure (a SkeletonUtils clone with its own materials, so a
+hit flash paints one enemy) follows its object every frame under the module's own root group
+(`waves-module`, never in objectsGroup — never saved, never sent), faces the goal, and plays its
+walk clip at `speed / clipSpeed` (figures.js `walkRate`; a shove backwards does not walk).
+While a figure shows, the object's own meshes are hidden for the length of each RENDER only: the
+scene's `onBeforeRender` hops them to layer 30 (no camera draws it), its `onAfterRender` puts them
+back. Outside a render they are exactly the authored meshes on layer 0 — which matters, because
+the `.tpscene` save and a late join are `toJSON`, and `toJSON` WRITES layers (a persistent hop
+saved 41 enemy meshes onto the helper layer in a first try). So a save, a raycast (the shot
+still meets the capsule), the editor's pick (click a figure: the enemy is selected) all see the
+30b enemy; only the frame shows the figure. `visible` was never an option (a replicated fact).
+The card renders the module root too (`thumb.sceneGroups`), over the capsules. A death plays where it fell (~1.4 s), sinks, and frees the figure for the enemy's next
+life. The Meshy crystal follows the `Goal core` and dims with it. Any model that fails to load
+leaves that thing's 30b primitive in place.
+
+**The loader.** The api hands a module THREE but no GLTFLoader (DEVX #30). `build-gltf.mjs`
+bundles three's own `GLTFLoader` + `SkeletonUtils` (three 0.185.1, core's version) against a
+generated shim that re-exports `globalThis.__wavesTHREE`; `assets.js` sets it to `api.THREE`
+and imports the chunk from a blob, so every class is the scene's own. A core with
+`api.loadModel` is used first. The GLBs are plain glTF-binary (no Draco/Meshopt/KTX2/WebP).
+

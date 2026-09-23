@@ -1272,6 +1272,8 @@ function hudGraph(o) {
 }
 
 // modules/waves/src/look.js
+var MODULE_ROOT = "waves-module";
+var CORE = "Goal core";
 var FLASH = { seconds: 0.18, peak: 3.5 };
 function flashLevel(age) {
   if (!(age >= 0) || age >= FLASH.seconds) return 0;
@@ -1291,7 +1293,7 @@ var ENEMY_LOOKS = Object.freeze({
 
 // modules/waves/src/fx.js
 var POP_COLOR = { grunt: 16747100, runner: 14221130, tank: 11563263 };
-function registerFx(api, engine, juice = null, feel = null) {
+function registerFx(api, engine, juice = null, feel = null, figureOf2 = null) {
   const flashes = /* @__PURE__ */ new Map();
   const clock = () => typeof performance !== "undefined" ? performance.now() / 1e3 : 0;
   const enemyUuids = () => new Set(engine.all().flatMap((s) => s.enemies.map((e) => e.uuid)));
@@ -1332,6 +1334,8 @@ function registerFx(api, engine, juice = null, feel = null) {
       const object = api.objectsGroup()?.getObjectByProperty("uuid", uuid);
       const level = flashLevel(t - at);
       if (object) paint(object, level);
+      const figure = figureOf2?.(uuid);
+      if (figure) paint(figure, level);
       if (level === 0) flashes.delete(uuid);
     }
   });
@@ -1909,6 +1913,82 @@ function createFeel(api, prefs) {
   };
 }
 
+// modules/waves/src/figures.js
+var STAND_IN_LAYER = 30;
+var FIGURES = Object.freeze({
+  grunt: Object.freeze({ walk: "walk", clipSpeed: 1.1, height: 1.2 }),
+  runner: Object.freeze({ walk: "run", clipSpeed: 2.6, height: 1.05 }),
+  tank: Object.freeze({ walk: "walk", clipSpeed: 0.8, height: 1.6 })
+});
+var figureOf = (kind) => (
+  /** @type {any} */
+  FIGURES[kind] ?? FIGURES.grunt
+);
+function footDrop(kind) {
+  const l = (
+    /** @type {any} */
+    ENEMY_LOOKS[kind] ?? ENEMY_LOOKS.grunt
+  );
+  return Math.round((l.r + l.h / 2) * 1e3) / 1e3;
+}
+function fitScale(modelHeight, height) {
+  if (!(modelHeight > 1e-6) || !(height > 0)) return 1;
+  return height / modelHeight;
+}
+function yawTo(from, to) {
+  const dx = to[0] - from[0];
+  const dz = to[2] - from[2];
+  if (Math.hypot(dx, dz) < 1e-6) return 0;
+  return Math.atan2(dx, dz);
+}
+function turnToward(current, target, dt, rate = 6) {
+  let d = target - current;
+  d = Math.atan2(Math.sin(d), Math.cos(d));
+  const step = Math.max(0, rate * dt);
+  if (Math.abs(d) <= step) return target;
+  return current + Math.sign(d) * step;
+}
+function gait(prev, a, b, dt, yaw) {
+  if (!(dt > 0)) return { speed: prev.speed, forward: true };
+  const dx = b[0] - a[0];
+  const dz = b[2] - a[2];
+  const raw = Math.hypot(dx, dz) / dt;
+  const speed = raw > 12 ? 0 : raw;
+  const forward = dx * Math.sin(yaw) + dz * Math.cos(yaw) >= -1e-4;
+  const k = Math.min(1, dt * 10);
+  return { speed: prev.speed + (speed - prev.speed) * k, forward };
+}
+function walkRate(speed, clipSpeed, scale = 1) {
+  if (!(speed > 0.03) || !(clipSpeed > 0)) return 0;
+  return Math.min(2.5, Math.max(0.2, speed / (clipSpeed * (scale > 0 ? scale : 1))));
+}
+var UNDERGROUND = -10;
+function figureShown(s) {
+  if (s.dying) return true;
+  return !!s.visible && s.y > UNDERGROUND;
+}
+var DEATH_SECONDS = 1.4;
+var SINK = Object.freeze({ seconds: 0.5, depth: 0.9 });
+function sinkDepth(age) {
+  const t = age - DEATH_SECONDS;
+  if (!(t > 0)) return 0;
+  return Math.min(1, t / SINK.seconds) * SINK.depth;
+}
+var deathOver = (age) => !(age < DEATH_SECONDS + SINK.seconds);
+var GUN_FITS = Object.freeze({
+  // measured on the post-processed GLBs (30 cm long, centred): side renders + the vertex profile
+  blaster: Object.freeze({ grip: [0, -0.012, 0.065], muzzle: [0, 0.03, -0.152], cell: [0, 0.018, -0.068], cellSize: [0.069, 8e-3, 0.07], cellShape: "box" }),
+  // the Scatter's cell is its orange energy cell under the barrels, at the pump
+  scatter: Object.freeze({ grip: [0, 0, 0.095], muzzle: [0, 0.023, -0.152], cell: [0, 4e-3, 0], cellSize: [0.031, 0.017, 0.024], cellShape: "box" }),
+  // the Beam's glow IS its emitter orb: a glowing ball over the painted one
+  beam: Object.freeze({ grip: [0, -8e-3, 0.115], muzzle: [0, 0.03, -0.158], cell: [0, 0.03, -0.142], cellSize: [0.032, 0.032, 0.032], cellShape: "ball" })
+});
+var gunFit = (id) => (
+  /** @type {any} */
+  GUN_FITS[id] ?? GUN_FITS.blaster
+);
+var fromGrip = (point, grip) => [point[0] - grip[0], point[1] - grip[1], point[2] - grip[2]];
+
 // modules/waves/src/models.js
 function buildGun(THREE, id, accent) {
   const g = new THREE.Group();
@@ -1957,10 +2037,37 @@ function buildGun(THREE, id, accent) {
   g.userData.accent = accent;
   return g;
 }
+function gunFromAsset(THREE, scene, id, accent) {
+  const fit = gunFit(id);
+  const g = new THREE.Group();
+  g.name = "Waves gun " + id;
+  scene.position.set(-fit.grip[0], -fit.grip[1], -fit.grip[2]);
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = false;
+    o.receiveShadow = false;
+  });
+  g.add(scene);
+  const glow = new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 2.2, roughness: 0.3 });
+  const [cx, cy, cz] = fit.cellSize;
+  const cell = new THREE.Mesh(fit.cellShape === "ball" ? new THREE.SphereGeometry(cx / 2, 16, 12) : new THREE.BoxGeometry(cx, cy, cz), glow);
+  cell.name = "glow";
+  cell.position.fromArray(fromGrip(fit.cell, fit.grip));
+  g.add(cell);
+  const muzzle = new THREE.Object3D();
+  muzzle.name = "muzzle";
+  muzzle.position.fromArray(fromGrip(fit.muzzle, fit.grip));
+  g.add(muzzle);
+  g.userData.muzzle = muzzle;
+  g.userData.glow = glow;
+  g.userData.accent = accent;
+  g.userData.glb = true;
+  return g;
+}
 
 // modules/waves/src/weapon.js
 var GRIP_OFFSET = [0, -0.035, 0.05];
-function registerWeapon(api, engine, root, juice, prefs, feel) {
+function registerWeapon(api, engine, root, juice, prefs, feel, assets = null) {
   const THREE = api.THREE;
   const edges = createEdges();
   const hands = /* @__PURE__ */ new Map();
@@ -1972,13 +2079,22 @@ function registerWeapon(api, engine, root, juice, prefs, feel) {
   function handOf(hand) {
     const id = prefs.get().gun;
     let h = hands.get(hand);
-    if (!h || h.gun !== id) {
+    const gun = gunOf(id);
+    const ready = !!assets?.get(gun.id);
+    if (!h || h.gun !== gun.id || ready && !h.glb) {
+      const glb = ready ? assets?.instance(gun.id) : null;
       if (h) {
         h.model.parent?.remove(h.model);
-        juice.beam(hand, null, null, 0);
+        if (h.glb) h.model.traverse((o) => o.isMesh && o.material?.dispose?.());
+        if (h.gun !== gun.id) juice.beam(hand, null, null, 0);
       }
-      const gun = gunOf(id);
-      const model = buildGun(
+      const model = glb ? gunFromAsset(
+        THREE,
+        glb.scene,
+        /** @type {any} */
+        gun.id,
+        gun.color
+      ) : buildGun(
         THREE,
         /** @type {any} */
         gun.id,
@@ -1986,7 +2102,8 @@ function registerWeapon(api, engine, root, juice, prefs, feel) {
       );
       model.visible = false;
       root.add(model);
-      h = { model, gun: gun.id, state: idleHand(), kick: 0, holding: false, lastSound: -Infinity };
+      const keep = h && h.gun === gun.id ? h : null;
+      h = { model, gun: gun.id, glb: !!glb, state: keep?.state ?? idleHand(), kick: keep?.kick ?? 0, holding: keep?.holding ?? false, lastSound: keep?.lastSound ?? -Infinity };
       hands.set(hand, h);
     }
     return h;
@@ -2625,12 +2742,431 @@ function registerMenu(api, engine, prefs, feel) {
   return { sweep, pressed, pushRows, playing: () => playing };
 }
 
+// modules/waves/src/gltf/loader.chunk
+var loader_default = `var p=globalThis.__wavesTHREE;if(!p)throw new Error("waves: __wavesTHREE unset before the loader chunk");var se=p.AnimationClip,Bt=p.AnimationMixer,Ye=p.Bone,Ze=p.Box3,K=p.BufferAttribute,re=p.BufferGeometry,Qe=p.ClampToEdgeWrapping,C=p.Color,oe=p.ColorManagement,Je=p.DirectionalLight,$e=p.DoubleSide,ie=p.FileLoader,kt=p.Float32BufferAttribute,et=p.FrontSide,V=p.Group,tt=p.ImageBitmapLoader,ae=p.InstancedBufferAttribute,nt=p.InstancedMesh,ce=p.InterleavedBuffer,ue=p.InterleavedBufferAttribute,st=p.Interpolant,rt=p.InterpolateDiscrete,le=p.InterpolateLinear,ot=p.Line,it=p.LineBasicMaterial,at=p.LineLoop,ct=p.LineSegments,X=p.LinearFilter,fe=p.LinearMipmapLinearFilter,ut=p.LinearMipmapNearestFilter,I=p.LinearSRGBColorSpace,lt=p.Loader,P=p.LoaderUtils,q=p.Material,ft=p.MathUtils,H=p.Matrix4,dt=p.Mesh,D=p.MeshBasicMaterial,_=p.MeshPhysicalMaterial,de=p.MeshStandardMaterial,ht=p.MirroredRepeatWrapping,he=p.NearestFilter,pt=p.NearestMipmapLinearFilter,mt=p.NearestMipmapNearestFilter,pe=p.NumberKeyframeTrack,me=p.Object3D,gt=p.OrthographicCamera,Tt=p.PerspectiveCamera,xt=p.PointLight,At=p.Points,Rt=p.PointsMaterial,yt=p.PropertyBinding,W=p.Quaternion,Y=p.QuaternionKeyframeTrack,Z=p.RepeatWrapping,F=p.SRGBColorSpace,Mt=p.Skeleton,Pt=p.SkeletonHelper,bt=p.SkinnedMesh,wt=p.Sphere,Et=p.SpotLight,ge=p.Texture,St=p.TextureLoader,z=p.TriangleFanDrawMode,Q=p.TriangleStripDrawMode,_t=p.TrianglesDrawMode,Te=p.Vector2,L=p.Vector3,J=p.VectorKeyframeTrack;function xe(f,t){if(t===_t)return console.warn("THREE.BufferGeometryUtils.toTrianglesDrawMode(): Geometry already defined as triangles."),f;if(t===z||t===Q){let e=f.getIndex();if(e===null){let o=[],a=f.getAttribute("position");if(a!==void 0){for(let i=0;i<a.count;i++)o.push(i);f.setIndex(o),e=f.getIndex()}else return console.error("THREE.BufferGeometryUtils.toTrianglesDrawMode(): Undefined position attribute. Processing not possible."),f}let s=e.count-2,n=[];if(t===z)for(let o=1;o<=s;o++)n.push(e.getX(0)),n.push(e.getX(o)),n.push(e.getX(o+1));else for(let o=0;o<s;o++)o%2===0?(n.push(e.getX(o)),n.push(e.getX(o+1)),n.push(e.getX(o+2))):(n.push(e.getX(o+2)),n.push(e.getX(o+1)),n.push(e.getX(o)));n.length/3!==s&&console.error("THREE.BufferGeometryUtils.toTrianglesDrawMode(): Unable to generate correct amount of triangles.");let r=f.clone();return r.setIndex(n),r.clearGroups(),r}else return console.error("THREE.BufferGeometryUtils.toTrianglesDrawMode(): Unknown draw mode:",t),f}function Ae(f){let t=new Map,e=new Map,s=f.clone();return It(f,s,function(n,r){t.set(r,n),e.set(n,r)}),s.traverse(function(n){if(!n.isSkinnedMesh)return;let r=n,o=t.get(n),a=o.skeleton.bones;r.skeleton=o.skeleton.clone(),r.bindMatrix.copy(o.bindMatrix),r.skeleton.bones=a.map(function(i){return e.get(i)}),r.bind(r.skeleton,r.bindMatrix)}),s}function It(f,t,e){e(f,t);for(let s=0;s<f.children.length;s++)It(f.children[s],t.children[s],e)}var be=class extends lt{constructor(t){super(t),this.dracoLoader=null,this.ktx2Loader=null,this.meshoptDecoder=null,this.pluginCallbacks=[],this.register(function(e){return new _e(e)}),this.register(function(e){return new Ie(e)}),this.register(function(e){return new He(e)}),this.register(function(e){return new De(e)}),this.register(function(e){return new Fe(e)}),this.register(function(e){return new Ne(e)}),this.register(function(e){return new Oe(e)}),this.register(function(e){return new Ce(e)}),this.register(function(e){return new ve(e)}),this.register(function(e){return new Se(e)}),this.register(function(e){return new Be(e)}),this.register(function(e){return new Le(e)}),this.register(function(e){return new Pe(e)}),this.register(function(e){return new ke(e)}),this.register(function(e){return new we(e)}),this.register(function(e){return new $(e,T.EXT_MESHOPT_COMPRESSION)}),this.register(function(e){return new $(e,T.KHR_MESHOPT_COMPRESSION)}),this.register(function(e){return new Ue(e)})}load(t,e,s,n){let r=this,o;if(this.resourcePath!=="")o=this.resourcePath;else if(this.path!==""){let c=P.extractUrlBase(t);o=P.resolveURL(c,this.path)}else o=P.extractUrlBase(t);this.manager.itemStart(t);let a=function(c){n?n(c):console.error(c),r.manager.itemError(t),r.manager.itemEnd(t)},i=new ie(this.manager);i.setPath(this.path),i.setResponseType("arraybuffer"),i.setRequestHeader(this.requestHeader),i.setWithCredentials(this.withCredentials),i.load(t,function(c){try{r.parse(c,o,function(u){e(u),r.manager.itemEnd(t)},a)}catch(u){a(u)}},s,a)}setDRACOLoader(t){return this.dracoLoader=t,this}setKTX2Loader(t){return this.ktx2Loader=t,this}setMeshoptDecoder(t){return this.meshoptDecoder=t,this}register(t){return this.pluginCallbacks.indexOf(t)===-1&&this.pluginCallbacks.push(t),this}unregister(t){return this.pluginCallbacks.indexOf(t)!==-1&&this.pluginCallbacks.splice(this.pluginCallbacks.indexOf(t),1),this}parse(t,e,s,n){let r,o={},a={},i=new TextDecoder;if(typeof t=="string")r=JSON.parse(t);else if(t instanceof ArrayBuffer)if(i.decode(new Uint8Array(t,0,4))===vt){try{o[T.KHR_BINARY_GLTF]=new Ge(t)}catch(l){n&&n(l);return}r=JSON.parse(o[T.KHR_BINARY_GLTF].content)}else r=JSON.parse(i.decode(t));else r=t;if(r.asset===void 0||r.asset.version[0]<2){n&&n(new Error("THREE.GLTFLoader: Unsupported asset. glTF versions >=2.0 are supported."));return}let c=new We(r,{path:e||this.resourcePath||"",crossOrigin:this.crossOrigin,requestHeader:this.requestHeader,manager:this.manager,ktx2Loader:this.ktx2Loader,meshoptDecoder:this.meshoptDecoder});c.fileLoader.setRequestHeader(this.requestHeader);for(let u=0;u<this.pluginCallbacks.length;u++){let l=this.pluginCallbacks[u](c);l.name||console.error("THREE.GLTFLoader: Invalid plugin found: missing name"),a[l.name]=l,o[l.name]=!0}if(r.extensionsUsed)for(let u=0;u<r.extensionsUsed.length;++u){let l=r.extensionsUsed[u],d=r.extensionsRequired||[];switch(l){case T.KHR_MATERIALS_UNLIT:o[l]=new Ee;break;case T.KHR_DRACO_MESH_COMPRESSION:o[l]=new Ke(r,this.dracoLoader);break;case T.KHR_TEXTURE_TRANSFORM:o[l]=new ze;break;case T.KHR_MESH_QUANTIZATION:o[l]=new je;break;default:d.indexOf(l)>=0&&a[l]===void 0&&console.warn('THREE.GLTFLoader: Unknown extension "'+l+'".')}}c.setExtensions(o),c.setPlugins(a),c.parse(s,n)}parseAsync(t,e){let s=this;return new Promise(function(n,r){s.parse(t,e,n,r)})}};function Ht(){let f={};return{get:function(t){return f[t]},add:function(t,e){f[t]=e},remove:function(t){delete f[t]},removeAll:function(){f={}}}}function b(f,t,e){let s=f.json.materials[t];return s.extensions&&s.extensions[e]?s.extensions[e]:null}var T={KHR_BINARY_GLTF:"KHR_binary_glTF",KHR_DRACO_MESH_COMPRESSION:"KHR_draco_mesh_compression",KHR_LIGHTS_PUNCTUAL:"KHR_lights_punctual",KHR_MATERIALS_CLEARCOAT:"KHR_materials_clearcoat",KHR_MATERIALS_DISPERSION:"KHR_materials_dispersion",KHR_MATERIALS_IOR:"KHR_materials_ior",KHR_MATERIALS_SHEEN:"KHR_materials_sheen",KHR_MATERIALS_SPECULAR:"KHR_materials_specular",KHR_MATERIALS_TRANSMISSION:"KHR_materials_transmission",KHR_MATERIALS_IRIDESCENCE:"KHR_materials_iridescence",KHR_MATERIALS_ANISOTROPY:"KHR_materials_anisotropy",KHR_MATERIALS_UNLIT:"KHR_materials_unlit",KHR_MATERIALS_VOLUME:"KHR_materials_volume",KHR_TEXTURE_BASISU:"KHR_texture_basisu",KHR_TEXTURE_TRANSFORM:"KHR_texture_transform",KHR_MESH_QUANTIZATION:"KHR_mesh_quantization",KHR_MATERIALS_EMISSIVE_STRENGTH:"KHR_materials_emissive_strength",EXT_MATERIALS_BUMP:"EXT_materials_bump",EXT_TEXTURE_WEBP:"EXT_texture_webp",EXT_TEXTURE_AVIF:"EXT_texture_avif",EXT_MESHOPT_COMPRESSION:"EXT_meshopt_compression",KHR_MESHOPT_COMPRESSION:"KHR_meshopt_compression",EXT_MESH_GPU_INSTANCING:"EXT_mesh_gpu_instancing"},we=class{constructor(t){this.parser=t,this.name=T.KHR_LIGHTS_PUNCTUAL,this.cache={refs:{},uses:{}}}_markDefs(){let t=this.parser,e=this.parser.json.nodes||[];for(let s=0,n=e.length;s<n;s++){let r=e[s];r.extensions&&r.extensions[this.name]&&r.extensions[this.name].light!==void 0&&t._addNodeRef(this.cache,r.extensions[this.name].light)}}_loadLight(t){let e=this.parser,s="light:"+t,n=e.cache.get(s);if(n)return n;let r=e.json,i=((r.extensions&&r.extensions[this.name]||{}).lights||[])[t],c,u=new C(16777215);i.color!==void 0&&u.setRGB(i.color[0],i.color[1],i.color[2],I);let l=i.range!==void 0?i.range:0;switch(i.type){case"directional":c=new Je(u),c.target.position.set(0,0,-1),c.add(c.target);break;case"point":c=new xt(u),c.distance=l;break;case"spot":c=new Et(u),c.distance=l,i.spot=i.spot||{},i.spot.innerConeAngle=i.spot.innerConeAngle!==void 0?i.spot.innerConeAngle:0,i.spot.outerConeAngle=i.spot.outerConeAngle!==void 0?i.spot.outerConeAngle:Math.PI/4,c.angle=i.spot.outerConeAngle,c.penumbra=1-i.spot.innerConeAngle/i.spot.outerConeAngle,c.target.position.set(0,0,-1),c.add(c.target);break;default:throw new Error("THREE.GLTFLoader: Unexpected light type: "+i.type)}return c.position.set(0,0,0),N(c,i),i.intensity!==void 0&&(c.intensity=i.intensity),c.name=e.createUniqueName(i.name||"light_"+t),n=Promise.resolve(c),e.cache.add(s,n),n}getDependency(t,e){if(t==="light")return this._loadLight(e)}createNodeAttachment(t){let e=this,s=this.parser,r=s.json.nodes[t],a=(r.extensions&&r.extensions[this.name]||{}).light;return a===void 0?null:this._loadLight(a).then(function(i){return s._getNodeRef(e.cache,a,i)})}},Ee=class{constructor(){this.name=T.KHR_MATERIALS_UNLIT}getMaterialType(){return D}extendParams(t,e,s){let n=[];t.color=new C(1,1,1),t.opacity=1;let r=e.pbrMetallicRoughness;if(r){if(Array.isArray(r.baseColorFactor)){let o=r.baseColorFactor;t.color.setRGB(o[0],o[1],o[2],I),t.opacity=o[3]}r.baseColorTexture!==void 0&&n.push(s.assignTexture(t,"map",r.baseColorTexture,F))}return Promise.all(n)}},Se=class{constructor(t){this.parser=t,this.name=T.KHR_MATERIALS_EMISSIVE_STRENGTH}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);return s===null||s.emissiveStrength!==void 0&&(e.emissiveIntensity=s.emissiveStrength),Promise.resolve()}},_e=class{constructor(t){this.parser=t,this.name=T.KHR_MATERIALS_CLEARCOAT}getMaterialType(t){return b(this.parser,t,this.name)!==null?_:null}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);if(s===null)return Promise.resolve();let n=[];if(s.clearcoatFactor!==void 0&&(e.clearcoat=s.clearcoatFactor),s.clearcoatTexture!==void 0&&n.push(this.parser.assignTexture(e,"clearcoatMap",s.clearcoatTexture)),s.clearcoatRoughnessFactor!==void 0&&(e.clearcoatRoughness=s.clearcoatRoughnessFactor),s.clearcoatRoughnessTexture!==void 0&&n.push(this.parser.assignTexture(e,"clearcoatRoughnessMap",s.clearcoatRoughnessTexture)),s.clearcoatNormalTexture!==void 0&&(n.push(this.parser.assignTexture(e,"clearcoatNormalMap",s.clearcoatNormalTexture)),s.clearcoatNormalTexture.scale!==void 0)){let r=s.clearcoatNormalTexture.scale;e.clearcoatNormalScale=new Te(r,r)}return Promise.all(n)}},Ie=class{constructor(t){this.parser=t,this.name=T.KHR_MATERIALS_DISPERSION}getMaterialType(t){return b(this.parser,t,this.name)!==null?_:null}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);return s===null||(e.dispersion=s.dispersion!==void 0?s.dispersion:0),Promise.resolve()}},Le=class{constructor(t){this.parser=t,this.name=T.KHR_MATERIALS_IRIDESCENCE}getMaterialType(t){return b(this.parser,t,this.name)!==null?_:null}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);if(s===null)return Promise.resolve();let n=[];return s.iridescenceFactor!==void 0&&(e.iridescence=s.iridescenceFactor),s.iridescenceTexture!==void 0&&n.push(this.parser.assignTexture(e,"iridescenceMap",s.iridescenceTexture)),s.iridescenceIor!==void 0&&(e.iridescenceIOR=s.iridescenceIor),e.iridescenceThicknessRange===void 0&&(e.iridescenceThicknessRange=[100,400]),s.iridescenceThicknessMinimum!==void 0&&(e.iridescenceThicknessRange[0]=s.iridescenceThicknessMinimum),s.iridescenceThicknessMaximum!==void 0&&(e.iridescenceThicknessRange[1]=s.iridescenceThicknessMaximum),s.iridescenceThicknessTexture!==void 0&&n.push(this.parser.assignTexture(e,"iridescenceThicknessMap",s.iridescenceThicknessTexture)),Promise.all(n)}},Ne=class{constructor(t){this.parser=t,this.name=T.KHR_MATERIALS_SHEEN}getMaterialType(t){return b(this.parser,t,this.name)!==null?_:null}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);if(s===null)return Promise.resolve();let n=[];if(e.sheenColor=new C(0,0,0),e.sheenRoughness=0,e.sheen=1,s.sheenColorFactor!==void 0){let r=s.sheenColorFactor;e.sheenColor.setRGB(r[0],r[1],r[2],I)}return s.sheenRoughnessFactor!==void 0&&(e.sheenRoughness=s.sheenRoughnessFactor),s.sheenColorTexture!==void 0&&n.push(this.parser.assignTexture(e,"sheenColorMap",s.sheenColorTexture,F)),s.sheenRoughnessTexture!==void 0&&n.push(this.parser.assignTexture(e,"sheenRoughnessMap",s.sheenRoughnessTexture)),Promise.all(n)}},Oe=class{constructor(t){this.parser=t,this.name=T.KHR_MATERIALS_TRANSMISSION}getMaterialType(t){return b(this.parser,t,this.name)!==null?_:null}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);if(s===null)return Promise.resolve();let n=[];return s.transmissionFactor!==void 0&&(e.transmission=s.transmissionFactor),s.transmissionTexture!==void 0&&n.push(this.parser.assignTexture(e,"transmissionMap",s.transmissionTexture)),Promise.all(n)}},Ce=class{constructor(t){this.parser=t,this.name=T.KHR_MATERIALS_VOLUME}getMaterialType(t){return b(this.parser,t,this.name)!==null?_:null}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);if(s===null)return Promise.resolve();let n=[];e.thickness=s.thicknessFactor!==void 0?s.thicknessFactor:0,s.thicknessTexture!==void 0&&n.push(this.parser.assignTexture(e,"thicknessMap",s.thicknessTexture)),e.attenuationDistance=s.attenuationDistance||1/0;let r=s.attenuationColor||[1,1,1];return e.attenuationColor=new C().setRGB(r[0],r[1],r[2],I),Promise.all(n)}},ve=class{constructor(t){this.parser=t,this.name=T.KHR_MATERIALS_IOR}getMaterialType(t){return b(this.parser,t,this.name)!==null?_:null}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);return s===null||(e.ior=s.ior!==void 0?s.ior:1.5,e.ior===0&&(e.ior=1e3)),Promise.resolve()}},Be=class{constructor(t){this.parser=t,this.name=T.KHR_MATERIALS_SPECULAR}getMaterialType(t){return b(this.parser,t,this.name)!==null?_:null}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);if(s===null)return Promise.resolve();let n=[];e.specularIntensity=s.specularFactor!==void 0?s.specularFactor:1,s.specularTexture!==void 0&&n.push(this.parser.assignTexture(e,"specularIntensityMap",s.specularTexture));let r=s.specularColorFactor||[1,1,1];return e.specularColor=new C().setRGB(r[0],r[1],r[2],I),s.specularColorTexture!==void 0&&n.push(this.parser.assignTexture(e,"specularColorMap",s.specularColorTexture,F)),Promise.all(n)}},ke=class{constructor(t){this.parser=t,this.name=T.EXT_MATERIALS_BUMP}getMaterialType(t){return b(this.parser,t,this.name)!==null?_:null}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);if(s===null)return Promise.resolve();let n=[];return e.bumpScale=s.bumpFactor!==void 0?s.bumpFactor:1,s.bumpTexture!==void 0&&n.push(this.parser.assignTexture(e,"bumpMap",s.bumpTexture)),Promise.all(n)}},Pe=class{constructor(t){this.parser=t,this.name=T.KHR_MATERIALS_ANISOTROPY}getMaterialType(t){return b(this.parser,t,this.name)!==null?_:null}extendMaterialParams(t,e){let s=b(this.parser,t,this.name);if(s===null)return Promise.resolve();let n=[];return s.anisotropyStrength!==void 0&&(e.anisotropy=s.anisotropyStrength),s.anisotropyRotation!==void 0&&(e.anisotropyRotation=s.anisotropyRotation),s.anisotropyTexture!==void 0&&n.push(this.parser.assignTexture(e,"anisotropyMap",s.anisotropyTexture)),Promise.all(n)}},He=class{constructor(t){this.parser=t,this.name=T.KHR_TEXTURE_BASISU}loadTexture(t){let e=this.parser,s=e.json,n=s.textures[t];if(!n.extensions||!n.extensions[this.name])return null;let r=n.extensions[this.name],o=e.options.ktx2Loader;if(!o){if(s.extensionsRequired&&s.extensionsRequired.indexOf(this.name)>=0)throw new Error("THREE.GLTFLoader: setKTX2Loader must be called before loading KTX2 textures");return null}return e.loadTextureImage(t,r.source,o)}},De=class{constructor(t){this.parser=t,this.name=T.EXT_TEXTURE_WEBP}loadTexture(t){let e=this.name,s=this.parser,n=s.json,r=n.textures[t];if(!r.extensions||!r.extensions[e])return null;let o=r.extensions[e],a=n.images[o.source],i=s.textureLoader;if(a.uri){let c=s.options.manager.getHandler(a.uri);c!==null&&(i=c)}return s.loadTextureImage(t,o.source,i)}},Fe=class{constructor(t){this.parser=t,this.name=T.EXT_TEXTURE_AVIF}loadTexture(t){let e=this.name,s=this.parser,n=s.json,r=n.textures[t];if(!r.extensions||!r.extensions[e])return null;let o=r.extensions[e],a=n.images[o.source],i=s.textureLoader;if(a.uri){let c=s.options.manager.getHandler(a.uri);c!==null&&(i=c)}return s.loadTextureImage(t,o.source,i)}},$=class{constructor(t,e){this.name=e,this.parser=t}loadBufferView(t){let e=this.parser.json,s=e.bufferViews[t];if(s.extensions&&s.extensions[this.name]){let n=s.extensions[this.name],r=this.parser.getDependency("buffer",n.buffer),o=this.parser.options.meshoptDecoder;if(!o||!o.supported){if(e.extensionsRequired&&e.extensionsRequired.indexOf(this.name)>=0)throw new Error("THREE.GLTFLoader: setMeshoptDecoder must be called before loading compressed files");return null}return r.then(function(a){let i=n.byteOffset||0,c=n.byteLength||0,u=n.count,l=n.byteStride,d=new Uint8Array(a,i,c);return o.decodeGltfBufferAsync?o.decodeGltfBufferAsync(u,l,d,n.mode,n.filter).then(function(h){return h.buffer}):o.ready.then(function(){let h=new ArrayBuffer(u*l);return o.decodeGltfBuffer(new Uint8Array(h),u,l,d,n.mode,n.filter),h})})}else return null}},Ue=class{constructor(t){this.name=T.EXT_MESH_GPU_INSTANCING,this.parser=t}createNodeMesh(t){let e=this.parser.json,s=e.nodes[t];if(!s.extensions||!s.extensions[this.name]||s.mesh===void 0)return null;let n=e.meshes[s.mesh];for(let c of n.primitives)if(c.mode!==E.TRIANGLES&&c.mode!==E.TRIANGLE_STRIP&&c.mode!==E.TRIANGLE_FAN&&c.mode!==void 0)return null;let o=s.extensions[this.name].attributes,a=[],i={};for(let c in o)a.push(this.parser.getDependency("accessor",o[c]).then(u=>(i[c]=u,i[c])));return a.length<1?null:(a.push(this.parser.createNodeMesh(t)),Promise.all(a).then(c=>{let u=c.pop(),l=u.isGroup?u.children:[u],d=c[0].count,h=[];for(let m of l){let A=new H,g=new L,x=new W,M=new L(1,1,1),y=new nt(m.geometry,m.material,d);for(let R=0;R<d;R++)i.TRANSLATION&&g.fromBufferAttribute(i.TRANSLATION,R),i.ROTATION&&x.fromBufferAttribute(i.ROTATION,R),i.SCALE&&M.fromBufferAttribute(i.SCALE,R),y.setMatrixAt(R,A.compose(g,x,M));for(let R in i)if(R==="_COLOR_0"){let w=i[R];y.instanceColor=new ae(w.array,w.itemSize,w.normalized)}else R!=="TRANSLATION"&&R!=="ROTATION"&&R!=="SCALE"&&m.geometry.setAttribute(R,i[R]);me.prototype.copy.call(y,m),this.parser.assignFinalMaterial(y),h.push(y)}return u.isGroup?(u.clear(),u.add(...h),u):h[0]}))}},vt="glTF",j=12,Lt={JSON:1313821514,BIN:5130562},Ge=class{constructor(t){this.name=T.KHR_BINARY_GLTF,this.content=null,this.body=null;let e=new DataView(t,0,j),s=new TextDecoder;if(this.header={magic:s.decode(new Uint8Array(t.slice(0,4))),version:e.getUint32(4,!0),length:e.getUint32(8,!0)},this.header.magic!==vt)throw new Error("THREE.GLTFLoader: Unsupported glTF-Binary header.");if(this.header.version<2)throw new Error("THREE.GLTFLoader: Legacy binary file detected.");let n=this.header.length-j,r=new DataView(t,j),o=0;for(;o<n;){let a=r.getUint32(o,!0);o+=4;let i=r.getUint32(o,!0);if(o+=4,i===Lt.JSON){let c=new Uint8Array(t,j+o,a);this.content=s.decode(c)}else if(i===Lt.BIN){let c=j+o;this.body=t.slice(c,c+a)}o+=a}if(this.content===null)throw new Error("THREE.GLTFLoader: JSON content not found.")}},Ke=class{constructor(t,e){if(!e)throw new Error("THREE.GLTFLoader: No DRACOLoader instance provided.");this.name=T.KHR_DRACO_MESH_COMPRESSION,this.json=t,this.dracoLoader=e,this.dracoLoader.preload()}decodePrimitive(t,e){let s=this.json,n=this.dracoLoader,r=t.extensions[this.name].bufferView,o=t.extensions[this.name].attributes,a={},i={},c={};for(let u in o){let l=Xe[u]||u.toLowerCase();a[l]=o[u]}for(let u in t.attributes){let l=Xe[u]||u.toLowerCase();if(o[u]!==void 0){let d=s.accessors[t.attributes[u]],h=U[d.componentType];c[l]=h.name,i[l]=d.normalized===!0}}return e.getDependency("bufferView",r).then(function(u){return new Promise(function(l,d){n.decodeDracoFile(u,function(h){for(let m in h.attributes){let A=h.attributes[m],g=i[m];g!==void 0&&(A.normalized=g)}l(h)},a,c,I,d)})})}},ze=class{constructor(){this.name=T.KHR_TEXTURE_TRANSFORM}extendTexture(t,e){return(e.texCoord===void 0||e.texCoord===t.channel)&&e.offset===void 0&&e.rotation===void 0&&e.scale===void 0||(t=t.clone(),e.texCoord!==void 0&&(t.channel=e.texCoord),e.offset!==void 0&&t.offset.fromArray(e.offset),e.rotation!==void 0&&(t.rotation=e.rotation),e.scale!==void 0&&t.repeat.fromArray(e.scale),t.needsUpdate=!0),t}},je=class{constructor(){this.name=T.KHR_MESH_QUANTIZATION}},ee=class extends st{constructor(t,e,s,n){super(t,e,s,n)}copySampleValue_(t){let e=this.resultBuffer,s=this.sampleValues,n=this.valueSize,r=t*n*3+n;for(let o=0;o!==n;o++)e[o]=s[r+o];return e}interpolate_(t,e,s,n){let r=this.resultBuffer,o=this.sampleValues,a=this.valueSize,i=a*2,c=a*3,u=n-e,l=(s-e)/u,d=l*l,h=d*l,m=t*c,A=m-c,g=-2*h+3*d,x=h-d,M=1-g,y=x-d+l;for(let R=0;R!==a;R++){let w=o[A+R+a],O=o[A+R+i]*u,S=o[m+R+a],G=o[m+R]*u;r[R]=M*w+y*O+g*S+x*G}return r}},Dt=new W,Ve=class extends ee{interpolate_(t,e,s,n){let r=super.interpolate_(t,e,s,n);return Dt.fromArray(r).normalize().toArray(r),r}},E={FLOAT:5126,FLOAT_MAT3:35675,FLOAT_MAT4:35676,FLOAT_VEC2:35664,FLOAT_VEC3:35665,FLOAT_VEC4:35666,LINEAR:9729,REPEAT:10497,SAMPLER_2D:35678,POINTS:0,LINES:1,LINE_LOOP:2,LINE_STRIP:3,TRIANGLES:4,TRIANGLE_STRIP:5,TRIANGLE_FAN:6,UNSIGNED_BYTE:5121,UNSIGNED_SHORT:5123},U={5120:Int8Array,5121:Uint8Array,5122:Int16Array,5123:Uint16Array,5125:Uint32Array,5126:Float32Array},Nt={9728:he,9729:X,9984:mt,9985:ut,9986:pt,9987:fe},Ot={33071:Qe,33648:ht,10497:Z},Re={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT2:4,MAT3:9,MAT4:16},Xe={POSITION:"position",NORMAL:"normal",TANGENT:"tangent",TEXCOORD_0:"uv",TEXCOORD_1:"uv1",TEXCOORD_2:"uv2",TEXCOORD_3:"uv3",COLOR_0:"color",WEIGHTS_0:"skinWeight",JOINTS_0:"skinIndex"},v={scale:"scale",translation:"position",rotation:"quaternion",weights:"morphTargetInfluences"},Ft={CUBICSPLINE:void 0,LINEAR:le,STEP:rt},ye={OPAQUE:"OPAQUE",MASK:"MASK",BLEND:"BLEND"};function Ut(f){return f.DefaultMaterial===void 0&&(f.DefaultMaterial=new de({color:16777215,emissive:0,metalness:1,roughness:1,transparent:!1,depthTest:!0,side:et})),f.DefaultMaterial}function B(f,t,e){for(let s in e.extensions)f[s]===void 0&&(t.userData.gltfExtensions=t.userData.gltfExtensions||{},t.userData.gltfExtensions[s]=e.extensions[s])}function N(f,t){t.extras!==void 0&&(typeof t.extras=="object"?Object.assign(f.userData,t.extras):console.warn("THREE.GLTFLoader: Ignoring primitive type .extras, "+t.extras))}function Gt(f,t,e){let s=!1,n=!1,r=!1;for(let c=0,u=t.length;c<u;c++){let l=t[c];if(l.POSITION!==void 0&&(s=!0),l.NORMAL!==void 0&&(n=!0),l.COLOR_0!==void 0&&(r=!0),s&&n&&r)break}if(!s&&!n&&!r)return Promise.resolve(f);let o=[],a=[],i=[];for(let c=0,u=t.length;c<u;c++){let l=t[c];if(s){let d=l.POSITION!==void 0?e.getDependency("accessor",l.POSITION):f.attributes.position;o.push(d)}if(n){let d=l.NORMAL!==void 0?e.getDependency("accessor",l.NORMAL):f.attributes.normal;a.push(d)}if(r){let d=l.COLOR_0!==void 0?e.getDependency("accessor",l.COLOR_0):f.attributes.color;i.push(d)}}return Promise.all([Promise.all(o),Promise.all(a),Promise.all(i)]).then(function(c){let u=c[0],l=c[1],d=c[2];return s&&(f.morphAttributes.position=u),n&&(f.morphAttributes.normal=l),r&&(f.morphAttributes.color=d),f.morphTargetsRelative=!0,f})}function Kt(f,t){if(f.updateMorphTargets(),t.weights!==void 0)for(let e=0,s=t.weights.length;e<s;e++)f.morphTargetInfluences[e]=t.weights[e];if(t.extras&&Array.isArray(t.extras.targetNames)){let e=t.extras.targetNames;if(f.morphTargetInfluences.length===e.length){f.morphTargetDictionary={};for(let s=0,n=e.length;s<n;s++)f.morphTargetDictionary[e[s]]=s}else console.warn("THREE.GLTFLoader: Invalid extras.targetNames length. Ignoring names.")}}function zt(f){let t,e=f.extensions&&f.extensions[T.KHR_DRACO_MESH_COMPRESSION];if(e?t="draco:"+e.bufferView+":"+e.indices+":"+Me(e.attributes):t=f.indices+":"+Me(f.attributes)+":"+f.mode,f.targets!==void 0)for(let s=0,n=f.targets.length;s<n;s++)t+=":"+Me(f.targets[s]);return t}function Me(f){let t="",e=Object.keys(f).sort();for(let s=0,n=e.length;s<n;s++)t+=e[s]+":"+f[e[s]]+";";return t}function qe(f){switch(f){case Int8Array:return 1/127;case Uint8Array:return 1/255;case Int16Array:return 1/32767;case Uint16Array:return 1/65535;default:throw new Error("THREE.GLTFLoader: Unsupported normalized accessor component type.")}}function jt(f){return f.search(/\\.jpe?g($|\\?)/i)>0||f.search(/^data\\:image\\/jpeg/)===0?"image/jpeg":f.search(/\\.webp($|\\?)/i)>0||f.search(/^data\\:image\\/webp/)===0?"image/webp":f.search(/\\.ktx2($|\\?)/i)>0||f.search(/^data\\:image\\/ktx2/)===0?"image/ktx2":"image/png"}var Vt=new H,We=class{constructor(t={},e={}){this.json=t,this.extensions={},this.plugins={},this.options=e,this.cache=new Ht,this.associations=new Map,this.primitiveCache={},this.nodeCache={},this.meshCache={refs:{},uses:{}},this.cameraCache={refs:{},uses:{}},this.lightCache={refs:{},uses:{}},this.sourceCache={},this.textureCache={},this.nodeNamesUsed={};let s=!1,n=-1,r=!1,o=-1;if(typeof navigator<"u"&&typeof navigator.userAgent<"u"){let a=navigator.userAgent;s=/^((?!chrome|android).)*safari/i.test(a)===!0;let i=a.match(/Version\\/(\\d+)/);n=s&&i?parseInt(i[1],10):-1,r=a.indexOf("Firefox")>-1,o=r?a.match(/Firefox\\/([0-9]+)\\./)[1]:-1}typeof createImageBitmap>"u"||s&&n<17||r&&o<98?this.textureLoader=new St(this.options.manager):this.textureLoader=new tt(this.options.manager),this.textureLoader.setCrossOrigin(this.options.crossOrigin),this.textureLoader.setRequestHeader(this.options.requestHeader),this.fileLoader=new ie(this.options.manager),this.fileLoader.setResponseType("arraybuffer"),this.options.crossOrigin==="use-credentials"&&this.fileLoader.setWithCredentials(!0)}setExtensions(t){this.extensions=t}setPlugins(t){this.plugins=t}parse(t,e){let s=this,n=this.json,r=this.extensions;this.cache.removeAll(),this.nodeCache={},this._invokeAll(function(o){return o._markDefs&&o._markDefs()}),Promise.all(this._invokeAll(function(o){return o.beforeRoot&&o.beforeRoot()})).then(function(){return Promise.all([s.getDependencies("scene"),s.getDependencies("animation"),s.getDependencies("camera")])}).then(function(o){let a={scene:o[0][n.scene||0],scenes:o[0],animations:o[1],cameras:o[2],asset:n.asset,parser:s,userData:{}};return B(r,a,n),N(a,n),Promise.all(s._invokeAll(function(i){return i.afterRoot&&i.afterRoot(a)})).then(function(){for(let i of a.scenes)i.updateMatrixWorld();t(a)})}).catch(e)}_markDefs(){let t=this.json.nodes||[],e=this.json.skins||[],s=this.json.meshes||[];for(let n=0,r=e.length;n<r;n++){let o=e[n].joints;for(let a=0,i=o.length;a<i;a++)t[o[a]].isBone=!0}for(let n=0,r=t.length;n<r;n++){let o=t[n];o.mesh!==void 0&&(this._addNodeRef(this.meshCache,o.mesh),o.skin!==void 0&&(s[o.mesh].isSkinnedMesh=!0)),o.camera!==void 0&&this._addNodeRef(this.cameraCache,o.camera)}}_addNodeRef(t,e){e!==void 0&&(t.refs[e]===void 0&&(t.refs[e]=t.uses[e]=0),t.refs[e]++)}_getNodeRef(t,e,s){if(t.refs[e]<=1)return s;let n=s.clone(),r=(o,a)=>{let i=this.associations.get(o);i!=null&&this.associations.set(a,i);for(let[c,u]of o.children.entries())r(u,a.children[c])};return r(s,n),n.name+="_instance_"+t.uses[e]++,n}_invokeOne(t){let e=Object.values(this.plugins);e.push(this);for(let s=0;s<e.length;s++){let n=t(e[s]);if(n)return n}return null}_invokeAll(t){let e=Object.values(this.plugins);e.unshift(this);let s=[];for(let n=0;n<e.length;n++){let r=t(e[n]);r&&s.push(r)}return s}getDependency(t,e){let s=t+":"+e,n=this.cache.get(s);if(!n){switch(t){case"scene":n=this.loadScene(e);break;case"node":n=this._invokeOne(function(r){return r.loadNode&&r.loadNode(e)});break;case"mesh":n=this._invokeOne(function(r){return r.loadMesh&&r.loadMesh(e)});break;case"accessor":n=this.loadAccessor(e);break;case"bufferView":n=this._invokeOne(function(r){return r.loadBufferView&&r.loadBufferView(e)});break;case"buffer":n=this.loadBuffer(e);break;case"material":n=this._invokeOne(function(r){return r.loadMaterial&&r.loadMaterial(e)});break;case"texture":n=this._invokeOne(function(r){return r.loadTexture&&r.loadTexture(e)});break;case"skin":n=this.loadSkin(e);break;case"animation":n=this._invokeOne(function(r){return r.loadAnimation&&r.loadAnimation(e)});break;case"camera":n=this.loadCamera(e);break;default:if(n=this._invokeOne(function(r){return r!=this&&r.getDependency&&r.getDependency(t,e)}),!n)throw new Error("Unknown type: "+t);break}this.cache.add(s,n)}return n}getDependencies(t){let e=this.cache.get(t);if(!e){let s=this,n=this.json[t+(t==="mesh"?"es":"s")]||[];e=Promise.all(n.map(function(r,o){return s.getDependency(t,o)})),this.cache.add(t,e)}return e}loadBuffer(t){let e=this.json.buffers[t],s=this.fileLoader;if(e.type&&e.type!=="arraybuffer")throw new Error("THREE.GLTFLoader: "+e.type+" buffer type is not supported.");if(e.uri===void 0&&t===0)return Promise.resolve(this.extensions[T.KHR_BINARY_GLTF].body);let n=this.options;return new Promise(function(r,o){s.load(P.resolveURL(e.uri,n.path),r,void 0,function(){o(new Error('THREE.GLTFLoader: Failed to load buffer "'+e.uri+'".'))})})}loadBufferView(t){let e=this.json.bufferViews[t];return this.getDependency("buffer",e.buffer).then(function(s){let n=e.byteLength||0,r=e.byteOffset||0;return s.slice(r,r+n)})}loadAccessor(t){let e=this,s=this.json,n=this.json.accessors[t];if(n.bufferView===void 0&&n.sparse===void 0){let o=Re[n.type],a=U[n.componentType],i=n.normalized===!0,c=new a(n.count*o);return Promise.resolve(new K(c,o,i))}let r=[];return n.bufferView!==void 0?r.push(this.getDependency("bufferView",n.bufferView)):r.push(null),n.sparse!==void 0&&(r.push(this.getDependency("bufferView",n.sparse.indices.bufferView)),r.push(this.getDependency("bufferView",n.sparse.values.bufferView))),Promise.all(r).then(function(o){let a=o[0],i=Re[n.type],c=U[n.componentType],u=c.BYTES_PER_ELEMENT,l=u*i,d=n.byteOffset||0,h=n.bufferView!==void 0?s.bufferViews[n.bufferView].byteStride:void 0,m=n.normalized===!0,A,g;if(h&&h!==l){let x=Math.floor(d/h),M="InterleavedBuffer:"+n.bufferView+":"+n.componentType+":"+x+":"+n.count,y=e.cache.get(M);y||(A=new c(a,x*h,n.count*h/u),y=new ce(A,h/u),e.cache.add(M,y)),g=new ue(y,i,d%h/u,m)}else a===null?A=new c(n.count*i):A=new c(a,d,n.count*i),g=new K(A,i,m);if(n.sparse!==void 0){let x=Re.SCALAR,M=U[n.sparse.indices.componentType],y=n.sparse.indices.byteOffset||0,R=n.sparse.values.byteOffset||0,w=new M(o[1],y,n.sparse.count*x),O=new c(o[2],R,n.sparse.count*i);a!==null&&(g=new K(g.array.slice(),g.itemSize,g.normalized)),g.normalized=!1;for(let S=0,G=w.length;S<G;S++){let k=w[S];if(g.setX(k,O[S*i]),i>=2&&g.setY(k,O[S*i+1]),i>=3&&g.setZ(k,O[S*i+2]),i>=4&&g.setW(k,O[S*i+3]),i>=5)throw new Error("THREE.GLTFLoader: Unsupported itemSize in sparse BufferAttribute.")}g.normalized=m}return g})}loadTexture(t){let e=this.json,s=this.options,r=e.textures[t].source,o=e.images[r],a=this.textureLoader;if(o.uri){let i=s.manager.getHandler(o.uri);i!==null&&(a=i)}return this.loadTextureImage(t,r,a)}loadTextureImage(t,e,s){let n=this,r=this.json,o=r.textures[t],a=r.images[e],i=(a.uri||a.bufferView)+":"+o.sampler;if(this.textureCache[i])return this.textureCache[i];let c=this.loadImageSource(e,s).then(function(u){u.flipY=!1,u.name=o.name||a.name||"",u.name===""&&typeof a.uri=="string"&&a.uri.startsWith("data:image/")===!1&&(u.name=a.uri);let d=(r.samplers||{})[o.sampler]||{};return u.magFilter=Nt[d.magFilter]||X,u.minFilter=Nt[d.minFilter]||fe,u.wrapS=Ot[d.wrapS]||Z,u.wrapT=Ot[d.wrapT]||Z,u.generateMipmaps=!u.isCompressedTexture&&u.minFilter!==he&&u.minFilter!==X,n.associations.set(u,{textures:t}),u}).catch(function(){return null});return this.textureCache[i]=c,c}loadImageSource(t,e){let s=this,n=this.json,r=this.options;if(this.sourceCache[t]!==void 0)return this.sourceCache[t].then(l=>l.clone());let o=n.images[t],a=self.URL||self.webkitURL,i=o.uri||"",c=!1;if(o.bufferView!==void 0)i=s.getDependency("bufferView",o.bufferView).then(function(l){c=!0;let d=new Blob([l],{type:o.mimeType});return i=a.createObjectURL(d),i});else if(o.uri===void 0)throw new Error("THREE.GLTFLoader: Image "+t+" is missing URI and bufferView");let u=Promise.resolve(i).then(function(l){return new Promise(function(d,h){let m=d;e.isImageBitmapLoader===!0&&(m=function(A){let g=new ge(A);g.needsUpdate=!0,d(g)}),e.load(P.resolveURL(l,r.path),m,void 0,h)})}).then(function(l){return c===!0&&a.revokeObjectURL(i),N(l,o),l.userData.mimeType=o.mimeType||jt(o.uri),l}).catch(function(l){throw console.error("THREE.GLTFLoader: Couldn't load texture",i),l});return this.sourceCache[t]=u,u}assignTexture(t,e,s,n){let r=this;return this.getDependency("texture",s.index).then(function(o){if(!o)return null;if(s.texCoord!==void 0&&s.texCoord>0&&(o=o.clone(),o.channel=s.texCoord),r.extensions[T.KHR_TEXTURE_TRANSFORM]){let a=s.extensions!==void 0?s.extensions[T.KHR_TEXTURE_TRANSFORM]:void 0;if(a){let i=r.associations.get(o);o=r.extensions[T.KHR_TEXTURE_TRANSFORM].extendTexture(o,a),r.associations.set(o,i)}}return n!==void 0&&(o.colorSpace=n),t[e]=o,o})}assignFinalMaterial(t){let e=t.geometry,s=t.material,n=e.attributes.tangent===void 0,r=e.attributes.color!==void 0,o=e.attributes.normal===void 0;if(t.isPoints){let a="PointsMaterial:"+s.uuid,i=this.cache.get(a);i||(i=new Rt,q.prototype.copy.call(i,s),i.color.copy(s.color),i.map=s.map,i.sizeAttenuation=!1,this.cache.add(a,i)),s=i}else if(t.isLine){let a="LineBasicMaterial:"+s.uuid,i=this.cache.get(a);i||(i=new it,q.prototype.copy.call(i,s),i.color.copy(s.color),i.map=s.map,this.cache.add(a,i)),s=i}if(n||r||o){let a="ClonedMaterial:"+s.uuid+":";n&&(a+="derivative-tangents:"),r&&(a+="vertex-colors:"),o&&(a+="flat-shading:");let i=this.cache.get(a);i||(i=s.clone(),r&&(i.vertexColors=!0),o&&(i.flatShading=!0),n&&(i.normalScale&&(i.normalScale.y*=-1),i.clearcoatNormalScale&&(i.clearcoatNormalScale.y*=-1)),this.cache.add(a,i),this.associations.set(i,this.associations.get(s))),s=i}t.material=s}getMaterialType(){return de}loadMaterial(t){let e=this,s=this.json,n=this.extensions,r=s.materials[t],o,a={},i=r.extensions||{},c=[];if(i[T.KHR_MATERIALS_UNLIT]){let l=n[T.KHR_MATERIALS_UNLIT];o=l.getMaterialType(),c.push(l.extendParams(a,r,e))}else{let l=r.pbrMetallicRoughness||{};if(a.color=new C(1,1,1),a.opacity=1,Array.isArray(l.baseColorFactor)){let d=l.baseColorFactor;a.color.setRGB(d[0],d[1],d[2],I),a.opacity=d[3]}l.baseColorTexture!==void 0&&c.push(e.assignTexture(a,"map",l.baseColorTexture,F)),a.metalness=l.metallicFactor!==void 0?l.metallicFactor:1,a.roughness=l.roughnessFactor!==void 0?l.roughnessFactor:1,l.metallicRoughnessTexture!==void 0&&(c.push(e.assignTexture(a,"metalnessMap",l.metallicRoughnessTexture)),c.push(e.assignTexture(a,"roughnessMap",l.metallicRoughnessTexture))),o=this._invokeOne(function(d){return d.getMaterialType&&d.getMaterialType(t)}),c.push(Promise.all(this._invokeAll(function(d){return d.extendMaterialParams&&d.extendMaterialParams(t,a)})))}r.doubleSided===!0&&(a.side=$e);let u=r.alphaMode||ye.OPAQUE;if(u===ye.BLEND?(a.transparent=!0,a.depthWrite=!1):(a.transparent=!1,u===ye.MASK&&(a.alphaTest=r.alphaCutoff!==void 0?r.alphaCutoff:.5)),r.normalTexture!==void 0&&o!==D&&(c.push(e.assignTexture(a,"normalMap",r.normalTexture)),a.normalScale=new Te(1,1),r.normalTexture.scale!==void 0)){let l=r.normalTexture.scale;a.normalScale.set(l,l)}if(r.occlusionTexture!==void 0&&o!==D&&(c.push(e.assignTexture(a,"aoMap",r.occlusionTexture)),r.occlusionTexture.strength!==void 0&&(a.aoMapIntensity=r.occlusionTexture.strength)),r.emissiveFactor!==void 0&&o!==D){let l=r.emissiveFactor;a.emissive=new C().setRGB(l[0],l[1],l[2],I)}return r.emissiveTexture!==void 0&&o!==D&&c.push(e.assignTexture(a,"emissiveMap",r.emissiveTexture,F)),Promise.all(c).then(function(){let l=new o(a);return r.name&&(l.name=r.name),N(l,r),e.associations.set(l,{materials:t}),r.extensions&&B(n,l,r),l})}createUniqueName(t){let e=yt.sanitizeNodeName(t||"");return e in this.nodeNamesUsed?e+"_"+ ++this.nodeNamesUsed[e]:(this.nodeNamesUsed[e]=0,e)}loadGeometries(t){let e=this,s=this.extensions,n=this.primitiveCache;function r(a){return s[T.KHR_DRACO_MESH_COMPRESSION].decodePrimitive(a,e).then(function(i){return Ct(i,a,e)})}let o=[];for(let a=0,i=t.length;a<i;a++){let c=t[a],u=zt(c),l=n[u];if(l)o.push(l.promise);else{let d;c.extensions&&c.extensions[T.KHR_DRACO_MESH_COMPRESSION]?d=r(c):d=Ct(new re,c,e),n[u]={primitive:c,promise:d},o.push(d)}}return Promise.all(o)}loadMesh(t){let e=this,s=this.json,n=this.extensions,r=s.meshes[t],o=r.primitives,a=[];for(let i=0,c=o.length;i<c;i++){let u=o[i].material===void 0?Ut(this.cache):this.getDependency("material",o[i].material);a.push(u)}return a.push(e.loadGeometries(o)),Promise.all(a).then(function(i){let c=i.slice(0,i.length-1),u=i[i.length-1],l=[];for(let h=0,m=u.length;h<m;h++){let A=u[h],g=o[h],x,M=c[h];if(g.mode===E.TRIANGLES||g.mode===E.TRIANGLE_STRIP||g.mode===E.TRIANGLE_FAN||g.mode===void 0)x=r.isSkinnedMesh===!0?new bt(A,M):new dt(A,M),x.isSkinnedMesh===!0&&x.normalizeSkinWeights(),g.mode===E.TRIANGLE_STRIP?x.geometry=xe(x.geometry,Q):g.mode===E.TRIANGLE_FAN&&(x.geometry=xe(x.geometry,z));else if(g.mode===E.LINES)x=new ct(A,M);else if(g.mode===E.LINE_STRIP)x=new ot(A,M);else if(g.mode===E.LINE_LOOP)x=new at(A,M);else if(g.mode===E.POINTS)x=new At(A,M);else throw new Error("THREE.GLTFLoader: Primitive mode unsupported: "+g.mode);Object.keys(x.geometry.morphAttributes).length>0&&Kt(x,r),x.name=e.createUniqueName(r.name||"mesh_"+t),N(x,r),g.extensions&&B(n,x,g),e.assignFinalMaterial(x),l.push(x)}for(let h=0,m=l.length;h<m;h++)e.associations.set(l[h],{meshes:t,primitives:h});if(l.length===1)return r.extensions&&B(n,l[0],r),l[0];let d=new V;r.extensions&&B(n,d,r),e.associations.set(d,{meshes:t});for(let h=0,m=l.length;h<m;h++)d.add(l[h]);return d})}loadCamera(t){let e,s=this.json.cameras[t],n=s[s.type];if(!n){console.warn("THREE.GLTFLoader: Missing camera parameters.");return}return s.type==="perspective"?e=new Tt(ft.radToDeg(n.yfov),n.aspectRatio||1,n.znear||1,n.zfar||2e6):s.type==="orthographic"&&(e=new gt(-n.xmag,n.xmag,n.ymag,-n.ymag,n.znear,n.zfar)),s.name&&(e.name=this.createUniqueName(s.name)),N(e,s),Promise.resolve(e)}loadSkin(t){let e=this.json.skins[t],s=[];for(let n=0,r=e.joints.length;n<r;n++)s.push(this._loadNodeShallow(e.joints[n]));return e.inverseBindMatrices!==void 0?s.push(this.getDependency("accessor",e.inverseBindMatrices)):s.push(null),Promise.all(s).then(function(n){let r=n.pop(),o=n,a=[],i=[];for(let c=0,u=o.length;c<u;c++){let l=o[c];if(l){a.push(l);let d=new H;r!==null&&d.fromArray(r.array,c*16),i.push(d)}else console.warn('THREE.GLTFLoader: Joint "%s" could not be found.',e.joints[c])}return new Mt(a,i)})}loadAnimation(t){let e=this.json,s=this,n=e.animations[t],r=n.name?n.name:"animation_"+t,o=[],a=[],i=[],c=[],u=[];for(let l=0,d=n.channels.length;l<d;l++){let h=n.channels[l],m=n.samplers[h.sampler],A=h.target,g=A.node,x=n.parameters!==void 0?n.parameters[m.input]:m.input,M=n.parameters!==void 0?n.parameters[m.output]:m.output;A.node!==void 0&&(o.push(this.getDependency("node",g)),a.push(this.getDependency("accessor",x)),i.push(this.getDependency("accessor",M)),c.push(m),u.push(A))}return Promise.all([Promise.all(o),Promise.all(a),Promise.all(i),Promise.all(c),Promise.all(u)]).then(function(l){let d=l[0],h=l[1],m=l[2],A=l[3],g=l[4],x=[];for(let y=0,R=d.length;y<R;y++){let w=d[y],O=h[y],S=m[y],G=A[y],k=g[y];if(w===void 0)continue;w.updateMatrix&&w.updateMatrix();let te=s._createAnimationTracks(w,O,S,G,k);if(te)for(let ne=0;ne<te.length;ne++)x.push(te[ne])}let M=new se(r,void 0,x);return N(M,n),M})}createNodeMesh(t){let e=this.json,s=this,n=e.nodes[t];return n.mesh===void 0?null:s.getDependency("mesh",n.mesh).then(function(r){let o=s._getNodeRef(s.meshCache,n.mesh,r);return n.weights!==void 0&&o.traverse(function(a){if(a.isMesh)for(let i=0,c=n.weights.length;i<c;i++)a.morphTargetInfluences[i]=n.weights[i]}),o})}loadNode(t){let e=this.json,s=this,n=e.nodes[t],r=s._loadNodeShallow(t),o=[],a=n.children||[];for(let c=0,u=a.length;c<u;c++)o.push(s.getDependency("node",a[c]));let i=n.skin===void 0?Promise.resolve(null):s.getDependency("skin",n.skin);return Promise.all([r,Promise.all(o),i]).then(function(c){let u=c[0],l=c[1],d=c[2];d!==null&&u.traverse(function(h){h.isSkinnedMesh&&h.bind(d,Vt)});for(let h=0,m=l.length;h<m;h++)u.add(l[h]);if(u.userData.pivot!==void 0&&l.length>0){let h=u.userData.pivot,m=l[0];u.pivot=new L().fromArray(h),u.position.x-=h[0],u.position.y-=h[1],u.position.z-=h[2],m.position.set(0,0,0),delete u.userData.pivot}return u})}_loadNodeShallow(t){let e=this.json,s=this.extensions,n=this;if(this.nodeCache[t]!==void 0)return this.nodeCache[t];let r=e.nodes[t],o=r.name?n.createUniqueName(r.name):"",a=[],i=n._invokeOne(function(c){return c.createNodeMesh&&c.createNodeMesh(t)});return i&&a.push(i),r.camera!==void 0&&a.push(n.getDependency("camera",r.camera).then(function(c){return n._getNodeRef(n.cameraCache,r.camera,c)})),n._invokeAll(function(c){return c.createNodeAttachment&&c.createNodeAttachment(t)}).forEach(function(c){a.push(c)}),this.nodeCache[t]=Promise.all(a).then(function(c){let u;if(r.isBone===!0?u=new Ye:c.length>1?u=new V:c.length===1?u=c[0]:u=new me,u!==c[0])for(let l=0,d=c.length;l<d;l++)u.add(c[l]);if(r.name&&(u.userData.name=r.name,u.name=o),N(u,r),r.extensions&&B(s,u,r),r.matrix!==void 0){let l=new H;l.fromArray(r.matrix),u.applyMatrix4(l)}else r.translation!==void 0&&u.position.fromArray(r.translation),r.rotation!==void 0&&u.quaternion.fromArray(r.rotation),r.scale!==void 0&&u.scale.fromArray(r.scale);if(!n.associations.has(u))n.associations.set(u,{});else if(r.mesh!==void 0&&n.meshCache.refs[r.mesh]>1){let l=n.associations.get(u);n.associations.set(u,{...l})}return n.associations.get(u).nodes=t,u}),this.nodeCache[t]}loadScene(t){let e=this.extensions,s=this.json.scenes[t],n=this,r=new V;s.name&&(r.name=n.createUniqueName(s.name)),N(r,s),s.extensions&&B(e,r,s);let o=s.nodes||[],a=[];for(let i=0,c=o.length;i<c;i++)a.push(n.getDependency("node",o[i]));return Promise.all(a).then(function(i){for(let u=0,l=i.length;u<l;u++){let d=i[u];d.parent!==null?r.add(Ae(d)):r.add(d)}let c=u=>{let l=new Map;for(let[d,h]of n.associations)(d instanceof q||d instanceof ge)&&l.set(d,h);return u.traverse(d=>{let h=n.associations.get(d);h!=null&&l.set(d,h)}),l};return n.associations=c(r),r})}_createAnimationTracks(t,e,s,n,r){let o=[],a=t.name?t.name:t.uuid,i=[];function c(h){h.morphTargetInfluences&&i.push(h.name?h.name:h.uuid)}v[r.path]===v.weights?(c(t),t.isGroup&&t.children.forEach(c)):i.push(a);let u;switch(v[r.path]){case v.weights:u=pe;break;case v.rotation:u=Y;break;case v.translation:case v.scale:u=J;break;default:s.itemSize===1?u=pe:u=J;break}let l=n.interpolation!==void 0?Ft[n.interpolation]:le,d=this._getArrayFromAccessor(s);for(let h=0,m=i.length;h<m;h++){let A=new u(i[h]+"."+v[r.path],e.array,d,l);n.interpolation==="CUBICSPLINE"&&this._createCubicSplineTrackInterpolant(A),o.push(A)}return o}_getArrayFromAccessor(t){let e=t.array;if(t.normalized){let s=qe(e.constructor),n=new Float32Array(e.length);for(let r=0,o=e.length;r<o;r++)n[r]=e[r]*s;e=n}return e}_createCubicSplineTrackInterpolant(t){t.createInterpolant=function(s){let n=this instanceof Y?Ve:ee;return new n(this.times,this.values,this.getValueSize()/3,s)},t.createInterpolant.isInterpolantFactoryMethodGLTFCubicSpline=!0}};function Xt(f,t,e){let s=t.attributes,n=new Ze;if(s.POSITION!==void 0){let a=e.json.accessors[s.POSITION],i=a.min,c=a.max;if(i!==void 0&&c!==void 0){if(n.set(new L(i[0],i[1],i[2]),new L(c[0],c[1],c[2])),a.normalized){let u=qe(U[a.componentType]);n.min.multiplyScalar(u),n.max.multiplyScalar(u)}}else{console.warn("THREE.GLTFLoader: Missing min/max properties for accessor POSITION.");return}}else return;let r=t.targets;if(r!==void 0){let a=new L,i=new L;for(let c=0,u=r.length;c<u;c++){let l=r[c];if(l.POSITION!==void 0){let d=e.json.accessors[l.POSITION],h=d.min,m=d.max;if(h!==void 0&&m!==void 0){if(i.setX(Math.max(Math.abs(h[0]),Math.abs(m[0]))),i.setY(Math.max(Math.abs(h[1]),Math.abs(m[1]))),i.setZ(Math.max(Math.abs(h[2]),Math.abs(m[2]))),d.normalized){let A=qe(U[d.componentType]);i.multiplyScalar(A)}a.max(i)}else console.warn("THREE.GLTFLoader: Missing min/max properties for accessor POSITION.")}}n.expandByVector(a)}f.boundingBox=n;let o=new wt;n.getCenter(o.center),o.radius=n.min.distanceTo(n.max)/2,f.boundingSphere=o}function Ct(f,t,e){let s=t.attributes,n=[];function r(o,a){return e.getDependency("accessor",o).then(function(i){f.setAttribute(a,i)})}for(let o in s){let a=Xe[o]||o.toLowerCase();a in f.attributes||n.push(r(s[o],a))}if(t.indices!==void 0&&!f.index){let o=e.getDependency("accessor",t.indices).then(function(a){f.setIndex(a)});n.push(o)}return oe.workingColorSpace!==I&&"COLOR_0"in s&&console.warn(\`THREE.GLTFLoader: Converting vertex colors from "srgb-linear" to "\${oe.workingColorSpace}" not supported.\`),N(f,t),Xt(f,t,e),Promise.all(n).then(function(){return t.targets!==void 0?Gt(f,t.targets,e):f})}export{be as GLTFLoader,Ae as cloneSkinned};
+`;
+
+// modules/waves/src/assets.js
+var ASSET_FILES = Object.freeze({
+  blaster: "assets/gun-blaster.glb",
+  scatter: "assets/gun-scatter.glb",
+  beam: "assets/gun-beam.glb",
+  grunt: "assets/enemy-grunt.glb",
+  runner: "assets/enemy-runner.glb",
+  tank: "assets/enemy-tank.glb",
+  crystal: "assets/crystal.glb"
+});
+function createAssets(api) {
+  const THREE = api.THREE;
+  const entries = /* @__PURE__ */ new Map();
+  let chunk = null;
+  let loaded = null;
+  function loaderModule() {
+    if (!chunk)
+      chunk = (async () => {
+        globalThis.__wavesTHREE = THREE;
+        const url = URL.createObjectURL(new Blob([loader_default], { type: "text/javascript" }));
+        try {
+          loaded = await import(
+            /* @vite-ignore */
+            url
+          );
+          return loaded;
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      })();
+    return chunk;
+  }
+  async function parse(url) {
+    if (typeof api.loadModel === "function") {
+      const r = await api.loadModel(url);
+      return r?.scene ? r : { scene: r, animations: r?.animations ?? [] };
+    }
+    const m = await loaderModule();
+    return new m.GLTFLoader().loadAsync(url);
+  }
+  function request(key) {
+    if (entries.has(key)) return entries.get(key);
+    const file = (
+      /** @type {any} */
+      ASSET_FILES[key]
+    );
+    const url = file ? api.assetUrl?.(file) : null;
+    const entry = { status: "loading", gltf: null };
+    entries.set(key, entry);
+    if (!url) {
+      entry.status = "failed";
+      entry.error = file ? file + " is not in the installed module" : "no asset " + key;
+      return entry;
+    }
+    parse(url).then(
+      (gltf) => {
+        gltf.scene.traverse((o) => {
+          if (!o.isMesh) return;
+          o.castShadow = true;
+          o.receiveShadow = true;
+          if (o.isSkinnedMesh) o.frustumCulled = false;
+        });
+        entry.gltf = gltf;
+        entry.status = "ready";
+      },
+      (error) => {
+        entry.status = "failed";
+        entry.error = String(error?.message ?? error);
+        console.warn("[waves] model " + key + " failed \u2014 the primitive look stays", error);
+      }
+    );
+    return entry;
+  }
+  function get(key) {
+    const e = request(key);
+    return e?.status === "ready" ? e.gltf : null;
+  }
+  function instance(key) {
+    const gltf = get(key);
+    if (!gltf) return null;
+    let skinned = false;
+    gltf.scene.traverse((o) => skinned ||= !!o.isSkinnedMesh);
+    if (skinned && !loaded) {
+      loaderModule();
+      return null;
+    }
+    const clone = skinned ? loaded.cloneSkinned(gltf.scene) : gltf.scene.clone(true);
+    const own = /* @__PURE__ */ new Map();
+    clone.traverse((o) => {
+      if (!o.isMesh || !o.material) return;
+      const one = (m) => {
+        if (!own.has(m)) own.set(m, m.clone());
+        return own.get(m);
+      };
+      o.material = Array.isArray(o.material) ? o.material.map(one) : one(o.material);
+    });
+    return { scene: clone, animations: gltf.animations ?? [] };
+  }
+  return {
+    request,
+    /** start every model at once (a Waves arena is in the scene: all of them will be asked for) */
+    preload: () => Object.keys(ASSET_FILES).forEach((k) => request(k)),
+    get,
+    instance,
+    /** every key's status, for a flight / the debug line */
+    status: () => Object.fromEntries(Object.keys(ASSET_FILES).map((k) => [k, entries.get(k)?.status ?? "idle"])),
+    errors: () => Object.fromEntries([...entries].filter(([, e]) => e.error).map(([k, e]) => [k, e.error]))
+  };
+}
+
+// modules/waves/src/avatars.js
+function registerAvatars(api, engine, root, assets) {
+  const THREE = api.THREE;
+  const group = new THREE.Group();
+  group.name = "Waves figures";
+  root.add(group);
+  const clock = () => performance.now() / 1e3;
+  const figures = /* @__PURE__ */ new Map();
+  const standing = /* @__PURE__ */ new Set();
+  let crystal = null;
+  let enabled = true;
+  const stats = { made: 0, hits: 0, deaths: 0, walking: 0 };
+  const _m = new THREE.Matrix4();
+  const _p = new THREE.Vector3();
+  const _q = new THREE.Quaternion();
+  const _s = new THREE.Vector3();
+  const _up = new THREE.Vector3(0, 1, 0);
+  const _inv = new THREE.Matrix4();
+  function refreshInverse() {
+    group.updateWorldMatrix(true, false);
+    _inv.copy(group.matrixWorld).invert();
+  }
+  function placeWorld(object, pos, yaw, scale) {
+    _q.setFromAxisAngle(_up, yaw);
+    _m.compose(_p.set(pos[0], pos[1], pos[2]), _q, _s.set(scale, scale, scale));
+    _m.premultiply(_inv);
+    _m.decompose(object.position, object.quaternion, object.scale);
+  }
+  function hop(object, on) {
+    if (on) standing.add(object);
+    else standing.delete(object);
+  }
+  const hidden = [];
+  function hideStandIns() {
+    if (!enabled || !root.parent || group.parent !== root) return;
+    for (const object of standing)
+      object.traverse((o) => {
+        if (!o.isMesh || !o.layers?.isEnabled?.(0)) return;
+        o.layers.disable(0);
+        o.layers.enable(STAND_IN_LAYER);
+        hidden.push(o);
+      });
+  }
+  function showStandIns() {
+    for (const o of hidden) {
+      o.layers.disable(STAND_IN_LAYER);
+      o.layers.enable(0);
+    }
+    hidden.length = 0;
+  }
+  let hooked = null;
+  function hookScene() {
+    const scene = api.scene?.();
+    if (!scene || hooked === scene) return;
+    const before = scene.onBeforeRender;
+    const after = scene.onAfterRender;
+    scene.onBeforeRender = function(...a) {
+      before?.apply(this, a);
+      showStandIns();
+      hideStandIns();
+    };
+    scene.onAfterRender = function(...a) {
+      showStandIns();
+      after?.apply(this, a);
+    };
+    hooked = scene;
+  }
+  function make(uuid, kind) {
+    const inst = assets.instance(kind);
+    if (!inst) return null;
+    const model = new THREE.Group();
+    model.name = "Waves figure " + kind;
+    const body = inst.scene;
+    model.add(body);
+    body.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(body);
+    const size = box.getSize(new THREE.Vector3());
+    const scale = fitScale(size.y, figureOf(kind).height);
+    body.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
+    const mixer = new THREE.AnimationMixer(body);
+    const actions = {};
+    for (const clip of inst.animations) {
+      const name = String(clip.name).toLowerCase();
+      actions[name] = mixer.clipAction(clip);
+    }
+    for (const a of Object.values(actions)) a.enabled = true;
+    const walk = actions[figureOf(kind).walk] ?? actions.walk ?? actions.run ?? null;
+    if (walk) {
+      walk.play();
+      walk.timeScale = 0;
+    }
+    for (const k of ["hit", "death"]) {
+      const a = actions[k];
+      if (!a) continue;
+      a.setLoop(THREE.LoopOnce, 1);
+      a.clampWhenFinished = k === "death";
+    }
+    model.visible = false;
+    group.add(model);
+    stats.made++;
+    return { uuid, kind, model, mixer, actions, scale, yaw: 0, last: null, gait: { speed: 0, forward: true }, dyingAt: null, deathPos: null, hitUntil: 0, object: null };
+  }
+  const walkOf = (f) => f.actions[figureOf(f.kind).walk] ?? f.actions.walk ?? f.actions.run ?? null;
+  engine.onEnemy((ev) => {
+    const f = figures.get(ev.uuid);
+    if (!f) return;
+    if (ev.kind === "death") {
+      stats.deaths++;
+      f.dyingAt = clock();
+      f.deathPos = f.last ? [...f.last] : ev.pos;
+      const walk = walkOf(f);
+      const death = f.actions.death;
+      if (death) {
+        walk?.fadeOut(0.12);
+        f.actions.hit?.stop();
+        death.reset().setEffectiveWeight(1).fadeIn(0.08).play();
+      } else if (walk) walk.timeScale = 0;
+    } else if (f.dyingAt === null) {
+      stats.hits++;
+      const hit = f.actions.hit;
+      if (hit) {
+        hit.reset().setEffectiveWeight(1).fadeIn(0.04).play();
+        f.hitUntil = clock() + Math.min(0.45, hit.getClip().duration * 0.6);
+      }
+    }
+  });
+  function revive(f) {
+    f.dyingAt = null;
+    f.deathPos = null;
+    f.actions.death?.stop();
+    f.actions.hit?.stop();
+    const walk = walkOf(f);
+    if (walk) {
+      walk.reset().play();
+      walk.setEffectiveWeight(1);
+      walk.timeScale = 0;
+    }
+  }
+  let lastT = clock();
+  function frame() {
+    const t = clock();
+    const dt = Math.min(0.1, Math.max(0, t - lastT));
+    lastT = t;
+    hookScene();
+    const objects = api.objectsGroup();
+    refreshInverse();
+    const byUuid = /* @__PURE__ */ new Map();
+    for (const c of objects?.children ?? []) byUuid.set(c.uuid, c);
+    const seen = /* @__PURE__ */ new Set();
+    let walking = 0;
+    for (const s of engine.all()) {
+      for (const e of s.enemies) {
+        const object = byUuid.get(e.uuid) ?? objects?.getObjectByProperty("uuid", e.uuid);
+        if (!object) continue;
+        let f = figures.get(e.uuid);
+        if (!f || f.kind !== e.kind) {
+          if (f) group.remove(f.model);
+          f = enabled ? make(e.uuid, e.kind) : null;
+          if (!f) {
+            hop(object, false);
+            continue;
+          }
+          figures.set(e.uuid, f);
+        }
+        seen.add(e.uuid);
+        f.object = object;
+        const wp = object.getWorldPosition(new THREE.Vector3()).toArray();
+        const drop = footDrop(f.kind);
+        const feet = [wp[0], wp[1] - drop, wp[2]];
+        if (f.dyingAt !== null && deathOver(t - f.dyingAt)) revive(f);
+        const dying = f.dyingAt !== null;
+        const show = enabled && figureShown({ visible: !!object.visible, y: wp[1], dying });
+        hop(object, show);
+        f.model.visible = show;
+        if (!show) {
+          f.last = null;
+          f.gait.speed = 0;
+          continue;
+        }
+        if (dying && f.deathPos) {
+          const age = t - /** @type {number} */
+          f.dyingAt;
+          const d = f.deathPos;
+          placeWorld(f.model, [d[0], d[1] - sinkDepth(age), d[2]], f.yaw, f.scale);
+          f.mixer.update(dt);
+          continue;
+        }
+        const goal = s.goal;
+        const target = goal ? yawTo(feet, goal) : f.yaw;
+        f.yaw = f.last ? turnToward(f.yaw, target, dt, 7) : target;
+        f.gait = f.last ? gait(f.gait, f.last, feet, dt, f.yaw) : { speed: 0, forward: true };
+        f.last = feet;
+        placeWorld(f.model, feet, f.yaw, f.scale);
+        const walk = walkOf(f);
+        if (walk) {
+          const rate = f.gait.forward ? walkRate(f.gait.speed, figureOf(f.kind).clipSpeed, 1) : 0;
+          walk.timeScale = rate;
+          if (rate > 0) walking++;
+        }
+        if (f.actions.hit && f.hitUntil && t > f.hitUntil) {
+          f.actions.hit.fadeOut(0.15);
+          f.hitUntil = 0;
+        }
+        f.mixer.update(dt);
+      }
+    }
+    stats.walking = walking;
+    for (const [uuid, f] of figures)
+      if (!seen.has(uuid)) {
+        group.remove(f.model);
+        if (f.object) hop(f.object, false);
+        figures.delete(uuid);
+      }
+    crystalFrame();
+  }
+  function crystalFrame() {
+    const core = crystal?.source?.parent ? crystal.source : api.objectsGroup()?.getObjectByName?.(CORE);
+    if (!core || !enabled) {
+      if (crystal) crystal.model.visible = false;
+      if (crystal?.source) hop(crystal.source, false);
+      return;
+    }
+    if (!crystal || crystal.source !== core) {
+      const inst = assets.instance("crystal");
+      if (!inst) return;
+      const model = new THREE.Group();
+      model.name = "Waves crystal";
+      const body = inst.scene;
+      model.add(body);
+      body.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(body);
+      const size = box.getSize(new THREE.Vector3());
+      const c = box.getCenter(new THREE.Vector3());
+      body.position.set(-c.x, -c.y, -c.z);
+      const mats = [];
+      body.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = false;
+        const m = o.material;
+        if (m && !Array.isArray(m) && m.emissive) {
+          if (!m.emissiveMap && m.map) m.emissiveMap = m.map;
+          m.emissive.setHex(m.emissiveMap ? 16777215 : 3793151);
+          m.userData.wvGlow = 1;
+          mats.push(m);
+        }
+      });
+      if (crystal) group.remove(crystal.model);
+      const r = core.geometry?.parameters?.radius ?? 0.42;
+      crystal = { model, scale: fitScale(size.y, r * 2.6), source: core, mats };
+      group.add(model);
+    }
+    hop(core, true);
+    core.updateMatrixWorld?.(true);
+    core.matrixWorld.decompose(_p, _q, _s);
+    const k = crystal.scale;
+    _m.compose(_p, _q, _s.set(k, k, k));
+    _m.premultiply(_inv);
+    _m.decompose(crystal.model.position, crystal.model.quaternion, crystal.model.scale);
+    crystal.model.visible = !!core.visible;
+    const cm = core.material;
+    const full = cm?.userData?.wvCore ?? cm?.emissiveIntensity ?? 1;
+    const level = full > 0 ? (cm?.emissiveIntensity ?? full) / full : 1;
+    for (const m of crystal.mats) m.emissiveIntensity = 0.25 + 1.6 * level;
+  }
+  api.registerFrameTask(() => {
+    try {
+      frame();
+    } catch (error) {
+      console.warn("[waves] figures failed", error);
+    }
+  });
+  api.onSceneClear(() => {
+    showStandIns();
+    for (const f of figures.values()) group.remove(f.model);
+    figures.clear();
+    standing.clear();
+    if (crystal) group.remove(crystal.model);
+    crystal = null;
+  });
+  return {
+    figures,
+    stats,
+    /** the figure standing in for enemy `uuid` (the hit flash paints it too) @param {string} uuid */
+    of: (uuid) => figures.get(uuid)?.model ?? null,
+    crystal: () => crystal?.model ?? null,
+    /** the stand-in on/off (a flight's before/after; off = the 30b primitive look) @param {boolean} on */
+    setEnabled(on) {
+      enabled = !!on;
+      if (!enabled) {
+        for (const f of figures.values()) {
+          f.model.visible = false;
+          if (f.object) hop(f.object, false);
+        }
+        if (crystal) {
+          crystal.model.visible = false;
+          hop(crystal.source, false);
+        }
+      }
+    },
+    enabled: () => enabled,
+    /** does a figure stand in for `object` (its meshes hidden while the scene renders)? @param {any} object */
+    standsIn: (object) => standing.has(object)
+  };
+}
+
 // modules/waves/src/index.js
-var ROOT = "waves-module";
+var ROOT = MODULE_ROOT;
 var index_default = {
   id: "waves",
   name: "Waves",
-  version: "2.0.0",
+  version: "2.1.0",
   description: "A VR wave shooter on the health module: a gun in your hand, five levels of grunts, runners and tanks walking from the portals to your crystal, a loadout of guns and abilities \u2014 every wave derived on every peer, no authority.",
   /** @param {any} api the module SDK surface */
   register(api) {
@@ -2647,13 +3183,22 @@ var index_default = {
     const prefs = createPrefs(api);
     const feel = createFeel(api, prefs);
     const juice = createJuice(api, root);
-    const fx = registerFx(api, engine, juice, feel);
+    const assets = createAssets(api);
+    let avatars = null;
+    const fx = registerFx(api, engine, juice, feel, (uuid) => avatars?.of(uuid) ?? null);
     api.registerFrameTask(() => {
       if (!root.parent) api.scene()?.add(root);
     });
     api.registerSystemGroup?.(ROOT);
     const start = registerStart(api, root);
-    const weapon = registerWeapon(api, engine, root, juice, prefs, feel);
+    const weapon = registerWeapon(api, engine, root, juice, prefs, feel, assets);
+    avatars = registerAvatars(api, engine, root, assets);
+    let preloaded = false;
+    api.registerFrameTask(() => {
+      if (preloaded || !engine.all().length) return;
+      preloaded = true;
+      assets.preload();
+    });
     const powers = registerPowers(api, engine, root, prefs, feel);
     let spawnSet = false;
     const session = registerSession(api, engine, juice, feel, prefs, start);
@@ -2727,6 +3272,8 @@ var index_default = {
         powers,
         session,
         menu,
+        assets,
+        avatars,
         hud: arenaHud,
         hudGraph,
         snapshot: () => engine.all().map((s) => ({

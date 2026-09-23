@@ -6,7 +6,7 @@
 // flashes, is shoved back along its lane, and dies in a pop. Everything drawn here is LOCAL.
 
 import { gunOf, trigger, idleHand, pelletDirs, gunHands } from './guns.js';
-import { buildGun } from './models.js';
+import { buildGun, gunFromAsset } from './models.js';
 import { aimRay, createEdges, inGame } from './vr.js';
 
 /** where the gun sits in the controller's frame: the grip a little behind and under the aim */
@@ -19,12 +19,13 @@ const GRIP_OFFSET = [0, -0.035, 0.05];
  * @param {ReturnType<import('./juice.js').createJuice>} juice
  * @param {ReturnType<import('./prefs.js').createPrefs>} prefs
  * @param {{sound: (name: string, at?: number[]) => void, haptic: (pattern: string, hand?: string) => void}} feel
+ * @param {ReturnType<import('./assets.js').createAssets> | null} [assets] 30c: the Meshy guns
  */
-export function registerWeapon(api, engine, root, juice, prefs, feel) {
+export function registerWeapon(api, engine, root, juice, prefs, feel, assets = null) {
 	const THREE = api.THREE;
 	const edges = createEdges();
 	/** hand ('right' | 'left' | 'desk') -> its model + trigger state */
-	/** @type {Map<string, {model: any, gun: string, state: ReturnType<typeof idleHand>, kick: number, holding: boolean, lastSound: number}>} */
+	/** @type {Map<string, {model: any, gun: string, glb: boolean, state: ReturnType<typeof idleHand>, kick: number, holding: boolean, lastSound: number}>} */
 	const hands = new Map();
 	const clock = () => performance.now() / 1000;
 	const stats = { shots: 0, hits: 0, kills: 0, lastShot: /** @type {any} */ (null) };
@@ -33,16 +34,23 @@ export function registerWeapon(api, engine, root, juice, prefs, feel) {
 	function handOf(hand) {
 		const id = prefs.get().gun;
 		let h = hands.get(hand);
-		if (!h || h.gun !== id) {
+		const gun = gunOf(id);
+		// 30c: the Meshy gun once its file is in (the primitive one holds the hand meanwhile) —
+		// an instance is made only when the hand is (re)built, never every frame
+		const ready = !!assets?.get(gun.id);
+		if (!h || h.gun !== gun.id || (ready && !h.glb)) {
+			const glb = ready ? assets?.instance(gun.id) : null;
 			if (h) {
 				h.model.parent?.remove(h.model);
-				juice.beam(hand, null, null, 0);
+				// a Meshy gun's materials are its own clones (the textures stay shared): let them go
+				if (h.glb) h.model.traverse((/** @type {any} */ o) => o.isMesh && o.material?.dispose?.());
+				if (h.gun !== gun.id) juice.beam(hand, null, null, 0);
 			}
-			const gun = gunOf(id);
-			const model = buildGun(THREE, /** @type {any} */ (gun.id), gun.color);
+			const model = glb ? gunFromAsset(THREE, glb.scene, /** @type {any} */ (gun.id), gun.color) : buildGun(THREE, /** @type {any} */ (gun.id), gun.color);
 			model.visible = false;
 			root.add(model);
-			h = { model, gun: gun.id, state: idleHand(), kick: 0, holding: false, lastSound: -Infinity };
+			const keep = h && h.gun === gun.id ? h : null;
+			h = { model, gun: gun.id, glb: !!glb, state: keep?.state ?? idleHand(), kick: keep?.kick ?? 0, holding: keep?.holding ?? false, lastSound: keep?.lastSound ?? -Infinity };
 			hands.set(hand, h);
 		}
 		return h;
@@ -113,6 +121,8 @@ export function registerWeapon(api, engine, root, juice, prefs, feel) {
 	}
 
 	// ---- the shot ------------------------------------------------------------------------------
+	// 30c: an enemy's own meshes stay its hit volume under a Meshy figure — they leave layer 0
+	// only inside a render, so this ray (cast from a frame task) meets them as always
 	const raycaster = new THREE.Raycaster();
 	/** every ancestor visible? (a hidden enemy, a hidden group's child: not there) @param {any} o */
 	const shown = (o) => {

@@ -18,7 +18,7 @@
 		},
 		{
 			"id": "waves",
-			"version": "2.0.0"
+			"version": "2.1.0"
 		}
 	],
 	"installModules": [
@@ -4266,7 +4266,10 @@
 		]
 	},
 	"thumb": {
-		"camera": "Card camera"
+		"camera": "Card camera",
+		"sceneGroups": [
+			"waves-module"
+		]
 	},
 	"objects": [
 		{

@@ -52,7 +52,7 @@ export function run(check) {
 	const lost = g.edges.find((e) => e.source === death?.id);
 	check(g.nodes.find((n) => n.id === lost?.target)?.data.state === 'over' && g.nodes.find((n) => n.id === lost?.target)?.data.outcome === 'lost', 'the crystal at zero ends the round (over, lost)');
 	check(d.physics.play.interaction === 'click' && d.physics.play.spawn.position[2] === 9 && d.physics.play.locomotion.teleport === false, 'play: a click is a shot, the spawn is the home pad, no teleport');
-	check(d.modules.find((m) => m.id === 'waves').version === '2.0.0', 'the def asks for waves 2.0.0');
+	check(d.modules.find((m) => m.id === 'waves').version === '2.1.0', 'the def asks for waves 2.1.0');
 
 	// the recipe: the old shape stays unless asked
 	const o = { name: 'enemy', waves: 2, sizeStart: 2, sizeStep: 1, interval: 1, hp: 2, source: 'click', speed: 4, reach: 1.5, enemyDamage: 1, enemyRate: 1, playerName: 'me', playerHp: 10, playerRegen: 0, spawnPrefix: 'Spawn' };

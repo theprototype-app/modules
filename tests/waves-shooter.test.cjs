@@ -9,6 +9,8 @@
 // module's real code against the real app. The feel on a Quest is OWED, never claimed.
 //
 //   WAVES_TPSCENE=<staged scene.tpscene> APP_URL=https://theprototype.app:5246/ npm test -- waves-shooter
+//   (30c) timing-bound: run it under `e2e-slot --exclusive`. WAVES_NO_FIGURES=1 turns the Meshy
+//   figures off after install (an A/B of the same build); SOLO=1 skips the two-peer section.
 const h = require('./helpers.cjs');
 const fs = require('fs');
 
@@ -69,7 +71,27 @@ const boardCenter = (page) => page.evaluate(() => window.__waves.start.board.rec
 const eye = (page) => page.evaluate(() => window.__waves.api.playerPosition());
 /** the engine's view of one enemy (hits, kills, hp) by uuid */
 const enemyState = (page, uuid) => page.evaluate((u) => (window.__waves.snapshot()[0]?.enemies ?? []).find((e) => e.uuid === u) ?? null, uuid);
-const targets = (page) => page.evaluate(() => window.__waves.engine.targets().map((t) => ({ uuid: t.uuid, label: t.label, hp: t.hp, walking: t.walking })));
+/** the engine's targets in the engine's order, except that a walker within 4 m of the goal goes
+ * LAST (30c): a check that takes "a walking enemy" must not take the one about to breach the
+ * crystal — it dies (and is stashed) between the pick and the shot (2.14 / 2.15 failed at
+ * random). Not "farthest first": that picks one still standing at its portal (3.2's shove clamps) */
+const targets = (page) =>
+	page.evaluate(() => {
+		const w = window.__waves;
+		const goal = w.engine.all()[0]?.goal ?? [0, 0, 0];
+		let g;
+		window.__stores.objectsGroup.subscribe((v) => (g = v))();
+		const left = (u) => {
+			const p = g.getObjectByProperty('uuid', u)?.position;
+			return p ? Math.hypot(p.x - goal[0], p.z - goal[2]) : 0;
+		};
+		return w.engine
+			.targets()
+			.map((t) => ({ uuid: t.uuid, label: t.label, hp: t.hp, walking: t.walking, left: left(t.uuid) }))
+			.map((t, i) => ({ t, i, late: t.walking && t.left < 4 ? 1 : 0 }))
+			.sort((a, b) => a.late - b.late || a.i - b.i)
+			.map((x) => x.t);
+	});
 const timedPos = (page, uuid) =>
 	page.evaluate((u) => {
 		let g;
@@ -136,6 +158,8 @@ h.run(async () => {
 	await h.installModule(A, 'health');
 	await h.installModule(A, 'waves');
 	await loadTemplate(A.page);
+	// A/B switch (30c): the same build with the Meshy figures off — the 30b primitive look
+	if (process.env.WAVES_NO_FIGURES) await A.page.evaluate(() => window.__waves.avatars.setEnabled(false));
 
 	// =====================================================================
 	// 0. PREMISE — the template, the enemies parked, the shell on its menu
@@ -150,6 +174,14 @@ h.run(async () => {
 		return hidden;
 	});
 	h.check(hudHiddenInVr, '0.3 the cause: core draws no DOM HUD in a headset (no Start button to press)');
+	// 30c: in the EDITOR a figure stands where each enemy is parked; the capsule is hidden only
+	// for the length of a render, so outside one (a save, a pick) it is the 30b mesh on layer 0
+	await h.eventually(() => A.page.evaluate(() => window.__waves.assets.status().grunt), (v) => v === 'ready', '0.4 the Meshy models load in the editor', 30000);
+	await h.eventually(
+		() => A.page.evaluate(() => { let g; window.__stores.objectsGroup.subscribe((v) => (g = v))(); return g.children.filter((c) => /^Enemy/.test(c.name)).map((c) => window.__waves.avatars.standsIn(c)); }),
+		(l) => l.length === 10 && l.every((x) => x),
+		'0.5 in Edit every enemy has its figure standing in'
+	);
 
 	// =====================================================================
 	// 1. P0 — a headset player starts the round, and the enemies WALK
@@ -242,22 +274,26 @@ h.run(async () => {
 	const s2 = await enemyState(A.page, second.uuid);
 	await pull(A.page, 'right', hand, [hand[0], hand[1] + 8, hand[2] + 1]);
 	await A.page.waitForTimeout(500);
-	h.check((await enemyState(A.page, second.uuid)).hits === s2.hits, '2.12 a shot at the sky hits nothing');
+	const s2b = await enemyState(A.page, second.uuid);
+	h.check(s2b.hits === s2.hits, '2.12 a shot at the sky hits nothing' + (s2b.hits === s2.hits ? '' : ' (' + second.label + ' ' + JSON.stringify(s2) + ' -> ' + JSON.stringify(s2b) + ', last shot ' + JSON.stringify(await A.page.evaluate(() => { const l = window.__waves.weapon.stats.lastShot; return l && { results: l.results, end: l.end?.map((v) => +v.toFixed(2)) }; })) + ')'));
 
 	if (process.env.DEBUG_WAVES) console.log('DEBUG', await gameState(A.page), JSON.stringify(await A.page.evaluate(() => { const s = window.__waves.snapshot()[0]; return { wave: s.wave, running: s.running, started: s.started, done: s.done, alive: s.alive, enemies: s.enemies.map((e) => [e.label, e.hits, e.heals, e.kills, e.hp]) }; })));
 
 	// Scatter: one pull, several pellets into one close enemy
 	await A.page.evaluate(() => window.__waves.prefs.set({ gun: 'scatter' }));
 	await A.page.waitForTimeout(200);
-	await h.eventually(() => targets(A.page), (t) => t.some((x) => x.walking && x.hp >= 2), '2.15a a walking enemy with 2+ points left', 15000);
-	const close = (await targets(A.page)).find((t) => t.walking && t.hp >= 2);
+	// (30c) and 4 m or more from the goal: one about to breach dies between the pick and the shot
+	await h.eventually(() => targets(A.page), (t) => t.some((x) => x.walking && x.hp >= 2 && x.left >= 4), '2.15a a walking enemy with 2+ points left', 15000);
+	const close = (await targets(A.page)).find((t) => t.walking && t.hp >= 2 && t.left >= 4) ?? (await targets(A.page)).find((t) => t.walking && t.hp >= 2);
 	if (close) {
 		const at = await worldPos(A.page, close.uuid);
 		const from = [at[0], at[1] + 0.2, at[2] + 2.2];
 		const before = await A.page.evaluate(() => window.__waves.weapon.stats.hits);
 		await shootAt(A.page, 'right', from, close.uuid);
 		const landed = (await A.page.evaluate(() => window.__waves.weapon.stats.lastShot)) ?? {};
-		h.check(landed.pellets === 7 && (await A.page.evaluate(() => window.__waves.weapon.stats.hits)) - before >= 2, '2.15 the Scatter throws 7 pellets and lands several on a close enemy (' + JSON.stringify(landed.results) + ')');
+		const now15 = await worldPos(A.page, close.uuid);
+		const hits15 = (await A.page.evaluate(() => window.__waves.weapon.stats.hits)) - before;
+		h.check(landed.pellets === 7 && hits15 >= 2, '2.15 the Scatter throws 7 pellets and lands several on a close enemy (' + JSON.stringify(landed.results) + (hits15 >= 2 ? '' : '; from ' + JSON.stringify(from.map((v) => +v.toFixed(2))) + ' enemy now ' + JSON.stringify(now15?.map((v) => +v.toFixed(2))) + ' shot end ' + JSON.stringify(landed.end?.map((v) => +v.toFixed(2))) + ' gun ' + landed.gun + ' pellets ' + landed.pellets) + ')');
 	} else h.check(false, '2.15 a close enemy for the Scatter');
 
 	// Beam: hold to burn, it heats, it locks
@@ -281,7 +317,7 @@ h.run(async () => {
 	} else h.check(false, '2.16 a walking target for the Beam');
 	await A.page.evaluate(() => window.__waves.prefs.set({ gun: 'blaster' }));
 
-	await h.eventually(() => targets(A.page), (t) => t.some((x) => x.walking), '2.13a a walking enemy for the desktop', 15000);
+	await h.eventually(() => targets(A.page), (t) => t.some((x) => x.walking && x.left >= 4), '2.13a a walking enemy for the desktop', 15000);
 	const deskTarget = (await targets(A.page)).find((t) => t.walking);
 	// the desktop: a click fires down the crosshair
 	await headset(A.page, false);
@@ -311,12 +347,13 @@ h.run(async () => {
 			canvas.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true }));
 			await new Promise((r) => setTimeout(r, 200));
 			const desk = window.__waves.weapon.hands.get('desk');
-			return { hits: window.__waves.weapon.stats.hits - before, viewmodel: !!desk?.model.visible };
+			const last = window.__waves.weapon.stats.lastShot;
+			return { hits: window.__waves.weapon.stats.hits - before, viewmodel: !!desk?.model.visible, last: last && last.hand === 'desk' ? { results: last.results, end: last.end?.map((v) => +v.toFixed(2)) } : null };
 		},
 		{ u: deskTarget.uuid }
 	);
 	h.check(deskHits.viewmodel, '2.13 on a desktop in play the gun sits in the view');
-	h.check(deskHits.hits === 1, '2.14 a click fires down the crosshair and hits (' + deskHits.hits + ')');
+	h.check(deskHits.hits === 1, '2.14 a click fires down the crosshair and hits (' + deskHits.hits + (deskHits.hits === 1 ? '' : ', last desk shot ' + JSON.stringify(deskHits.last)) + ')');
 	await A.page.evaluate(() => {
 		const api = window.__waves.api;
 		api.pointerRay = api.__realPointerRay;
@@ -579,6 +616,194 @@ h.run(async () => {
 	await h.eventually(() => A.page.evaluate(() => window.__music), (m) => m[m.length - 1] === 'stop', '4.32 Music off stops it');
 
 	// =====================================================================
+	// 6. 30c — the Meshy models (after the 30b run, so sections 1-4 play exactly as before): the guns in the hand, the enemies WALK as figures, the crystal
+	// =====================================================================
+	await h.eventually(() => A.page.evaluate(() => window.__waves.assets.status()), (st) => Object.values(st).every((v) => v === 'ready'), '6.1 the seven Meshy models load from the module\'s own zip (three\'s loader bundled on the runtime three)', 30000);
+	const assetStatus = await A.page.evaluate(() => window.__waves.assets.status());
+	h.check(Object.keys(assetStatus).length === 7, '  ' + JSON.stringify(assetStatus));
+	await headset(A.page, true);
+	{
+		const glbGuns = [];
+		for (const gun of ['blaster', 'scatter', 'beam']) {
+			await A.page.evaluate((g) => window.__waves.prefs.set({ gun: g, hand: 'right' }), gun);
+			await aim(A.page, 'right', hand, [hand[0], hand[1], hand[2] - 5], false);
+			await A.page.waitForTimeout(300);
+			glbGuns.push(
+				await A.page.evaluate((g) => {
+					const T = window.__stores.THREE;
+					const r = window.__waves.weapon.hands.get('right');
+					if (!r) return { g, ok: false };
+					const hp = r.model.getWorldPosition(new T.Vector3());
+					const mz = r.model.userData.muzzle.getWorldPosition(new T.Vector3());
+					let meshes = 0;
+					r.model.traverse((o) => (meshes += o.isMesh ? 1 : 0));
+					return { g, glb: r.glb && !!r.model.userData.glb, visible: r.model.visible, ahead: +(hp.z - mz.z).toFixed(3), glow: !!r.model.userData.glow, meshes };
+				}, gun)
+			);
+		}
+		h.check(glbGuns.every((x) => x.glb && x.visible && x.glow), '6.2 each gun in the hand is its Meshy model, with a glow the heat drives (' + glbGuns.map((x) => x.g + ':' + x.glb).join(' ') + ')');
+		h.check(glbGuns.every((x) => x.ahead > 0.15 && x.ahead < 0.35), '  held at the grip, the muzzle 15-35 cm down the aim (' + glbGuns.map((x) => x.ahead).join(', ') + ')');
+	}
+	await A.page.evaluate(() => window.__waves.prefs.set({ gun: 'blaster' }));
+	if ((await gameState(A.page)) !== 'playing') {
+		await A.page.evaluate(() => window.__stores.isLocked.set(true));
+		await h.eventually(() => A.page.evaluate(() => window.__waves.start.visible()), (v) => v, '6.3a the board is back to start a new round');
+		const c3 = await boardCenter(A.page);
+		const e3 = await eye(A.page);
+		await pull(A.page, 'right', [e3[0] + 0.2, e3[1] - 0.4, e3[2] - 0.2], c3);
+		await h.eventually(() => gameState(A.page), (st) => st === 'playing', '6.3b a new round runs');
+	}
+	const figureInfo = () =>
+		A.page.evaluate(() => {
+			const w = window.__waves;
+			let g;
+			window.__stores.objectsGroup.subscribe((v) => (g = v))();
+			const rootOf = (o) => {
+				let c = o;
+				while (c.parent && c.parent.type !== 'Scene') c = c.parent;
+				return c.name;
+			};
+			return w.engine.all()[0].enemies.map((e) => {
+				const o = g.getObjectByProperty('uuid', e.uuid);
+				const f = w.avatars.figures.get(e.uuid);
+				let mask = 0;
+				o.traverse((m) => m.isMesh && (mask |= m.layers.mask));
+				return { uuid: e.uuid, kind: e.kind, shown: !!f?.model.visible, enemyUp: o.visible && o.position.y > -10, standsIn: w.avatars.standsIn(o), mask, root: f ? rootOf(f.model) : null, inObjects: f ? !!g.getObjectById(f.model.id) : null };
+			});
+		});
+	await h.eventually(() => targets(A.page), (t) => t.some((x) => x.walking), '6.3 a walking enemy', 20000);
+	const walkingNow = await targets(A.page);
+	await A.page.waitForTimeout(600);
+	const figs = await figureInfo();
+	h.check(figs.length === 10 && figs.every((f) => f.root === 'waves-module' && f.inObjects === false), '6.4 every enemy has its figure, under the module\'s own root — never in objectsGroup (never saved, never sent)');
+	h.check(figs.every((f) => f.shown === f.enemyUp), '6.5 a figure shows exactly while its enemy stands on the field (' + figs.filter((f) => f.shown).length + ' shown)');
+	h.check(figs.every((f) => f.standsIn === f.shown && f.mask === 1), '6.6 a shown figure stands in for its enemy, and outside a render the enemy\'s meshes are on layer 0 as authored (mask ' + [...new Set(figs.map((f) => f.mask))].join() + ')');
+	const drawn = await A.page.evaluate(
+		(u) =>
+			new Promise((resolve) => {
+				let g;
+				window.__stores.objectsGroup.subscribe((v) => (g = v))();
+				const body = g.getObjectByProperty('uuid', u).children.find((c) => c.isMesh && / body$/.test(c.name));
+				let n = 0;
+				body.onBeforeRender = () => n++;
+				let frames = 0;
+				const tick = () => {
+					if (++frames < 12) return requestAnimationFrame(tick);
+					body.onBeforeRender = () => {};
+					resolve(n);
+				};
+				requestAnimationFrame(tick);
+			}),
+		figs.find((f) => f.shown).uuid
+	);
+	h.check(drawn === 0, '6.6b while its figure stands in, the enemy\'s capsule is never drawn (' + drawn + ' draws in 12 frames)');
+	const walking = (walkingNow ?? []).find((x) => x.walking);
+	const gaitInfo = await A.page.evaluate(
+		(u) =>
+			new Promise((resolve) => {
+				const w = window.__waves;
+				const T = window.__stores.THREE;
+				const f = w.avatars.figures.get(u);
+				let foot = null;
+				f.model.traverse((o) => {
+					if (o.isBone && /foot/i.test(o.name) && !foot) foot = o;
+				});
+				const ys = [];
+				let rate = 0;
+				let n = 0;
+				const tick = () => {
+					ys.push(foot.getWorldPosition(new T.Vector3()).y - f.model.getWorldPosition(new T.Vector3()).y);
+					const a = f.actions[f.kind === 'runner' ? 'run' : 'walk'];
+					rate = Math.max(rate, a?.timeScale ?? 0);
+					if (++n < 30) requestAnimationFrame(tick);
+					else {
+						const goal = w.engine.all()[0].goal;
+						const p = f.model.getWorldPosition(new T.Vector3());
+						const want = Math.atan2(goal[0] - p.x, goal[2] - p.z);
+						const d = Math.atan2(Math.sin(want - f.yaw), Math.cos(want - f.yaw));
+						resolve({ kind: f.kind, lift: +(Math.max(...ys) - Math.min(...ys)).toFixed(3), rate: +rate.toFixed(2), facing: +Math.abs(d).toFixed(3) });
+					}
+				};
+				requestAnimationFrame(tick);
+			}),
+		walking.uuid
+	);
+	h.check(gaitInfo.rate > 0.2 && gaitInfo.lift > 0.05, '6.7 a walking enemy WALKS: its ' + gaitInfo.kind + ' clip plays at ' + gaitInfo.rate + 'x its speed, a foot lifts ' + gaitInfo.lift + ' m');
+	h.check(gaitInfo.facing < 0.35, '6.8 and faces the goal it walks to (off by ' + gaitInfo.facing + ' rad)');
+	{
+		const s0 = await enemyState(A.page, walking.uuid);
+		const at = await worldPos(A.page, walking.uuid);
+		const from = [at[0] + 0.3, at[1] + 0.3, at[2] + 3];
+		const flinches0 = await A.page.evaluate(() => window.__waves.avatars.stats.hits);
+		// the flash lasts 0.18 s — sample the figure EVERY frame from before the shot: how many of
+		// its materials glow white before the hit (none: the rig's self-lit emissive is gone) and
+		// at the brightest frame after it
+		await A.page.evaluate((u) => {
+			const f = window.__waves.avatars.figures.get(u);
+			const count = () => {
+				let n = 0;
+				f.model.traverse((o) => {
+					if (o.isMesh && o.material?.emissive?.getHex() === 0xffffff && o.material.emissiveIntensity > 0) n++;
+				});
+				return n;
+			};
+			window.__flash = { before: count(), max: 0, frames: 0 };
+			const tick = () => {
+				window.__flash.max = Math.max(window.__flash.max, count());
+				if (++window.__flash.frames < 90) requestAnimationFrame(tick);
+			};
+			requestAnimationFrame(tick);
+		}, walking.uuid);
+		await shootAt(A.page, 'right', from, walking.uuid);
+		await A.page.waitForTimeout(400);
+		const flash = await A.page.evaluate(() => ({ ...window.__flash, flinches: window.__waves.avatars.stats.hits }));
+		await h.eventually(() => enemyState(A.page, walking.uuid), (e) => e && e.hits === s0.hits + 1, '6.9 a shot still lands on the enemy\'s own capsule under its figure (hits +1)');
+		h.check(flash.before === 0 && flash.max > 0 && flash.flinches > flinches0, '6.10 the figure flashes white (' + flash.before + ' -> ' + flash.max + ' material) and flinches (the hit clip)');
+		for (let i = 0; i < 8 && !((await enemyState(A.page, walking.uuid))?.kills > s0.kills); i++) {
+			await shootAt(A.page, 'right', from, walking.uuid);
+			await A.page.waitForTimeout(200);
+		}
+		await h.eventually(
+			() => A.page.evaluate((u) => { const f = window.__waves.avatars.figures.get(u); return { dying: f.dyingAt !== null, death: !!f.actions.death?.isRunning(), shown: f.model.visible }; }, walking.uuid),
+			(d) => d.dying && d.death && d.shown,
+			'6.11 the kill plays the figure\'s death where it fell (the enemy itself is already stashed)'
+		);
+		await h.eventually(() => A.page.evaluate((u) => window.__waves.avatars.figures.get(u).dyingAt === null, walking.uuid), (v) => v, '6.12 then it sinks away and is free for the enemy\'s next life', 8000);
+	}
+	const standIn = await A.page.evaluate(() => {
+		const T = window.__stores.THREE;
+		let g;
+		window.__stores.objectsGroup.subscribe((v) => (g = v))();
+		const core = g.getObjectByName('Goal core');
+		const c = window.__waves.avatars.crystal();
+		if (!core || !c) return null;
+		return { shown: c.visible, gap: +c.getWorldPosition(new T.Vector3()).distanceTo(core.getWorldPosition(new T.Vector3())).toFixed(3), standsIn: window.__waves.avatars.standsIn(core), mask: core.layers.mask };
+	});
+	h.check(!!standIn && standIn.shown && standIn.gap < 0.05 && standIn.standsIn && standIn.mask === 1, '6.13 the Meshy crystal stands in for the Goal core, where it spins (' + JSON.stringify(standIn) + ')');
+	const exported = await A.page.evaluate(() => {
+		let g;
+		window.__stores.objectsGroup.subscribe((v) => (g = v))();
+		// the .tpscene save and the peer snapshot are toJSON — which WRITES every object's layers
+		const json = g.toJSON();
+		const walk = (o, out) => {
+			out.push({ name: o.name ?? '', layers: o.layers });
+			(o.children ?? []).forEach((c) => walk(c, out));
+			return out;
+		};
+		const all = walk(json.object, []);
+		// (core's own camera-marker hop is not ours: only the enemies and the Goal core count)
+		const ours = all.filter((n) => /^Enemy \d\d/.test(n.name) || n.name === 'Goal core');
+		return { enemyMeshes: all.filter((n) => /^Enemy \d\d.* (body|visor|belt)$/.test(n.name)).length, offLayer: ours.filter((n) => n.layers !== undefined && n.layers !== 1).map((n) => n.name + ':' + n.layers), figures: all.filter((n) => /Waves figure|Waves crystal|waves-module/.test(n.name)).length };
+	});
+	h.check(exported.enemyMeshes >= 30 && exported.offLayer.length === 0 && exported.figures === 0, '6.14 the scene as SAVED (toJSON: the .tpscene, a late join) holds every enemy mesh on layer 0 and no figure (' + JSON.stringify(exported) + ')');
+	await A.page.evaluate(() => window.__waves.avatars.setEnabled(false));
+	await A.page.waitForTimeout(300);
+	const off = await figureInfo();
+	h.check(off.every((f) => !f.shown && !f.standsIn), '6.15 figures off: every enemy is its own primitive again (the 30b look, the fallback when a model is missing)');
+	await A.page.evaluate(() => window.__waves.avatars.setEnabled(true));
+	await A.page.waitForTimeout(300);
+
+	// =====================================================================
 	// 5. two peers — a shot, a kill and an ability reach the other player
 	// =====================================================================
 	if (!process.env.SOLO) {
@@ -592,6 +817,7 @@ h.run(async () => {
 		await h.connect(A, B);
 		await A.page.evaluate(() => window.__stores.isLocked.set(true));
 		await h.eventually(() => B.page.evaluate(() => window.__waves?.snapshot()[0]?.enemies.length ?? 0), (n) => n === 10, '5.1 B holds the same arena (ten enemies)', 20000);
+		await h.eventually(() => B.page.evaluate(() => window.__waves.avatars.figures.size), (n) => n === 10, '5.1b B draws its own figures for them (local, from its own copy of the module)', 30000);
 		await B.page.evaluate(() => {
 			const api = window.__waves.api;
 			window.__feel = { sounds: [], haptics: [] };
@@ -621,6 +847,7 @@ h.run(async () => {
 		await h.eventually(() => enemyState(B.page, prey.uuid), (e) => e && e.kills >= 1, '5.6 the kill is B\'s too');
 		await h.eventually(() => B.page.evaluate(() => window.__feel.sounds), (x) => x.includes('explosion'), '5.7 B sees (hears) it explode');
 		await h.eventually(() => worldPos(B.page, prey.uuid), (p) => p && p[1] < -10, '5.8 and takes it off B\'s field');
+		h.check((await B.page.evaluate(() => window.__waves.avatars.stats.deaths)) >= 1, '5.8b B\'s figure played that death too');
 		const scoreA = await A.page.evaluate(() => window.__stores.peerVars.myPeerVar('score', 0));
 		h.check(scoreA === 100, '5.9 the kill scores on A\'s own row (' + scoreA + ')');
 		await A.page.evaluate(() => window.__waves.powers.reset());

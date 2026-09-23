@@ -9,6 +9,9 @@
 // not top-level, and none of them start with it anyway).
 
 export const ARENA = 'Arena';
+/** the module's own scene-root group (index.js ROOT): the board, the guns, the shots, and (30c)
+ * the Meshy figures — the card renders it too (def thumb.sceneGroups) */
+export const MODULE_ROOT = 'waves-module';
 export const CORE = 'Goal core';
 export const CARD_CAMERA = 'Card camera';
 

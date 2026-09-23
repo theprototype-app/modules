@@ -12,8 +12,10 @@ const POP_COLOR = { grunt: 0xff8a5c, runner: 0xd8ff4a, tank: 0xb070ff };
  * @param {any} api @param {ReturnType<import('./engine.js').createWavesEngine>} engine
  * @param {ReturnType<import('./juice.js').createJuice> | null} [juice]
  * @param {ReturnType<import('./feel.js').createFeel> | null} [feel]
+ * @param {((uuid: string) => any) | null} [figureOf] 30c: the Meshy figure standing in for an
+ *   enemy — it flashes with it (the enemy's own meshes are hidden on the stand-in layer)
  */
-export function registerFx(api, engine, juice = null, feel = null) {
+export function registerFx(api, engine, juice = null, feel = null, figureOf = null) {
 	// ---- the hit flash: an enemy the knock hits flashes white for FLASH.seconds ------------
 	/** @type {Map<string, number>} enemy uuid -> when this peer saw the hit (performance s) */
 	const flashes = new Map();
@@ -59,6 +61,8 @@ export function registerFx(api, engine, juice = null, feel = null) {
 			const object = api.objectsGroup()?.getObjectByProperty('uuid', uuid);
 			const level = flashLevel(t - at);
 			if (object) paint(object, level);
+			const figure = figureOf?.(uuid);
+			if (figure) paint(figure, level);
 			if (level === 0) flashes.delete(uuid);
 		}
 	});

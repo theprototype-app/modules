@@ -3,6 +3,8 @@
 // `muzzle` child at the barrel's tip (where the flash and the tracer start) and a `glow`
 // material the heat or the charge can drive. ~25 cm long: sized to a hand.
 
+import { gunFit, fromGrip } from './figures.js';
+
 /** @param {any} THREE @param {'blaster' | 'scatter' | 'beam'} id @param {number} accent */
 export function buildGun(THREE, id, accent) {
 	const g = new THREE.Group();
@@ -51,5 +53,40 @@ export function buildGun(THREE, id, accent) {
 	g.userData.muzzle = muzzle;
 	g.userData.glow = glow;
 	g.userData.accent = accent;
+	return g;
+}
+
+/**
+ * 30c: a MESHY gun in the same contract as buildGun — grip at the origin, barrel down -Z, a
+ * `muzzle` child at the tip and a `glow` material the heat or the charge drives. The GLB is
+ * post-processed with its barrel already down -Z at hand size (metres); `GUN_FITS` names its
+ * grip, muzzle and the accent cell (a small glowing inset — the textures carry no emission).
+ * @param {any} THREE @param {any} scene the gun's own instance (assets.instance) @param {'blaster' | 'scatter' | 'beam'} id @param {number} accent
+ */
+export function gunFromAsset(THREE, scene, id, accent) {
+	const fit = gunFit(id);
+	const g = new THREE.Group();
+	g.name = 'Waves gun ' + id;
+	scene.position.set(-fit.grip[0], -fit.grip[1], -fit.grip[2]);
+	scene.traverse((/** @type {any} */ o) => {
+		if (!o.isMesh) return;
+		o.castShadow = false;
+		o.receiveShadow = false;
+	});
+	g.add(scene);
+	const glow = new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 2.2, roughness: 0.3 });
+	const [cx, cy, cz] = fit.cellSize;
+	const cell = new THREE.Mesh(fit.cellShape === 'ball' ? new THREE.SphereGeometry(cx / 2, 16, 12) : new THREE.BoxGeometry(cx, cy, cz), glow);
+	cell.name = 'glow';
+	cell.position.fromArray(fromGrip(fit.cell, fit.grip));
+	g.add(cell);
+	const muzzle = new THREE.Object3D();
+	muzzle.name = 'muzzle';
+	muzzle.position.fromArray(fromGrip(fit.muzzle, fit.grip));
+	g.add(muzzle);
+	g.userData.muzzle = muzzle;
+	g.userData.glow = glow;
+	g.userData.accent = accent;
+	g.userData.glb = true;
 	return g;
 }
