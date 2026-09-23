@@ -2,37 +2,77 @@
 	"kind": "game",
 	"slug": "untangle",
 	"title": "Untangle",
-	"description": "A planar-graph puzzle on a lit board: drag the dots until no edges cross, then the next level appears. Every peer sees and solves the same board.",
+	"description": "A planar-graph puzzle on a flat board or around a globe: drag the dots until no edges cross. 30 levels per mode that unlock as you solve them; every peer sees and solves the same board.",
 	"license": "CC0-1.0",
 	"author": "theprototype",
 	"tags": [
 		"puzzle",
 		"co-op",
-		"procedural"
+		"procedural",
+		"3d"
 	],
 	"modules": [
 		{
 			"id": "untangle",
-			"version": "2.0.0"
+			"version": "2.1.0"
 		}
 	],
 	"installModules": [
 		"untangle"
 	],
 	"env": {
-		"preset": "sunset",
-		"exposure": 1
+		"preset": "custom",
+		"base": "sunset",
+		"exposure": 1.05,
+		"background": {
+			"top": "#1c2748",
+			"bottom": "#4a3350"
+		},
+		"fog": {
+			"color": "#3a2d48",
+			"near": 16,
+			"far": 60
+		},
+		"ground": {
+			"color": "#262c3b",
+			"roughness": 0.95
+		},
+		"sun": {
+			"color": "#ffd9b0",
+			"intensity": 1.5,
+			"dir": [
+				0.4,
+				0.85,
+				0.55
+			]
+		},
+		"hemi": {
+			"sky": "#d6e2ff",
+			"ground": "#3a3246",
+			"intensity": 1.25
+		}
 	},
 	"physics": {
 		"play": {
 			"interaction": "click",
 			"grounded": true,
-			"simOnPlay": false
+			"simOnPlay": false,
+			"cursor": "free"
 		}
 	},
 	"post": {
 		"enabled": true,
 		"effects": [
+			{
+				"id": "ao",
+				"kind": "ao",
+				"enabled": true,
+				"params": {
+					"aoRadius": 0.6,
+					"intensity": 1.2,
+					"distanceFalloff": 1
+				}
+			},
 			{
 				"id": "tone",
 				"kind": "tonemapping",
@@ -46,8 +86,8 @@
 				"kind": "bloom",
 				"enabled": true,
 				"params": {
-					"intensity": 0.45,
-					"luminanceThreshold": 0.8
+					"intensity": 0.7,
+					"luminanceThreshold": 0.72
 				}
 			},
 			{
@@ -71,13 +111,13 @@
 					},
 					"data": {
 						"label": "Untangle Board",
-						"level": 2,
+						"level": 1,
 						"radius": 1.1,
 						"boardY": 1.6,
 						"x": 0,
 						"z": 0,
 						"yaw": 0,
-						"autoAdvance": true,
+						"autoAdvance": false,
 						"apply": true
 					},
 					"class": "w-[150px]"
@@ -152,29 +192,29 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "vcount",
+					"id": "vclear",
 					"type": "utvalue",
 					"position": {
 						"x": 40,
 						"y": 410
 					},
 					"data": {
-						"label": "Untangle: count",
-						"read": "count"
+						"label": "Untangle: level",
+						"read": "level"
 					},
 					"class": "w-[150px]"
 				},
 				{
-					"id": "tcount",
+					"id": "tclear",
 					"type": "hudtext",
 					"position": {
 						"x": 280,
 						"y": 410
 					},
 					"data": {
-						"label": "HUD ut-solved",
-						"element": "ut-solved",
-						"format": "{v} solved this session",
+						"label": "HUD ut-clear",
+						"element": "ut-clear",
+						"format": "LEVEL {v} UNTANGLED",
 						"decimals": 0
 					},
 					"class": "w-[150px]"
@@ -222,11 +262,26 @@
 					"class": "w-[150px]"
 				},
 				{
+					"id": "gosolved",
+					"type": "setgamestate",
+					"position": {
+						"x": 520,
+						"y": 590
+					},
+					"data": {
+						"label": "Show solved",
+						"state": "over",
+						"outcome": "solved",
+						"reset": false
+					},
+					"class": "w-[150px]"
+				},
+				{
 					"id": "bstart",
 					"type": "hudbutton",
 					"position": {
 						"x": 40,
-						"y": 670
+						"y": 690
 					},
 					"data": {
 						"label": "Start button",
@@ -239,7 +294,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 670
+						"y": 690
 					},
 					"data": {
 						"label": "Start",
@@ -250,11 +305,65 @@
 					"class": "w-[150px]"
 				},
 				{
+					"id": "evstart",
+					"type": "utevent",
+					"position": {
+						"x": 40,
+						"y": 750
+					},
+					"data": {
+						"label": "On Continue",
+						"event": "start"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bnext",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 810
+					},
+					"data": {
+						"label": "Next button",
+						"element": "next-btn"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "bmenu",
+					"type": "hudbutton",
+					"position": {
+						"x": 40,
+						"y": 880
+					},
+					"data": {
+						"label": "Menu button",
+						"element": "menu-btn"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "gomenu",
+					"type": "setgamestate",
+					"position": {
+						"x": 280,
+						"y": 880
+					},
+					"data": {
+						"label": "Back to menu",
+						"state": "menu",
+						"outcome": "",
+						"reset": true
+					},
+					"class": "w-[150px]"
+				},
+				{
 					"id": "pkey",
 					"type": "keypress",
 					"position": {
 						"x": 40,
-						"y": 780
+						"y": 990
 					},
 					"data": {
 						"label": "Press P",
@@ -269,7 +378,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 280,
-						"y": 780
+						"y": 990
 					},
 					"data": {
 						"label": "Toggle pause menu",
@@ -283,7 +392,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 40,
-						"y": 890
+						"y": 1100
 					},
 					"data": {
 						"label": "Resume button",
@@ -296,7 +405,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 280,
-						"y": 890
+						"y": 1100
 					},
 					"data": {
 						"label": "Close pause menu",
@@ -310,7 +419,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 40,
-						"y": 1000
+						"y": 1210
 					},
 					"data": {
 						"label": "Quit button",
@@ -323,7 +432,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 1000
+						"y": 1210
 					},
 					"data": {
 						"label": "Quit to menu",
@@ -338,7 +447,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 520,
-						"y": 1000
+						"y": 1210
 					},
 					"data": {
 						"label": "Close pause on quit",
@@ -367,9 +476,9 @@
 					"targetHandle": "value"
 				},
 				{
-					"id": "e-vcount-tcount.value",
-					"source": "vcount",
-					"target": "tcount",
+					"id": "e-vclear-tclear.value",
+					"source": "vclear",
+					"target": "tclear",
 					"targetHandle": "value"
 				},
 				{
@@ -385,9 +494,33 @@
 					"targetHandle": "value"
 				},
 				{
+					"id": "e-evsolved-gosolved.trigger",
+					"source": "evsolved",
+					"target": "gosolved",
+					"targetHandle": "trigger"
+				},
+				{
 					"id": "e-bstart-gostart.trigger",
 					"source": "bstart",
 					"target": "gostart",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-evstart-gostart.trigger",
+					"source": "evstart",
+					"target": "gostart",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-bnext-gostart.trigger",
+					"source": "bnext",
+					"target": "gostart",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-bmenu-gomenu.trigger",
+					"source": "bmenu",
+					"target": "gomenu",
 					"targetHandle": "trigger"
 				},
 				{
@@ -434,14 +567,14 @@
 							"anchor": "center",
 							"x": 0,
 							"y": 0,
-							"w": 440,
-							"h": 300,
+							"w": 540,
+							"h": 560,
 							"z": 0,
 							"label": "",
 							"style": {
-								"bg": "rgba(15, 18, 28, 0.9)",
-								"radius": 14,
-								"border": "1px solid rgba(251, 191, 36, 0.3)"
+								"bg": "rgba(13, 17, 28, 0.92)",
+								"radius": 16,
+								"border": "1px solid rgba(251, 191, 36, 0.35)"
 							}
 						},
 						{
@@ -449,8 +582,8 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": -100,
-							"w": 400,
+							"y": -235,
+							"w": 190,
 							"h": 48,
 							"z": 1,
 							"label": "UNTANGLE",
@@ -466,11 +599,11 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": -45,
-							"w": 400,
-							"h": 60,
+							"y": -185,
+							"w": 480,
+							"h": 44,
 							"z": 1,
-							"label": "Drag the dots until no edges cross. Click a dot to pick it up, click again to drop it. Every peer sees the same board.",
+							"label": "Drag the dots until no edges cross — on a flat board or around a globe. Every peer sees the same board; your unlocked levels are yours.",
 							"style": {
 								"size": 13,
 								"color": "#d8dee9",
@@ -479,11 +612,22 @@
 							"wrap": true
 						},
 						{
+							"id": "levels",
+							"kind": "mod-untangle-levels",
+							"anchor": "center",
+							"x": 0,
+							"y": 10,
+							"w": 480,
+							"h": 330,
+							"z": 1,
+							"label": ""
+						},
+						{
 							"id": "start-btn",
 							"kind": "button",
 							"anchor": "center",
 							"x": 0,
-							"y": 40,
+							"y": 212,
 							"w": 220,
 							"h": 46,
 							"z": 1,
@@ -502,11 +646,11 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": 105,
-							"w": 400,
-							"h": 24,
+							"y": 252,
+							"w": 480,
+							"h": 20,
 							"z": 1,
-							"label": "Green edges are clear · red ones still cross · P pauses",
+							"label": "Pick a level (or Continue) · drag, or click a dot then click where it goes · P pauses",
 							"style": {
 								"size": 12,
 								"color": "#8b97a8",
@@ -527,23 +671,23 @@
 							"anchor": "top-left",
 							"x": 16,
 							"y": 64,
-							"w": 240,
-							"h": 92,
+							"w": 260,
+							"h": 118,
 							"z": 0,
 							"label": "",
 							"style": {
-								"bg": "rgba(15, 18, 28, 0.9)",
-								"radius": 14,
-								"border": "1px solid rgba(251, 191, 36, 0.3)"
+								"bg": "rgba(13, 17, 28, 0.92)",
+								"radius": 16,
+								"border": "1px solid rgba(251, 191, 36, 0.35)"
 							}
 						},
 						{
 							"id": "ut-level",
 							"kind": "text",
 							"anchor": "top-left",
-							"x": 28,
+							"x": 30,
 							"y": 72,
-							"w": 220,
+							"w": 230,
 							"h": 30,
 							"z": 1,
 							"label": "LEVEL 1",
@@ -558,25 +702,37 @@
 							"id": "ut-crossings",
 							"kind": "text",
 							"anchor": "top-left",
-							"x": 28,
+							"x": 30,
 							"y": 104,
-							"w": 220,
+							"w": 230,
 							"h": 22,
 							"z": 1,
 							"label": "0 crossings",
 							"style": {
-								"size": 14,
+								"size": 15,
 								"color": "#e2e8f0",
 								"align": "left"
 							}
 						},
 						{
+							"id": "ut-time",
+							"kind": "mod-untangle-stats",
+							"anchor": "top-left",
+							"x": 30,
+							"y": 128,
+							"w": 230,
+							"h": 22,
+							"z": 1,
+							"label": "",
+							"show": "play"
+						},
+						{
 							"id": "ut-counter",
 							"kind": "text",
 							"anchor": "top-left",
-							"x": 28,
-							"y": 128,
-							"w": 220,
+							"x": 30,
+							"y": 154,
+							"w": 230,
 							"h": 20,
 							"z": 1,
 							"label": "0 untangled",
@@ -587,35 +743,127 @@
 							}
 						},
 						{
-							"id": "ut-solved",
-							"kind": "text",
-							"anchor": "top-right",
-							"x": 16,
-							"y": 64,
-							"w": 220,
-							"h": 22,
-							"z": 1,
-							"label": "0 solved this session",
-							"style": {
-								"size": 12,
-								"color": "#94a3b8",
-								"align": "right"
-							}
-						},
-						{
 							"id": "play-hint",
 							"kind": "text",
 							"anchor": "bottom-center",
 							"x": 0,
 							"y": 12,
-							"w": 520,
+							"w": 620,
 							"h": 20,
 							"z": 1,
-							"label": "Click a dot, move, click to drop · P pauses",
+							"label": "Drag a dot, or click it then click where it goes · on the globe right-drag turns it · P pauses",
 							"style": {
 								"size": 11,
 								"color": "#8b97a8",
 								"align": "center"
+							}
+						}
+					]
+				},
+				{
+					"id": "solved",
+					"name": "Solved",
+					"showWhile": "over",
+					"input": "menu",
+					"elements": [
+						{
+							"id": "solved-panel",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 420,
+							"h": 250,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(13, 17, 28, 0.92)",
+								"radius": 16,
+								"border": "1px solid rgba(62, 224, 143, 0.5)"
+							}
+						},
+						{
+							"id": "solved-title",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -82,
+							"w": 196,
+							"h": 40,
+							"z": 1,
+							"label": "UNTANGLED!",
+							"style": {
+								"size": 30,
+								"weight": "700",
+								"color": "#3ee08f",
+								"align": "center"
+							}
+						},
+						{
+							"id": "ut-clear",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -44,
+							"w": 164,
+							"h": 24,
+							"z": 1,
+							"label": "LEVEL 1 UNTANGLED",
+							"style": {
+								"size": 14,
+								"weight": "600",
+								"color": "#e2e8f0",
+								"align": "center"
+							}
+						},
+						{
+							"id": "ut-result",
+							"kind": "mod-untangle-stats",
+							"anchor": "center",
+							"x": 0,
+							"y": -8,
+							"w": 380,
+							"h": 28,
+							"z": 1,
+							"label": "",
+							"show": "result"
+						},
+						{
+							"id": "next-btn",
+							"kind": "button",
+							"anchor": "center",
+							"x": -60,
+							"y": 60,
+							"w": 160,
+							"h": 44,
+							"z": 1,
+							"label": "Next level",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#059669",
+								"color": "#ffffff",
+								"radius": 10
+							}
+						},
+						{
+							"id": "menu-btn",
+							"kind": "button",
+							"anchor": "center",
+							"x": 115,
+							"y": 60,
+							"w": 130,
+							"h": 44,
+							"z": 1,
+							"label": "Menu",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "500",
+								"bg": "#334155",
+								"color": "#e5e9f0",
+								"radius": 10
 							}
 						}
 					]
@@ -636,9 +884,9 @@
 							"z": 0,
 							"label": "",
 							"style": {
-								"bg": "rgba(15, 18, 28, 0.9)",
-								"radius": 14,
-								"border": "1px solid rgba(251, 191, 36, 0.3)"
+								"bg": "rgba(13, 17, 28, 0.92)",
+								"radius": 16,
+								"border": "1px solid rgba(251, 191, 36, 0.35)"
 							}
 						},
 						{
@@ -647,7 +895,7 @@
 							"anchor": "center",
 							"x": 0,
 							"y": -75,
-							"w": 340,
+							"w": 116,
 							"h": 36,
 							"z": 1,
 							"label": "PAUSED",
@@ -691,7 +939,7 @@
 							"style": {
 								"size": 15,
 								"weight": "500",
-								"bg": "#3a4150",
+								"bg": "#334155",
 								"color": "#e5e9f0",
 								"radius": 10
 							}
@@ -703,99 +951,118 @@
 	},
 	"objects": [
 		{
-			"type": "box",
+			"type": "cylinder",
 			"name": "Floor",
-			"color": 2830134,
-			"roughness": 0.95,
-			"size": [
-				8,
-				0.2,
-				8
-			],
+			"color": 2634066,
+			"roughness": 0.4,
+			"clearcoat": 0.5,
+			"clearcoatRoughness": 0.35,
+			"r": 2.3,
+			"h": 0.1,
 			"pos": [
 				0,
-				-0.1,
+				0.05,
 				0
 			]
 		},
 		{
 			"type": "box",
 			"name": "Back wall",
-			"color": 2040880,
-			"roughness": 0.9,
+			"color": 1911375,
+			"emissive": 1781091,
+			"emissiveIntensity": 0.35,
+			"roughness": 0.45,
+			"clearcoat": 0.6,
+			"clearcoatRoughness": 0.3,
 			"size": [
 				8,
-				3.4,
+				4.2,
 				0.2
 			],
 			"pos": [
 				0,
-				1.7,
-				-1.6
-			]
+				2.1,
+				-2.1
+			],
+			"bevel": 0.18
 		},
 		{
-			"type": "box",
+			"type": "cylinder",
 			"name": "Pedestal",
-			"color": 3817808,
-			"roughness": 0.8,
-			"size": [
-				0.5,
-				1.3,
-				0.3
-			],
+			"color": 3818856,
+			"roughness": 0.35,
+			"metalness": 0.3,
+			"r": 0.55,
+			"r2": 0.62,
+			"h": 0.26,
 			"pos": [
 				0,
-				0.65,
-				-0.12
+				0.23,
+				0
 			]
 		},
 		{
-			"type": "torus",
+			"type": "ring",
 			"name": "Board frame",
 			"color": 16498468,
 			"emissive": 16498468,
-			"emissiveIntensity": 0.35,
-			"roughness": 0.4,
-			"metalness": 0.6,
-			"r": 1.28,
-			"tube": 0.04,
+			"emissiveIntensity": 0.9,
+			"r": 1.55,
+			"inner": 1.47,
 			"pos": [
 				0,
-				1.6,
-				-0.06
-			]
+				0.105,
+				0
+			],
+			"rot": [
+				-1.5707963267948966,
+				0,
+				0
+			],
+			"shadow": false
 		},
 		{
 			"type": "light",
+			"kind": "directional",
 			"name": "Lamp left",
-			"color": 16767400,
-			"intensity": 8,
-			"distance": 10,
+			"color": 16770760,
+			"intensity": 1.6,
 			"pos": [
-				-2.2,
-				2.6,
-				1.4
-			]
+				-3,
+				5,
+				4
+			],
+			"target": [
+				0,
+				1.6,
+				0
+			],
+			"castShadow": false
 		},
 		{
 			"type": "light",
+			"kind": "directional",
 			"name": "Lamp right",
-			"color": 11063551,
-			"intensity": 6,
-			"distance": 10,
+			"color": 13820671,
+			"intensity": 0.9,
 			"pos": [
-				2.2,
-				2.6,
-				1.4
-			]
+				3.5,
+				4,
+				3
+			],
+			"target": [
+				0,
+				1.6,
+				0
+			],
+			"castShadow": false
 		}
 	],
 	"view": {
 		"pos": [
-			2.6,
-			2.4,
-			4.2
+			0,
+			1.75,
+			4.6
 		],
 		"target": [
 			0,

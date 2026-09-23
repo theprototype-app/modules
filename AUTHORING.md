@@ -385,6 +385,11 @@ list when something bites you.
 - **The animation drifts between peers.** Accumulation, `Date.now()`, or a
   frame-rate-dependent step. Recompute from `(base, api.now())` every frame.
 - **Selection steals your interaction.** Return `true` from the click handler.
+- **A drag never reaches your click handler.** Core dispatches a module click on a short,
+  STATIONARY pointerup, and until then OrbitControls orbits under your finger. A module that
+  needs press-drag-release owns the gesture itself: listen on `window` in the CAPTURE phase,
+  stop propagation only for a press on YOUR target, and aim with the crosshair under a
+  pointer lock (`untangle`'s `gesture.js` + `aim.js`; DEVX #26, #28).
 - **`api.onInput` missed the first seconds of keys.** Fixed in the app: the
   subscription is synchronous now, so a listener registered in `register()` is
   live from the first keypress. On an older build it went through an async

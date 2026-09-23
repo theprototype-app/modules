@@ -264,8 +264,8 @@
 	{
 		"id": "untangle",
 		"name": "Untangle",
-		"version": "2.0.0",
-		"description": "Untangle the graph: drag the dots until no edges cross. Procedural, replicated, with generative audio - board pose, level and readouts as flow nodes.",
+		"version": "2.1.0",
+		"description": "Untangle the graph: drag the dots until no edges cross, on a flat 2D board or around a 3D globe (great-circle arcs). 30 levels per mode that unlock as you solve them, progress and best times kept on your device, reset any time. Procedural and replicated, with generative audio - board pose, level and readouts as flow nodes.",
 		"author": "theprototype-app",
 		"source": "modules/untangle",
 		"zip": "untangle.zip",

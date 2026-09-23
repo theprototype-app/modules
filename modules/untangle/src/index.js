@@ -18,22 +18,33 @@
 // - late joiners get {level, positions} via registerStateSync
 
 import { generate, edgeCrossings, totalCrossings, clampToBoard, DEFAULT_BOARD } from './puzzle.js';
+import { createGesture } from './gesture.js';
+import { makeAim } from './aim.js';
+import { makeEdgeLayer, makeBackplate, makeHoverRing, makeBurst, makeGlobe, COLORS } from './look.js';
+import { generate3, edgeCrossings3, solvedSphere, arcPoints, arcSegments, normalize } from './sphere.js';
+import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, isUnlocked, bestOf, makeStorage } from './progress.js';
+import { makeMenuKinds } from './menu.js';
 
 const GROUP = 'untangle-module';
-const DOT_R = 0.055;
+/** the modes this build plays: the flat board and (P3) the globe */
+const MODES_PLAYED = ['2d', '3d'];
+/** the globe's radius as a share of the board radius */
+const GLOBE_R = 0.92;
 const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defaults return
 
 export default {
 	id: 'untangle',
 	name: 'Untangle',
-	version: '2.0.0',
-	description: 'Drag the dots until no edges cross — procedural puzzle game; board pose, level and readouts as flow nodes.',
+	version: '2.1.0',
+	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device); replicated, board pose, level and readouts as flow nodes.',
 	/** @param {any} api */
 	register(api) {
 		const THREE = api.THREE;
 
 		// ---------- state ----------
 		let level = 1;
+		/** '2d' | '3d' — replicated with the level (the board is the same board for everyone) */
+		let mode = '2d';
 		/** @type {number[][]} board-unit coords per dot: [x, y] in [-1, 1] */
 		let positions = [];
 		/** @type {number[][]} dot index pairs */
@@ -42,7 +53,6 @@ export default {
 		const board = { ...DEFAULT_BOARD };
 		/** @type {any} */ let group = null;
 		/** @type {any[]} */ let dots = [];
-		/** @type {any[]} */ let lineMeshes = [];
 		/** @type {any} */ let sprite = null; // the VR-only canvas HUD
 		let carried = -1;
 		let won = false;
@@ -59,10 +69,51 @@ export default {
 		// getmodulestate), so a joiner whose fallback board nobody touched must answer
 		// with NOTHING, or its fresh level-1 scramble overwrites the room's game
 		let touched = false;
+		/** @type {any} the window.__untangle hook — declared up here, assigned at the end */
+		let hook = null;
+		/** @type {any} the menu kinds (menu.js), made near the end of register */
+		let menus = null;
+		/** @type {any} the pointer gesture (gesture.js), created with the interaction block */
+		let gesture = null;
+
+		// ---------- P2: progress (LOCAL per device — progress.js) + the solve clock ----------
+		const storage = makeStorage(api);
+		let progress = normalizeProgress(storage.get(PROGRESS_KEY));
+		/** did THIS peer make an authoritative move on the current board? (who banks a solve) */
+		let participated = false;
+		/** authoritative moves applied on the current board — every peer counts the same moves,
+		 * so a state snapshot with a LOWER rev for the same board is stale (applyState) */
+		let rev = 0;
+		const syncs = { applied: 0, stale: 0 };
+		/** the solve clock, local performance time: running from `start`, frozen at `ms` */
+		const clock = { start: /** @type {number | null} */ (null), ms: /** @type {number | null} */ (null), newBest: false };
+		let wasUnderway = false;
+		const roundUnderway = () => !!api.game?.roundUnderway?.();
+		/** no game shell in the scene (the fallback board): the clock runs from the level load */
+		const shellUnused = () => (typeof api.game?.roundCutoff === 'function' ? api.game.roundCutoff() === null : true);
+		function saveProgress() {
+			storage.set(PROGRESS_KEY, progress);
+			menus?.refreshAll();
+		}
+		function clockMs() {
+			if (clock.ms !== null) return clock.ms;
+			return clock.start === null ? null : performance.now() - clock.start;
+		}
 
 		// ---------- the board in the world ----------
-		/** board units -> the group's local frame (metres) */
-		const local = (p) => new THREE.Vector3(p[0] * board.radius, p[1] * board.radius, 0);
+		/** P3: the player's LOCAL view of the globe (never replicated — dot positions are) */
+		const globeQuat = new THREE.Quaternion();
+		const globeR = () => board.radius * GLOBE_R;
+		/** board units -> the group's local frame (metres). 2D: [x, y] on the board plane;
+		 * 3D: a unit vector in the GLOBE frame, turned by the local view onto the surface */
+		const local = (p) =>
+			mode === '3d'
+				? new THREE.Vector3(p[0], p[1], p[2]).applyQuaternion(globeQuat).multiplyScalar(globeR())
+				: new THREE.Vector3(p[0] * board.radius, p[1] * board.radius, 0);
+		/** keep a position in its mode's space (the unit square, or the unit sphere) */
+		const clampPos = (p) => (mode === '3d' ? normalize([+p[0] || 0, +p[1] || 0, +p[2] || 0]) : clampToBoard([p[0], p[1]]));
+		/** does a replicated position have this mode's shape? (an older peer sends [x, y]) */
+		const fits = (p) => Array.isArray(p) && p.length === (mode === '3d' ? 3 : 2) && p.every((v) => Number.isFinite(+v));
 		function placeGroup() {
 			if (!group) return;
 			group.position.set(board.x, board.boardY, board.z);
@@ -70,33 +121,73 @@ export default {
 			group.updateMatrixWorld(true);
 		}
 
-		// ---------- render ----------
+		// ---------- render (P1: the look — look.js) ----------
+		// Dots are 3x the old 5.5 cm at the small levels and shrink toward 2.1x as the count
+		// climbs, so a 16-dot board is not a pile of marbles; the lift/hover/burst are LOCAL.
+		/** the dot radius in the group frame (metres) */
+		const dotR = () => board.radius * Math.max(0.105, 0.15 - Math.max(0, positions.length - 6) * 0.0045);
+		/** @type {any} */ let edgeLayer = null;
+		/** @type {any} */ let backplate = null;
+		/** @type {any} */ let globe = null;
+		/** @type {any} */ let hoverRing = null;
+		/** @type {any} */ let burst = null;
+		let hovered = -1;
+		let lift = 0; // the carried dot's eased lift, 0..1
+		/** free every geometry/material a previous build made (rebuilds are per level) */
+		function disposeGroup(g) {
+			g?.traverse((/** @type {any} */ o) => {
+				o.geometry?.dispose?.();
+				const m = o.material;
+				if (Array.isArray(m)) m.forEach((x) => x.dispose?.());
+				else {
+					m?.map?.dispose?.();
+					m?.dispose?.();
+				}
+			});
+		}
 		function build() {
 			const scene = api.scene();
 			if (!scene) return;
-			if (group) scene.remove(group);
+			if (group) {
+				scene.remove(group);
+				disposeGroup(group);
+			}
 			group = new THREE.Group();
 			group.name = GROUP;
 			dots = [];
-			lineMeshes = [];
 			sprite = null;
+			hovered = -1;
+			lift = 0;
+			backplate = null;
+			globe = null;
+			if (mode === '3d') {
+				globe = makeGlobe(THREE, globeR());
+				group.add(globe.group);
+			} else {
+				backplate = makeBackplate(THREE, board.radius);
+				group.add(backplate.group);
+			}
+			// 3D arcs are tessellated: up to ~27 straight pieces per edge (a half circle)
+			edgeLayer = makeEdgeLayer(THREE, Math.max(1, edges.length * (mode === '3d' ? 28 : 1)));
+			edgeLayer.setRadius(board.radius * (mode === '3d' ? 0.012 : 0.016));
+			group.add(edgeLayer.glow, edgeLayer.core);
+			const r = dotR() * (mode === '3d' ? 0.8 : 1);
+			const dotGeo = new THREE.SphereGeometry(r, 32, 20);
 			positions.forEach((p, i) => {
 				const dot = new THREE.Mesh(
-					new THREE.SphereGeometry(DOT_R, 20, 14),
-					new THREE.MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.4 })
+					dotGeo,
+					new THREE.MeshStandardMaterial({ color: 0xe8eef7, emissive: 0x7d93b2, emissiveIntensity: 0.45, roughness: 0.3, metalness: 0.05 })
 				);
 				dot.name = 'untangle-dot-' + i;
 				dot.position.copy(local(p));
 				group.add(dot);
 				dots.push(dot);
 			});
-			edges.forEach(([a, b], i) => {
-				const geometry = new THREE.BufferGeometry().setFromPoints([local(positions[a]), local(positions[b])]);
-				const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0xf87171 }));
-				line.name = 'untangle-edge-' + i;
-				group.add(line);
-				lineMeshes.push(line);
-			});
+			hoverRing = makeHoverRing(THREE);
+			hoverRing.scale.setScalar(r * 1.45);
+			group.add(hoverRing);
+			burst = makeBurst(THREE);
+			group.add(burst.points, burst.wave);
 			scene.add(group);
 			placeGroup();
 			// the test/debug hook (scene-root local, never serialized)
@@ -109,6 +200,61 @@ export default {
 			built = true;
 			refresh();
 		}
+
+		/** where dot i is DRAWN: its board point, the carried one lifted toward the player */
+		function drawn(i) {
+			const v = local(positions[i]);
+			if (i === carried) {
+				if (mode === '3d') v.multiplyScalar(1 + (lift * dotR() * 0.8) / globeR());
+				else v.z += lift * dotR() * 0.9;
+			}
+			return v;
+		}
+		/** the edge segments: one per 2D edge, a tessellated great-circle arc per 3D edge */
+		function segmentsOf(counts) {
+			if (mode !== '3d') return edges.map(([a, b], k) => ({ a: drawn(a), b: drawn(b), color: counts[k] > 0 ? COLORS.RED : COLORS.GREEN }));
+			const out = [];
+			const rr = globeR() * 1.004;
+			edges.forEach(([a, b], k) => {
+				const color = counts[k] > 0 ? COLORS.RED : COLORS.GREEN;
+				const pts = arcPoints(positions[a], positions[b], arcSegments(positions[a], positions[b])).map((q) =>
+					new THREE.Vector3(q[0], q[1], q[2]).applyQuaternion(globeQuat).multiplyScalar(rr)
+				);
+				// the ends follow the carried dot's lift so the arc stays attached to it
+				if (a === carried) pts[0] = drawn(a);
+				if (b === carried) pts[pts.length - 1] = drawn(b);
+				for (let s = 0; s + 1 < pts.length; s++) out.push({ a: pts[s], b: pts[s + 1], color });
+			});
+			return out;
+		}
+		/** a dot's colour: amber while carried, brighter while hovered, else pale */
+		function paintDot(i) {
+			const m = dots[i]?.material;
+			if (!m) return;
+			if (i === carried) {
+				m.color.setHex(COLORS.AMBER);
+				m.emissive.setHex(COLORS.AMBER);
+				m.emissiveIntensity = 0.9;
+			} else {
+				m.color.setHex(0xe8eef7);
+				m.emissive.setHex(0x7d93b2);
+				m.emissiveIntensity = i === hovered ? 0.9 : 0.45;
+			}
+		}
+		/** the dots + the edge segments, coloured by the per-edge crossing counts */
+		function redraw(counts) {
+			positions.forEach((_, i) => {
+				const dot = dots[i];
+				if (!dot) return;
+				dot.position.copy(drawn(i));
+				dot.scale.setScalar(i === carried ? 1 + 0.18 * lift : 1);
+			});
+			if (edgeLayer) edgeLayer.set(segmentsOf(counts));
+			backplate?.setWon(crossings === 0);
+			globe?.setWon(crossings === 0);
+			if (globe) globe.graticule.quaternion.copy(globeQuat);
+		}
+		let lastCounts = /** @type {number[]} */ ([]);
 
 		// ---------- the VR sprite HUD (DOM is invisible in a headset) ----------
 		function ensureSprite() {
@@ -147,15 +293,9 @@ export default {
 
 		function refresh() {
 			if (!group) return 0;
-			positions.forEach((p, i) => dots[i]?.position.copy(local(p)));
-			const counts = edgeCrossings(positions, edges);
-			edges.forEach(([a, b], i) => {
-				const line = lineMeshes[i];
-				if (!line) return;
-				line.geometry.setFromPoints([local(positions[a]), local(positions[b])]);
-				line.material.color.set(counts[i] > 0 ? 0xf87171 : 0x4ade80); // tangled warm, clear cool
-			});
-			crossings = totalCrossings(counts);
+			lastCounts = mode === '3d' ? edgeCrossings3(positions, edges) : edgeCrossings(positions, edges);
+			crossings = totalCrossings(lastCounts);
+			redraw(lastCounts);
 			ensureSprite();
 			drawSprite('Level ' + level + '  ·  ' + (crossings === 0 ? 'solved!' : crossings + ' crossing' + (crossings === 1 ? '' : 's')), crossings === 0 ? '#4ade80' : '#e2e8f0');
 			ambientSetTension(crossings);
@@ -163,15 +303,32 @@ export default {
 		}
 
 		/** (re)generate level `lvl` and rebuild; `announce` pulses the level event */
-		function setLevel(lvl, announce = false) {
+		function setLevel(lvl, announce = false, md = mode) {
 			level = Math.max(1, Math.round(Number(lvl) || 1));
-			const g = generate(level);
+			mode = MODES_PLAYED.includes(md) ? md : '2d';
+			const g = mode === '3d' ? generate3(level) : generate(level);
 			edges = g.edges;
 			positions = g.positions;
 			won = false;
 			carried = -1;
+			participated = false;
+			rev = 0;
+			globeQuat.identity();
+			clock.start = roundUnderway() || shellUnused() ? performance.now() : null;
+			clock.ms = null;
+			clock.newBest = false;
+			gesture?.reset();
 			build();
+			menus?.refreshAll();
 			if (announce) fire('level');
+		}
+		/** the SELECTOR's path: change the board for everyone (level + mode), like Restart */
+		function selectLevel(lvl, md = mode) {
+			touched = true;
+			const l = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(lvl) || 1)));
+			const m = MODES_PLAYED.includes(md) ? md : '2d';
+			api.send({ op: 'restart', level: l, mode: m });
+			setLevel(l, true, m);
 		}
 
 		// ---------- generative audio (lazy — browsers gate audio on a gesture) ----------
@@ -230,14 +387,33 @@ export default {
 		// ---------- moves ----------
 		/** apply a position; an authoritative move checks the win on EVERY peer */
 		function applyMove(i, p, authoritative, fromMe = false) {
-			if (!positions[i]) return;
-			if (authoritative) touched = true;
-			positions[i] = clampToBoard([p[0], p[1]]);
+			if (!positions[i] || !fits(p)) return;
+			if (authoritative) {
+				touched = true;
+				rev++;
+			}
+			positions[i] = clampPos(p);
 			const total = refresh();
 			if (authoritative && total === 0 && !won) {
 				won = true;
 				solvedCount++;
+				if (clock.start !== null && clock.ms === null) clock.ms = performance.now() - clock.start;
+				// fork 9: whoever solves banks it LOCALLY — every peer that moved a dot on this
+				// board (the co-op partners too), never a spectator
+				if (participated) {
+					const r = recordSolve(progress, mode, level, clock.ms);
+					progress = r.progress;
+					clock.newBest = r.newBest;
+					saveProgress();
+				}
 				winSting();
+				burst?.start(
+					positions.map((q) => local(q)),
+					(c) => (mode === '3d' ? c.clone().normalize() : new THREE.Vector3(0, 0, 1)),
+					board.radius,
+					mode !== '3d',
+					performance.now() / 1000
+				);
 				if (fromMe) fire('solved');
 				if (board.autoAdvance) {
 					api.toast('Untangled! Level ' + (level + 1) + '…');
@@ -250,8 +426,9 @@ export default {
 		}
 		/** the authoritative drop of dot i at board point p (apply locally + send) */
 		function dropAt(i, p) {
-			if (!positions[i]) return false;
-			positions[i] = clampToBoard([p[0], p[1]]);
+			if (!positions[i] || !fits(p)) return false;
+			participated = true;
+			positions[i] = clampPos(p);
 			api.send({ op: 'move', i, p: positions[i] });
 			applyMove(i, positions[i], true, true);
 			return true;
@@ -259,6 +436,15 @@ export default {
 		/** debug/test: put every dot on the solution circle through authoritative drops */
 		function solveNow() {
 			const n = positions.length;
+			if (mode === '3d') {
+				// the gnomonic image of the ring layout, turned to where THIS player is looking
+				const inv = globeQuat.clone().invert();
+				solvedSphere(n).forEach((q, i) => {
+					const v = new THREE.Vector3(q[0], q[1], q[2]).applyQuaternion(inv);
+					dropAt(i, [v.x, v.y, v.z]);
+				});
+				return crossings === 0;
+			}
 			for (let i = 0; i < n; i++) {
 				const angle = (i / n) * Math.PI * 2;
 				dropAt(i, [Math.cos(angle) * 0.85, Math.sin(angle) * 0.85]);
@@ -266,28 +452,172 @@ export default {
 			return crossings === 0;
 		}
 
-		// ---------- interaction: click to pick, pointerRay to carry, click to drop ----------
+		// ---------- interaction: press-drag-release AND click-click (gesture.js) ----------
+		// P0 (roadmap 30): a real drag. gesture.js owns WHEN (window capture listeners — the
+		// SDK has no pointerdown or click-miss seam), aim.js owns WHERE (the crosshair under a
+		// lock, the cursor otherwise, the hand in VR), and this block owns the board: which
+		// dot a ray picks, where a carried dot follows, and the drop. The throttled 'drag'
+		// previews and the authoritative 'move' are unchanged — lockstep stays.
+		const aim = makeAim(api, THREE);
 		const dragPlane = new THREE.Plane();
 		const planeNormal = new THREE.Vector3();
 		const hitPoint = new THREE.Vector3();
 		const localHit = new THREE.Vector3();
-		api.registerClickHandler((object) => {
-			// while carrying, ANY click drops the dot where it is (clicking the tiny dot
-			// exactly is fiddly, especially at the board-edge clamp)
-			if (carried !== -1) {
-				const i = carried;
-				dots[i]?.material.color.set(0xf1f5f9);
-				carried = -1;
-				blip(440);
-				dropAt(i, positions[i]);
+		const dotWorld = new THREE.Vector3();
+		let lastDrop = 'none';
+
+		/** the dot a ray points at (a generous radius: a dot is small and a hand shakes) */
+		function dotUnder(ray) {
+			if (!ray || !group || !dots.length) return -1;
+			group.updateMatrixWorld();
+			const scale = group.getWorldScale(localHit).x || 1;
+			const reach = dotR() * 1.3 * scale;
+			let best = -1;
+			let bestMiss = reach * reach;
+			// 3D: a dot on the far side of the globe is hidden — only the front face is reachable
+			const front = mode === '3d' ? globeHit(ray, false) : null;
+			const frontAlong = front ? front.distanceTo(ray.ray.origin) : Infinity;
+			dots.forEach((dot, i) => {
+				dot.getWorldPosition(dotWorld);
+				const miss = ray.ray.distanceSqToPoint(dotWorld);
+				const along = dotWorld.sub(ray.ray.origin).dot(ray.ray.direction);
+				if (miss > bestMiss || along <= 0 || along > frontAlong + reach * 1.5) return;
+				bestMiss = miss;
+				best = i;
+			});
+			return best;
+		}
+		/** move the carried dot to where `ray` meets the board plane; true when it moved */
+		const globeSphere = new THREE.Sphere();
+		const globeCentre = new THREE.Vector3();
+		/**
+		 * Where a ray meets the globe (world space), or null. `clampToRim`: a ray that misses
+		 * lands on the silhouette point nearest to it, so a drag past the edge keeps the dot on
+		 * the visible rim instead of freezing it.
+		 */
+		function globeHit(ray, clampToRim) {
+			if (!group || !ray) return null;
+			group.updateMatrixWorld();
+			group.getWorldPosition(globeCentre);
+			globeSphere.set(globeCentre, globeR() * (group.getWorldScale(localHit).x || 1));
+			const hit = ray.ray.intersectSphere(globeSphere, new THREE.Vector3());
+			if (hit || !clampToRim) return hit;
+			const nearest = ray.ray.closestPointToPoint(globeCentre, new THREE.Vector3());
+			return nearest.sub(globeCentre).setLength(globeSphere.radius).add(globeCentre);
+		}
+		function follow(ray) {
+			if (carried === -1 || !group || !ray) return false;
+			if (mode === '3d') {
+				const hit = globeHit(ray, true);
+				if (!hit) return false;
+				localHit.copy(hit);
+				group.worldToLocal(localHit);
+				localHit.applyQuaternion(globeQuat.clone().invert());
+				positions[carried] = normalize([localHit.x, localHit.y, localHit.z]);
 				return true;
 			}
-			if (!object?.name?.startsWith('untangle-dot-')) return false;
-			carried = +object.name.slice('untangle-dot-'.length);
-			dots[carried]?.material.color.set(0xfbbf24);
+			// the board plane in WORLD space: the group's +Z through its origin
+			planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
+			dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
+			if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return false;
+			localHit.copy(hitPoint);
+			group.worldToLocal(localHit);
+			positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+			return true;
+		}
+		function pick(i, how) {
+			if (!positions[i]) return;
+			carried = i;
+			carryHow = how;
+			paintDot(i);
 			blip(660);
-			return true; // consume — never selects the dot
-		});
+		}
+		/** drop the carried dot where it is (after one last follow of the drop's own ray) */
+		function drop(how, event) {
+			if (carried === -1) return;
+			if (event && how !== 'ui' && how !== 'cancel') follow(aim.fromClient(event.clientX, event.clientY, event.target));
+			const i = carried;
+			carried = -1;
+			carryHow = 'none';
+			paintDot(i);
+			lastDrop = how;
+			gesture.reset();
+			blip(440);
+			dropAt(i, positions[i]);
+		}
+		/** the renderer's canvas (or anything while a lock holds the pointer) — never a HUD box */
+		function isViewport(event) {
+			if (aim.locked()) return true;
+			const t = event?.target;
+			if (!t || t.tagName !== 'CANVAS' || t.closest?.('#hud-layer, [data-hud-module]')) return false;
+			return t.clientWidth * t.clientHeight > 0.25 * window.innerWidth * window.innerHeight;
+		}
+		gesture =
+			typeof window !== 'undefined'
+				? createGesture({
+						target: window,
+						locked: aim.locked,
+						isViewport,
+						// a newer copy of this module (a dev reload) owns the window now; a torn-down
+						// board (module disabled: its scene-root group was removed) is inert
+						active: () => {
+							if (window.__untangle !== hook) {
+								gesture.detach();
+								return false;
+							}
+							return !!group && !!group.parent && built && interactive();
+						},
+						carrying: () => carried !== -1,
+						pickAt: (event) => dotUnder(aim.fromClient(event.clientX, event.clientY, event.target)),
+						pick,
+						drop,
+						// P3: right-drag / two fingers ON the globe turn it (the local view only)
+						rotateStart: (event) => mode === '3d' && !!globeHit(aim.fromClient(event.clientX, event.clientY, event.target), false),
+						rotateBy
+					})
+				: { detach() {}, reset() {}, carryMode: () => 'none', rotating: () => false, lastUp: () => 'none' };
+		let carryHow = 'none';
+		const yawAxis = new THREE.Vector3(0, 1, 0);
+		const pitchAxis = new THREE.Vector3(1, 0, 0);
+		const turn = new THREE.Quaternion();
+		let rotations = 0;
+		/** turn the globe by a pointer delta (px): yaw about the board's up, pitch about its right.
+		 * LOCAL: the orientation never replicates — the dots' unit vectors do. */
+		function rotateBy(dx, dy) {
+			if (mode !== '3d' || !group) return;
+			turn.setFromAxisAngle(yawAxis, dx * 0.008);
+			globeQuat.premultiply(turn);
+			turn.setFromAxisAngle(pitchAxis, dy * 0.008);
+			globeQuat.premultiply(turn).normalize();
+			rotations++;
+			redraw(lastCounts);
+		}
+		/** 30-core-modes: an EDIT-mode editor never lets the board react (fork 1). A 1.16 core
+		 * has no editor mode, so everything the board is shown in reacts, as it always did. */
+		function interactive() {
+			const m = typeof api.editorMode === 'function' ? api.editorMode() : null;
+			return m !== 'edit' || (typeof api.isPlaying === 'function' && api.isPlaying());
+		}
+
+		// VR: the trigger picks, the next trigger drops. On a desktop gesture.js OWNS every
+		// press (a press on a dot never reaches core), so a module click core still dispatches
+		// there — play's crosshair TAP while the real cursor is elsewhere, an unlocked play —
+		// is only CONSUMED (nothing selects a dot), never acted on: acting would pick the dot
+		// under the crosshair while the player aimed the cursor at another one.
+		api.registerClickHandler(
+			(object) => {
+				const isDot = !!object?.name?.startsWith('untangle-dot-');
+				if (!api.isVR?.() && typeof window !== 'undefined') return carried !== -1 || isDot;
+				if (carried !== -1) {
+					drop('click');
+					return true;
+				}
+				if (!isDot) return false;
+				pick(+object.name.slice('untangle-dot-'.length), 'click');
+				return true; // consume — never selects the dot
+			},
+			{ modes: ['interact', 'play'] }
+		);
 		api.registerFrameTask(() => {
 			frame++;
 			// the node-or-fallback gate: no utboard node within EXPIRE_FRAMES of load (or of a
@@ -300,16 +630,55 @@ export default {
 				placeGroup();
 				refresh();
 			}
-			if (carried === -1 || !group) return;
-			const ray = api.pointerRay();
-			if (!ray) return;
-			// the board plane in WORLD space: the group's +Z through its origin
-			planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
-			dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
-			if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return;
-			localHit.copy(hitPoint);
-			group.worldToLocal(localHit);
-			positions[carried] = clampToBoard([localHit.x / board.radius, localHit.y / board.radius]);
+			// P2: a round STARTING (menu/solved -> playing, replicated game state, so every peer
+			// sees the same edge) starts the clock — and on a SOLVED board it is "Next": every
+			// peer advances to the next level in lockstep, no message
+			const underway = roundUnderway();
+			if (underway && !wasUnderway && built) {
+				if (won) setLevel(Math.min(level + 1, MAX_LEVEL), false);
+				else if (clock.start === null) clock.start = performance.now();
+			}
+			wasUnderway = underway;
+			if (!group) return;
+			const t = performance.now() / 1000;
+			burst?.tick(t);
+			const ray = aim.current();
+			// P3: in VR the thumbstick turns the globe while the hand points at it
+			if (mode === '3d' && api.isVR?.() && carried === -1 && globeHit(ray, false)) {
+				const axes = api.input?.()?.axes;
+				const rx = axes?.rx ?? 0;
+				const ry = axes?.ry ?? 0;
+				if (Math.abs(rx) > 0.2 || Math.abs(ry) > 0.2) rotateBy(rx * 4, ry * 4);
+			}
+			// hover: the dot under the pointer (none while carrying, none when inert)
+			const over = carried === -1 && interactive() ? dotUnder(ray) : -1;
+			if (over !== hovered) {
+				const was = hovered;
+				hovered = over;
+				if (was >= 0) paintDot(was);
+				if (over >= 0) paintDot(over);
+			}
+			if (hoverRing) {
+				hoverRing.visible = hovered >= 0;
+				if (hovered >= 0) {
+					const at = drawn(hovered);
+					hoverRing.position.copy(at);
+					// 3D: the ring lies on the globe (tangent), facing out of it
+					if (mode === '3d') hoverRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), at.clone().normalize());
+					else hoverRing.quaternion.identity();
+				}
+			}
+			// the carried dot eases up toward the player and back down after the drop
+			const wantLift = carried === -1 ? 0 : 1;
+			if (lift !== wantLift) {
+				lift = Math.abs(wantLift - lift) < 0.02 ? wantLift : lift + (wantLift - lift) * 0.25;
+				if (carried === -1) redraw(lastCounts);
+			}
+			if (carried === -1) return;
+			if (!follow(ray)) {
+				redraw(lastCounts);
+				return;
+			}
 			refresh();
 			const now = performance.now();
 			if (now - lastDragSent > 100) {
@@ -341,13 +710,13 @@ export default {
 					type: 'utvalue',
 					label: 'Untangle Value',
 					defaults: { read: 'level' },
-					params: [{ key: 'read', kind: 'select', options: ['level', 'crossings', 'solved', 'dots', 'edges', 'count'] }]
+					params: [{ key: 'read', kind: 'select', options: ['level', 'crossings', 'solved', 'dots', 'edges', 'count', 'time', 'best', 'mode', 'unlocked'] }]
 				},
 				{
 					type: 'utevent',
 					label: 'Untangle Event',
 					defaults: { event: 'solved' },
-					params: [{ key: 'event', kind: 'select', options: ['solved', 'level'] }]
+					params: [{ key: 'event', kind: 'select', options: ['solved', 'level', 'start'] }]
 				}
 			]
 		});
@@ -394,6 +763,10 @@ export default {
 					case 'dots': return positions.length;
 					case 'edges': return edges.length;
 					case 'count': return solvedCount;
+					case 'time': return Math.floor((clockMs() ?? 0) / 1000);
+					case 'best': return Math.floor((bestOf(progress, mode, level) ?? 0) / 1000);
+					case 'mode': return mode === '3d' ? 3 : 2;
+					case 'unlocked': return progress[mode]?.unlocked ?? 1;
 					default: return level;
 				}
 			},
@@ -407,25 +780,36 @@ export default {
 			else if (data.op === 'move') applyMove(data.i, data.p, true);
 			else if (data.op === 'restart') {
 				touched = true;
-				setLevel(data.level ?? 1);
+				setLevel(data.level ?? 1, false, data.mode ?? '2d');
 			}
 		});
 		api.registerStateSync({
-			getState: () => (touched ? { level, positions } : null),
+			getState: () => (touched ? { level, positions, mode, rev } : null),
 			applyState: (state) => {
 				if (!state) return;
+				// the exchange runs on EVERY connection of a mesh, so a third peer's snapshot can
+				// land AFTER a move we already applied on this same board: `rev` (authoritative
+				// moves on the board) says which is newer — an older peer sends none, and gets
+				// today's behaviour
+				const sameBoard = built && state.level === level && (state.mode ?? '2d') === mode;
+				if (sameBoard && typeof state.rev === 'number' && state.rev <= rev) {
+					syncs.stale++;
+					return;
+				}
+				syncs.applied++;
 				remoteApplied = true;
 				touched = true;
-				setLevel(state.level ?? 1);
-				if (Array.isArray(state.positions) && state.positions.length === positions.length) {
-					positions = state.positions.map((p) => clampToBoard([p[0], p[1]]));
+				if (!sameBoard) setLevel(state.level ?? 1, false, state.mode ?? '2d');
+				if (Array.isArray(state.positions) && state.positions.length === positions.length && state.positions.every(fits)) {
+					positions = state.positions.map(clampPos);
+					if (typeof state.rev === 'number') rev = state.rev;
 					refresh();
 				}
 			}
 		});
 		api.registerMenu('Restart level', () => {
 			touched = true;
-			api.send({ op: 'restart', level });
+			api.send({ op: 'restart', level, mode });
 			setLevel(level);
 		});
 		// a scene clear (applySession runs `/clear all` FIRST) resets to level 1; when a
@@ -438,6 +822,7 @@ export default {
 			remoteApplied = false;
 			won = false;
 			carried = -1;
+			gesture?.reset();
 			if (group) {
 				api.scene()?.remove(group);
 				group = null;
@@ -447,17 +832,81 @@ export default {
 			frame = 0; // the fallback window opens again
 		});
 
+		// ---------- P2: the menu's module DOM (menu.js) ----------
+		/** @type {any} */
+		menus = makeMenuKinds({
+			view: () => ({ mode, modes: MODES_PLAYED, level, progress, running: roundUnderway() }),
+			pickLevel: (l) => {
+				if (isUnlocked(progress, mode, l)) selectLevel(l, mode);
+			},
+			pickMode: (m) => selectLevel(continueLevel(progress, m), m),
+			continueGame: () => {
+				selectLevel(continueLevel(progress, mode), mode);
+				fire('start'); // the template wires Untangle Event (start) -> Set Game State (playing)
+			},
+			resetProgress: () => {
+				progress = defaultProgress();
+				saveProgress();
+				api.toast('Untangle progress reset');
+			},
+			time: () => ({ ms: clockMs(), best: bestOf(progress, mode, level), newBest: clock.newBest, solved: won })
+		});
+		if (typeof api.registerHudElement === 'function') {
+			api.registerHudElement('levels', menus.levels);
+			api.registerHudElement('stats', menus.stats);
+		}
+
 		api.registerInteractiveGroup(GROUP);
 		api.registerSystemGroup?.(GROUP);
 
-		// test/debug hook (never serialized)
-		if (typeof window !== 'undefined') {
-			/** @type {any} */ (window).__untangle = {
-				state: () => ({ level, positions, edges, board: { ...board }, won, crossings, solvedCount, built, touched, nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite }),
-				move: (i, p) => dropAt(i, p),
-				solve: () => solveNow(),
-				setLevel: (lvl) => setLevel(lvl, true)
-			};
-		}
+		// test/debug hook (never serialized). It is also the gesture's ownership token: a
+		// newer copy of the module replaces it, and the old window listeners detach.
+		hook = {
+			state: () => ({
+				level, mode, positions, edges, board: { ...board }, won, crossings, solvedCount, built, touched,
+				nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite,
+				carried, carryMode: carried === -1 ? 'none' : gesture.carryMode() === 'none' ? carryHow : gesture.carryMode(),
+				lastDrop, lastUp: gesture.lastUp(), rayMode: aim.mode(), rev, syncs: { ...syncs }
+			}),
+			move: (i, p) => dropAt(i, p),
+			solve: () => solveNow(),
+			setLevel: (lvl) => setLevel(lvl, true),
+			/** P3: the local globe view (never replicated) */
+			globeView: () => ({ quat: globeQuat.toArray(), rotations }),
+			rotate: (dx, dy) => rotateBy(dx, dy),
+			/** P2: the selector's replicated path */
+			select: (lvl, md) => selectLevel(lvl, md ?? mode),
+			progress: () => JSON.parse(JSON.stringify(progress)),
+			storageKind: storage.kind,
+			clock: () => ({ ms: clockMs(), newBest: clock.newBest, participated }),
+			/** P1: what the board is drawn with, as numbers a flight can assert */
+			look: () => {
+				const ws = group ? group.getWorldScale(new THREE.Vector3()).x : 1;
+				const colors = [];
+				const ic = edgeLayer?.core.instanceColor;
+				for (let k = 0; k < (edgeLayer?.core.count ?? 0); k++) colors.push(ic ? new THREE.Color().fromArray(ic.array, k * 3).getHex() : null);
+				return {
+					dotRadius: dots[0] ? dots[0].geometry.parameters.radius * ws : 0,
+					edgeRadius: (edgeLayer?.radius() ?? 0) * ws,
+					edgeInstances: edgeLayer?.core.count ?? 0,
+					edgeColors: colors,
+					edgeCrossings: [...lastCounts],
+					colors: { ...COLORS },
+					hovered,
+					hoverVisible: !!hoverRing?.visible,
+					carriedZ: carried >= 0 && dots[carried] ? dots[carried].position.z : 0,
+					carriedScale: carried >= 0 && dots[carried] ? dots[carried].scale.x : 1,
+					burstActive: !!burst?.active(),
+					burstFired: burst?.fired() ?? 0,
+					rimWon: crossings === 0,
+					plate: !!group?.getObjectByName('untangle-plate')
+				};
+			},
+			/** world position of dot i (for pointer tests) */
+			dotWorld: (i) => (dots[i] ? dots[i].getWorldPosition(new THREE.Vector3()).toArray() : null),
+			/** world position of a BOARD point [x, y] */
+			boardWorld: (p) => (group ? group.localToWorld(local(p)).toArray() : null)
+		};
+		if (typeof window !== 'undefined') /** @type {any} */ (window).__untangle = hook;
 	}
 };
