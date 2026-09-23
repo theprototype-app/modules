@@ -658,8 +658,14 @@ h.run(async () => {
 			const w = window.__waves;
 			let g;
 			window.__stores.objectsGroup.subscribe((v) => (g = v))();
+			// the module's OWN root, wherever it hangs: a 1.17 core re-homes module groups under
+			// its module-world-root inside the world rig (30b-vr-modes P5), so the top-level
+			// ancestor is the rig, not the module
 			const rootOf = (o) => {
 				let c = o;
+				while (c && c.name !== 'waves-module') c = c.parent;
+				if (c) return c.name;
+				c = o;
 				while (c.parent && c.parent.type !== 'Scene') c = c.parent;
 				return c.name;
 			};
