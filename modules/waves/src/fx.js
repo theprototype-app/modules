@@ -5,8 +5,15 @@
 
 import { flashLevel, coreGlow, FLASH } from './look.js';
 
-/** @param {any} api @param {ReturnType<import('./engine.js').createWavesEngine>} engine */
-export function registerFx(api, engine) {
+/** the colour a kind of enemy dies in */
+const POP_COLOR = { grunt: 0xff8a5c, runner: 0xd8ff4a, tank: 0xb070ff };
+
+/**
+ * @param {any} api @param {ReturnType<import('./engine.js').createWavesEngine>} engine
+ * @param {ReturnType<import('./juice.js').createJuice> | null} [juice]
+ * @param {ReturnType<import('./feel.js').createFeel> | null} [feel]
+ */
+export function registerFx(api, engine, juice = null, feel = null) {
 	// ---- the hit flash: an enemy the knock hits flashes white for FLASH.seconds ------------
 	/** @type {Map<string, number>} enemy uuid -> when this peer saw the hit (performance s) */
 	const flashes = new Map();
@@ -16,6 +23,17 @@ export function registerFx(api, engine) {
 		api.onHit((/** @type {any} */ hit) => {
 			if (hit?.uuid && enemyUuids().has(hit.uuid)) flashes.set(hit.uuid, clock());
 		});
+
+	// 30b: every hurt and every death of an enemy — this peer's shot, a peer's, a knock — from
+	// the engine's edges on the replicated counters: a flash, a grunt of pain, and on a kill the
+	// pop, its shards and an explosion where it stood
+	engine.onEnemy((ev) => {
+		flashes.set(ev.uuid, clock());
+		if (ev.kind === 'death') {
+			juice?.pop(ev.pos, /** @type {any} */ (POP_COLOR)[ev.enemy?.kind] ?? POP_COLOR.grunt);
+			feel?.sound('explosion', ev.pos);
+		} else feel?.sound('hurt', ev.pos);
+	});
 
 	/** paint one enemy's plain (non-glowing) meshes at `level` 0..1 @param {any} object @param {number} level */
 	function paint(object, level) {

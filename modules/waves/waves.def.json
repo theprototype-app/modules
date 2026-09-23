@@ -2,12 +2,13 @@
 	"kind": "game",
 	"slug": "waves",
 	"title": "Waves",
-	"description": "Wave survival: hold the goal against waves of enemies walking in from the spawn points. Knock them down; the round ends when the last wave falls.",
+	"description": "A VR shooter: hold the crystal against five levels of waves — grunts, runners and tanks pouring out of the portals. Pick a gun and an ability; shoot them down before they reach it.",
 	"license": "CC0-1.0",
 	"author": "theprototype",
 	"tags": [
 		"vr",
 		"co-op",
+		"shooter",
 		"survival"
 	],
 	"modules": [
@@ -17,7 +18,7 @@
 		},
 		{
 			"id": "waves",
-			"version": "1.1.0"
+			"version": "2.0.0"
 		}
 	],
 	"installModules": [
@@ -64,9 +65,21 @@
 			"spin": 0.8
 		},
 		"play": {
-			"interaction": "grab",
+			"interaction": "click",
 			"grounded": true,
-			"simOnPlay": true
+			"simOnPlay": true,
+			"spawn": {
+				"position": [
+					0,
+					0,
+					9
+				],
+				"yaw": 0
+			},
+			"locomotion": {
+				"teleport": false,
+				"fly": false
+			}
 		}
 	},
 	"post": {
@@ -120,14 +133,17 @@
 					"data": {
 						"label": "waves",
 						"name": "enemy",
-						"waves": 3,
+						"waves": 15,
 						"sizeStart": 2,
 						"sizeStep": 1,
 						"interval": 3,
-						"speed": 1.5,
-						"stagger": 0.6,
-						"reach": 1.5,
-						"spawnPrefix": "Spawn"
+						"speed": 1.3,
+						"reach": 1.7,
+						"spawnPrefix": "Spawn",
+						"stagger": 0.9,
+						"perLevel": 3,
+						"levelSpeed": 0.12,
+						"breach": true
 					},
 					"class": "w-[150px]"
 				},
@@ -212,8 +228,8 @@
 						"name": "me",
 						"scope": "player",
 						"max": 10,
-						"regen": 0.5,
-						"deathAction": "respawn",
+						"regen": 0,
+						"deathAction": "nothing",
 						"respawnDelay": 3
 					},
 					"class": "w-[150px]"
@@ -235,20 +251,76 @@
 					"id": "wa8",
 					"type": "damage",
 					"position": {
+						"x": 720,
+						"y": 240
+					},
+					"data": {
+						"label": "damage",
+						"amount": 2,
+						"source": "wired"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa9",
+					"type": "wavesevent",
+					"position": {
+						"x": 500,
+						"y": 240
+					},
+					"data": {
+						"label": "wavesevent",
+						"name": "enemy",
+						"event": "breach"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa10",
+					"type": "healthevent",
+					"position": {
+						"x": 940,
+						"y": 340
+					},
+					"data": {
+						"label": "healthevent",
+						"name": "me",
+						"event": "death"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa11",
+					"type": "setgamestate",
+					"position": {
+						"x": 1160,
+						"y": 340
+					},
+					"data": {
+						"label": "setgamestate",
+						"state": "over",
+						"outcome": "lost"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa12",
+					"type": "damage",
+					"position": {
 						"x": 60,
 						"y": 240
 					},
 					"data": {
 						"label": "damage",
 						"amount": 1,
-						"source": "hit",
-						"scale": "speed",
+						"source": "wired",
+						"scale": "none",
 						"speedRef": 3
 					},
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa9",
+					"id": "wa13",
 					"type": "counter",
 					"position": {
 						"x": 280,
@@ -262,7 +334,7 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa10",
+					"id": "wa14",
 					"type": "health",
 					"position": {
 						"x": 500,
@@ -279,7 +351,7 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa11",
+					"id": "wa15",
 					"type": "objectselector",
 					"position": {
 						"x": 720,
@@ -287,12 +359,12 @@
 					},
 					"data": {
 						"label": "objectselector",
-						"selected": "Enemy 1"
+						"selected": "Enemy 01"
 					},
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa12",
+					"id": "wa16",
 					"type": "healthreset",
 					"position": {
 						"x": 60,
@@ -305,7 +377,7 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa13",
+					"id": "wa17",
 					"type": "heal",
 					"position": {
 						"x": 280,
@@ -318,70 +390,11 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa14",
+					"id": "wa18",
 					"type": "counter",
 					"position": {
 						"x": 500,
 						"y": 340
-					},
-					"data": {
-						"label": "counter",
-						"op": "up",
-						"step": 1
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "wa15",
-					"type": "damage",
-					"position": {
-						"x": 940,
-						"y": 240
-					},
-					"data": {
-						"label": "damage",
-						"amount": 1,
-						"source": "zone",
-						"perSecond": 1,
-						"radius": 1.5
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "wa16",
-					"type": "objectselector",
-					"position": {
-						"x": 940,
-						"y": 340
-					},
-					"data": {
-						"label": "objectselector",
-						"selected": "Enemy 1"
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "wa17",
-					"type": "damage",
-					"position": {
-						"x": 60,
-						"y": 440
-					},
-					"data": {
-						"label": "damage",
-						"amount": 1,
-						"source": "hit",
-						"scale": "speed",
-						"speedRef": 3
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "wa18",
-					"type": "counter",
-					"position": {
-						"x": 280,
-						"y": 440
 					},
 					"data": {
 						"label": "counter",
@@ -392,6 +405,36 @@
 				},
 				{
 					"id": "wa19",
+					"type": "damage",
+					"position": {
+						"x": 60,
+						"y": 440
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "wired",
+						"scale": "none",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa20",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 440
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa21",
 					"type": "health",
 					"position": {
 						"x": 500,
@@ -408,7 +451,7 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa20",
+					"id": "wa22",
 					"type": "objectselector",
 					"position": {
 						"x": 720,
@@ -416,12 +459,12 @@
 					},
 					"data": {
 						"label": "objectselector",
-						"selected": "Enemy 2"
+						"selected": "Enemy 02"
 					},
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa21",
+					"id": "wa23",
 					"type": "healthreset",
 					"position": {
 						"x": 60,
@@ -434,7 +477,7 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa22",
+					"id": "wa24",
 					"type": "heal",
 					"position": {
 						"x": 280,
@@ -447,7 +490,7 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa23",
+					"id": "wa25",
 					"type": "counter",
 					"position": {
 						"x": 500,
@@ -457,35 +500,6 @@
 						"label": "counter",
 						"op": "up",
 						"step": 1
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "wa24",
-					"type": "damage",
-					"position": {
-						"x": 940,
-						"y": 440
-					},
-					"data": {
-						"label": "damage",
-						"amount": 1,
-						"source": "zone",
-						"perSecond": 1,
-						"radius": 1.5
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "wa25",
-					"type": "objectselector",
-					"position": {
-						"x": 940,
-						"y": 540
-					},
-					"data": {
-						"label": "objectselector",
-						"selected": "Enemy 2"
 					},
 					"class": "w-[150px]"
 				},
@@ -499,8 +513,8 @@
 					"data": {
 						"label": "damage",
 						"amount": 1,
-						"source": "hit",
-						"scale": "speed",
+						"source": "wired",
+						"scale": "none",
 						"speedRef": 3
 					},
 					"class": "w-[150px]"
@@ -545,7 +559,7 @@
 					},
 					"data": {
 						"label": "objectselector",
-						"selected": "Enemy 3"
+						"selected": "Enemy 03"
 					},
 					"class": "w-[150px]"
 				},
@@ -593,49 +607,20 @@
 					"id": "wa33",
 					"type": "damage",
 					"position": {
-						"x": 940,
-						"y": 640
-					},
-					"data": {
-						"label": "damage",
-						"amount": 1,
-						"source": "zone",
-						"perSecond": 1,
-						"radius": 1.5
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "wa34",
-					"type": "objectselector",
-					"position": {
-						"x": 940,
-						"y": 740
-					},
-					"data": {
-						"label": "objectselector",
-						"selected": "Enemy 3"
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "wa35",
-					"type": "damage",
-					"position": {
 						"x": 60,
 						"y": 840
 					},
 					"data": {
 						"label": "damage",
 						"amount": 1,
-						"source": "hit",
-						"scale": "speed",
+						"source": "wired",
+						"scale": "none",
 						"speedRef": 3
 					},
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa36",
+					"id": "wa34",
 					"type": "counter",
 					"position": {
 						"x": 280,
@@ -649,7 +634,7 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa37",
+					"id": "wa35",
 					"type": "health",
 					"position": {
 						"x": 500,
@@ -666,7 +651,7 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa38",
+					"id": "wa36",
 					"type": "objectselector",
 					"position": {
 						"x": 720,
@@ -674,12 +659,12 @@
 					},
 					"data": {
 						"label": "objectselector",
-						"selected": "Enemy 4"
+						"selected": "Enemy 04"
 					},
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa39",
+					"id": "wa37",
 					"type": "healthreset",
 					"position": {
 						"x": 60,
@@ -692,7 +677,7 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa40",
+					"id": "wa38",
 					"type": "heal",
 					"position": {
 						"x": 280,
@@ -705,7 +690,7 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa41",
+					"id": "wa39",
 					"type": "counter",
 					"position": {
 						"x": 500,
@@ -719,18 +704,49 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "wa42",
+					"id": "wa40",
 					"type": "damage",
 					"position": {
-						"x": 940,
-						"y": 840
+						"x": 60,
+						"y": 1040
 					},
 					"data": {
 						"label": "damage",
 						"amount": 1,
-						"source": "zone",
-						"perSecond": 1,
-						"radius": 1.5
+						"source": "wired",
+						"scale": "none",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa41",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 1040
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa42",
+					"type": "health",
+					"position": {
+						"x": 500,
+						"y": 1040
+					},
+					"data": {
+						"label": "health",
+						"name": "enemy",
+						"scope": "object",
+						"max": 2,
+						"deathAction": "hide",
+						"respawnDelay": 3
 					},
 					"class": "w-[150px]"
 				},
@@ -738,12 +754,552 @@
 					"id": "wa43",
 					"type": "objectselector",
 					"position": {
-						"x": 940,
-						"y": 940
+						"x": 720,
+						"y": 1040
 					},
 					"data": {
 						"label": "objectselector",
-						"selected": "Enemy 4"
+						"selected": "Enemy 05 Runner"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa44",
+					"type": "healthreset",
+					"position": {
+						"x": 60,
+						"y": 1140
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "enemy"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa45",
+					"type": "heal",
+					"position": {
+						"x": 280,
+						"y": 1140
+					},
+					"data": {
+						"label": "heal",
+						"amount": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa46",
+					"type": "counter",
+					"position": {
+						"x": 500,
+						"y": 1140
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa47",
+					"type": "damage",
+					"position": {
+						"x": 60,
+						"y": 1240
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "wired",
+						"scale": "none",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa48",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 1240
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa49",
+					"type": "health",
+					"position": {
+						"x": 500,
+						"y": 1240
+					},
+					"data": {
+						"label": "health",
+						"name": "enemy",
+						"scope": "object",
+						"max": 2,
+						"deathAction": "hide",
+						"respawnDelay": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa50",
+					"type": "objectselector",
+					"position": {
+						"x": 720,
+						"y": 1240
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 06 Runner"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa51",
+					"type": "healthreset",
+					"position": {
+						"x": 60,
+						"y": 1340
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "enemy"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa52",
+					"type": "heal",
+					"position": {
+						"x": 280,
+						"y": 1340
+					},
+					"data": {
+						"label": "heal",
+						"amount": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa53",
+					"type": "counter",
+					"position": {
+						"x": 500,
+						"y": 1340
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa54",
+					"type": "damage",
+					"position": {
+						"x": 60,
+						"y": 1440
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "wired",
+						"scale": "none",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa55",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 1440
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa56",
+					"type": "health",
+					"position": {
+						"x": 500,
+						"y": 1440
+					},
+					"data": {
+						"label": "health",
+						"name": "enemy",
+						"scope": "object",
+						"max": 3,
+						"deathAction": "hide",
+						"respawnDelay": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa57",
+					"type": "objectselector",
+					"position": {
+						"x": 720,
+						"y": 1440
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 07"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa58",
+					"type": "healthreset",
+					"position": {
+						"x": 60,
+						"y": 1540
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "enemy"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa59",
+					"type": "heal",
+					"position": {
+						"x": 280,
+						"y": 1540
+					},
+					"data": {
+						"label": "heal",
+						"amount": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa60",
+					"type": "counter",
+					"position": {
+						"x": 500,
+						"y": 1540
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa61",
+					"type": "damage",
+					"position": {
+						"x": 60,
+						"y": 1640
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "wired",
+						"scale": "none",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa62",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 1640
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa63",
+					"type": "health",
+					"position": {
+						"x": 500,
+						"y": 1640
+					},
+					"data": {
+						"label": "health",
+						"name": "enemy",
+						"scope": "object",
+						"max": 8,
+						"deathAction": "hide",
+						"respawnDelay": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa64",
+					"type": "objectselector",
+					"position": {
+						"x": 720,
+						"y": 1640
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 08 Tank"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa65",
+					"type": "healthreset",
+					"position": {
+						"x": 60,
+						"y": 1740
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "enemy"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa66",
+					"type": "heal",
+					"position": {
+						"x": 280,
+						"y": 1740
+					},
+					"data": {
+						"label": "heal",
+						"amount": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa67",
+					"type": "counter",
+					"position": {
+						"x": 500,
+						"y": 1740
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa68",
+					"type": "damage",
+					"position": {
+						"x": 60,
+						"y": 1840
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "wired",
+						"scale": "none",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa69",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 1840
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa70",
+					"type": "health",
+					"position": {
+						"x": 500,
+						"y": 1840
+					},
+					"data": {
+						"label": "health",
+						"name": "enemy",
+						"scope": "object",
+						"max": 2,
+						"deathAction": "hide",
+						"respawnDelay": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa71",
+					"type": "objectselector",
+					"position": {
+						"x": 720,
+						"y": 1840
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 09 Runner"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa72",
+					"type": "healthreset",
+					"position": {
+						"x": 60,
+						"y": 1940
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "enemy"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa73",
+					"type": "heal",
+					"position": {
+						"x": 280,
+						"y": 1940
+					},
+					"data": {
+						"label": "heal",
+						"amount": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa74",
+					"type": "counter",
+					"position": {
+						"x": 500,
+						"y": 1940
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa75",
+					"type": "damage",
+					"position": {
+						"x": 60,
+						"y": 2040
+					},
+					"data": {
+						"label": "damage",
+						"amount": 1,
+						"source": "wired",
+						"scale": "none",
+						"speedRef": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa76",
+					"type": "counter",
+					"position": {
+						"x": 280,
+						"y": 2040
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa77",
+					"type": "health",
+					"position": {
+						"x": 500,
+						"y": 2040
+					},
+					"data": {
+						"label": "health",
+						"name": "enemy",
+						"scope": "object",
+						"max": 8,
+						"deathAction": "hide",
+						"respawnDelay": 3
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa78",
+					"type": "objectselector",
+					"position": {
+						"x": 720,
+						"y": 2040
+					},
+					"data": {
+						"label": "objectselector",
+						"selected": "Enemy 10 Tank"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa79",
+					"type": "healthreset",
+					"position": {
+						"x": 60,
+						"y": 2140
+					},
+					"data": {
+						"label": "healthreset",
+						"name": "enemy"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa80",
+					"type": "heal",
+					"position": {
+						"x": 280,
+						"y": 2140
+					},
+					"data": {
+						"label": "heal",
+						"amount": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wa81",
+					"type": "counter",
+					"position": {
+						"x": 500,
+						"y": 2140
+					},
+					"data": {
+						"label": "counter",
+						"op": "up",
+						"step": 1
 					},
 					"class": "w-[150px]"
 				},
@@ -752,7 +1308,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 60,
-						"y": 1240
+						"y": 2440
 					},
 					"data": {
 						"label": "hudbutton",
@@ -765,7 +1321,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 1240
+						"y": 2440
 					},
 					"data": {
 						"label": "setgamestate",
@@ -779,7 +1335,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 60,
-						"y": 1340
+						"y": 2540
 					},
 					"data": {
 						"label": "hudbutton",
@@ -792,7 +1348,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 1340
+						"y": 2540
 					},
 					"data": {
 						"label": "setgamestate",
@@ -806,7 +1362,7 @@
 					"type": "wavesvalue",
 					"position": {
 						"x": 60,
-						"y": 1440
+						"y": 2640
 					},
 					"data": {
 						"label": "wavesvalue",
@@ -820,7 +1376,7 @@
 					"type": "hudtext",
 					"position": {
 						"x": 280,
-						"y": 1440
+						"y": 2640
 					},
 					"data": {
 						"label": "hudtext",
@@ -835,7 +1391,7 @@
 					"type": "wavesvalue",
 					"position": {
 						"x": 60,
-						"y": 1540
+						"y": 2740
 					},
 					"data": {
 						"label": "wavesvalue",
@@ -849,7 +1405,7 @@
 					"type": "hudtext",
 					"position": {
 						"x": 280,
-						"y": 1540
+						"y": 2740
 					},
 					"data": {
 						"label": "hudtext",
@@ -864,7 +1420,7 @@
 					"type": "healthvalue",
 					"position": {
 						"x": 60,
-						"y": 1640
+						"y": 2840
 					},
 					"data": {
 						"label": "healthvalue",
@@ -878,7 +1434,7 @@
 					"type": "hudbar",
 					"position": {
 						"x": 280,
-						"y": 1640
+						"y": 2840
 					},
 					"data": {
 						"label": "hudbar",
@@ -893,11 +1449,11 @@
 					"type": "leaderboard",
 					"position": {
 						"x": 60,
-						"y": 1740
+						"y": 2940
 					},
 					"data": {
 						"label": "leaderboard",
-						"variable": "kills",
+						"variable": "score",
 						"element": "wv-kills,wv-kills-over",
 						"limit": 8
 					},
@@ -908,7 +1464,7 @@
 					"type": "keypress",
 					"position": {
 						"x": 60,
-						"y": 1840
+						"y": 3040
 					},
 					"data": {
 						"label": "keypress",
@@ -923,7 +1479,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 280,
-						"y": 1840
+						"y": 3040
 					},
 					"data": {
 						"label": "hudscreen",
@@ -937,7 +1493,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 60,
-						"y": 1940
+						"y": 3140
 					},
 					"data": {
 						"label": "hudbutton",
@@ -950,7 +1506,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 280,
-						"y": 1940
+						"y": 3140
 					},
 					"data": {
 						"label": "hudscreen",
@@ -964,7 +1520,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 60,
-						"y": 2040
+						"y": 3240
 					},
 					"data": {
 						"label": "hudbutton",
@@ -977,7 +1533,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 2040
+						"y": 3240
 					},
 					"data": {
 						"label": "setgamestate",
@@ -992,7 +1548,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 500,
-						"y": 2040
+						"y": 3240
 					},
 					"data": {
 						"label": "hudscreen",
@@ -1006,7 +1562,7 @@
 					"type": "hudbutton",
 					"position": {
 						"x": 60,
-						"y": 2140
+						"y": 3340
 					},
 					"data": {
 						"label": "hudbutton",
@@ -1019,7 +1575,7 @@
 					"type": "setgamestate",
 					"position": {
 						"x": 280,
-						"y": 2140
+						"y": 3340
 					},
 					"data": {
 						"label": "setgamestate",
@@ -1034,7 +1590,7 @@
 					"type": "hudscreen",
 					"position": {
 						"x": 500,
-						"y": 2140
+						"y": 3340
 					},
 					"data": {
 						"label": "hudscreen",
@@ -1044,11 +1600,460 @@
 					"class": "w-[150px]"
 				},
 				{
+					"id": "wh21",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 3440
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-menu"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh22",
+					"type": "setgamestate",
+					"position": {
+						"x": 280,
+						"y": 3440
+					},
+					"data": {
+						"label": "setgamestate",
+						"state": "menu",
+						"outcome": "",
+						"reset": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh23",
+					"type": "wavesvalue",
+					"position": {
+						"x": 60,
+						"y": 3540
+					},
+					"data": {
+						"label": "wavesvalue",
+						"name": "enemy",
+						"read": "level"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh24",
+					"type": "hudtext",
+					"position": {
+						"x": 280,
+						"y": 3540
+					},
+					"data": {
+						"label": "hudtext",
+						"element": "wv-level",
+						"format": "LEVEL {v}",
+						"decimals": 0
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh25",
+					"type": "wavesplayer",
+					"position": {
+						"x": 60,
+						"y": 3640
+					},
+					"data": {
+						"label": "wavesplayer",
+						"read": "score"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh26",
+					"type": "hudtext",
+					"position": {
+						"x": 280,
+						"y": 3640
+					},
+					"data": {
+						"label": "hudtext",
+						"element": "wv-score",
+						"format": "{v}",
+						"decimals": 0
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh27",
+					"type": "wavesplayer",
+					"position": {
+						"x": 60,
+						"y": 3740
+					},
+					"data": {
+						"label": "wavesplayer",
+						"read": "ability"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh28",
+					"type": "hudbar",
+					"position": {
+						"x": 280,
+						"y": 3740
+					},
+					"data": {
+						"label": "hudbar",
+						"element": "wv-ability",
+						"min": 0,
+						"max": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh29",
+					"type": "wavesplayer",
+					"position": {
+						"x": 60,
+						"y": 3840
+					},
+					"data": {
+						"label": "wavesplayer",
+						"read": "heat"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh30",
+					"type": "hudbar",
+					"position": {
+						"x": 280,
+						"y": 3840
+					},
+					"data": {
+						"label": "hudbar",
+						"element": "wv-heat",
+						"min": 0,
+						"max": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh31",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 3940
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-nav-howto",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh32",
+					"type": "hudscreen",
+					"position": {
+						"x": 280,
+						"y": 3940
+					},
+					"data": {
+						"label": "hudscreen",
+						"screen": "howto",
+						"action": "show"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh33",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4040
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-nav-loadout",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh34",
+					"type": "hudscreen",
+					"position": {
+						"x": 280,
+						"y": 4040
+					},
+					"data": {
+						"label": "hudscreen",
+						"screen": "loadout",
+						"action": "show"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh35",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4140
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-nav-options",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh36",
+					"type": "hudscreen",
+					"position": {
+						"x": 280,
+						"y": 4140
+					},
+					"data": {
+						"label": "hudscreen",
+						"screen": "options",
+						"action": "show"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh37",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4240
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-back-howto",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh38",
+					"type": "hudscreen",
+					"position": {
+						"x": 280,
+						"y": 4240
+					},
+					"data": {
+						"label": "hudscreen",
+						"screen": "howto",
+						"action": "hide"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh39",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4340
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-back-loadout",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh40",
+					"type": "hudscreen",
+					"position": {
+						"x": 280,
+						"y": 4340
+					},
+					"data": {
+						"label": "hudscreen",
+						"screen": "loadout",
+						"action": "hide"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh41",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4440
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-back-options",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh42",
+					"type": "hudscreen",
+					"position": {
+						"x": 280,
+						"y": 4440
+					},
+					"data": {
+						"label": "hudscreen",
+						"screen": "options",
+						"action": "hide"
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh43",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4540
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-gun-blaster",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh44",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4620
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-gun-scatter",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh45",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4700
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-gun-beam",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh46",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4780
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-ab-shield",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh47",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4860
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-ab-slowmo",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh48",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 4940
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-ab-pulse",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh49",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 5020
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-opt-music",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh50",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 5100
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-opt-sfx",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh51",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 5180
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-opt-hand",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "wh52",
+					"type": "hudbutton",
+					"position": {
+						"x": 60,
+						"y": 5260
+					},
+					"data": {
+						"label": "hudbutton",
+						"element": "wv-opt-haptics",
+						"perPlayer": true
+					},
+					"class": "w-[150px]"
+				},
+				{
 					"id": "wc0",
 					"type": "healthvalue",
 					"position": {
 						"x": 60,
-						"y": 2340
+						"y": 5640
 					},
 					"data": {
 						"label": "healthvalue",
@@ -1062,7 +2067,7 @@
 					"type": "wavescore",
 					"position": {
 						"x": 280,
-						"y": 2340
+						"y": 5640
 					},
 					"data": {
 						"label": "wavescore",
@@ -1076,7 +2081,7 @@
 					"type": "objectselector",
 					"position": {
 						"x": 500,
-						"y": 2340
+						"y": 5640
 					},
 					"data": {
 						"label": "objectselector",
@@ -1117,58 +2122,52 @@
 					"targetHandle": "reset"
 				},
 				{
-					"id": "e-wa8-wa9.pulse",
+					"id": "e-wa9-wa8.trigger",
+					"source": "wa9",
+					"target": "wa8",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wa8-wa5.pulse",
 					"source": "wa8",
-					"target": "wa9",
+					"target": "wa5",
 					"targetHandle": "pulse"
 				},
 				{
-					"id": "e-wa9-wa10.damage",
-					"source": "wa9",
-					"target": "wa10",
+					"id": "e-wa10-wa11.trigger",
+					"source": "wa10",
+					"target": "wa11",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wa12-wa13.pulse",
+					"source": "wa12",
+					"target": "wa13",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa13-wa14.damage",
+					"source": "wa13",
+					"target": "wa14",
 					"targetHandle": "damage"
 				},
 				{
-					"id": "e-wa11-wa10.target",
-					"source": "wa11",
-					"target": "wa10",
+					"id": "e-wa15-wa14.target",
+					"source": "wa15",
+					"target": "wa14",
 					"targetHandle": "target"
 				},
 				{
-					"id": "e-wa12-wa9.reset",
-					"source": "wa12",
-					"target": "wa9",
-					"targetHandle": "reset"
-				},
-				{
-					"id": "e-wa12-wa14.reset",
-					"source": "wa12",
-					"target": "wa14",
-					"targetHandle": "reset"
-				},
-				{
-					"id": "e-wa13-wa14.pulse",
-					"source": "wa13",
-					"target": "wa14",
-					"targetHandle": "pulse"
-				},
-				{
-					"id": "e-wa14-wa10.heal",
-					"source": "wa14",
-					"target": "wa10",
-					"targetHandle": "heal"
-				},
-				{
-					"id": "e-wa16-wa15.zone",
+					"id": "e-wa16-wa13.reset",
 					"source": "wa16",
-					"target": "wa15",
-					"targetHandle": "zone"
+					"target": "wa13",
+					"targetHandle": "reset"
 				},
 				{
-					"id": "e-wa15-wa6.damage",
-					"source": "wa15",
-					"target": "wa6",
-					"targetHandle": "damage"
+					"id": "e-wa16-wa18.reset",
+					"source": "wa16",
+					"target": "wa18",
+					"targetHandle": "reset"
 				},
 				{
 					"id": "e-wa17-wa18.pulse",
@@ -1177,52 +2176,52 @@
 					"targetHandle": "pulse"
 				},
 				{
-					"id": "e-wa18-wa19.damage",
+					"id": "e-wa18-wa14.heal",
 					"source": "wa18",
-					"target": "wa19",
-					"targetHandle": "damage"
-				},
-				{
-					"id": "e-wa20-wa19.target",
-					"source": "wa20",
-					"target": "wa19",
-					"targetHandle": "target"
-				},
-				{
-					"id": "e-wa21-wa18.reset",
-					"source": "wa21",
-					"target": "wa18",
-					"targetHandle": "reset"
-				},
-				{
-					"id": "e-wa21-wa23.reset",
-					"source": "wa21",
-					"target": "wa23",
-					"targetHandle": "reset"
-				},
-				{
-					"id": "e-wa22-wa23.pulse",
-					"source": "wa22",
-					"target": "wa23",
-					"targetHandle": "pulse"
-				},
-				{
-					"id": "e-wa23-wa19.heal",
-					"source": "wa23",
-					"target": "wa19",
+					"target": "wa14",
 					"targetHandle": "heal"
 				},
 				{
-					"id": "e-wa25-wa24.zone",
-					"source": "wa25",
-					"target": "wa24",
-					"targetHandle": "zone"
+					"id": "e-wa19-wa20.pulse",
+					"source": "wa19",
+					"target": "wa20",
+					"targetHandle": "pulse"
 				},
 				{
-					"id": "e-wa24-wa6.damage",
-					"source": "wa24",
-					"target": "wa6",
+					"id": "e-wa20-wa21.damage",
+					"source": "wa20",
+					"target": "wa21",
 					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa22-wa21.target",
+					"source": "wa22",
+					"target": "wa21",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa23-wa20.reset",
+					"source": "wa23",
+					"target": "wa20",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa23-wa25.reset",
+					"source": "wa23",
+					"target": "wa25",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa24-wa25.pulse",
+					"source": "wa24",
+					"target": "wa25",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa25-wa21.heal",
+					"source": "wa25",
+					"target": "wa21",
+					"targetHandle": "heal"
 				},
 				{
 					"id": "e-wa26-wa27.pulse",
@@ -1267,46 +2266,46 @@
 					"targetHandle": "heal"
 				},
 				{
-					"id": "e-wa34-wa33.zone",
-					"source": "wa34",
-					"target": "wa33",
-					"targetHandle": "zone"
-				},
-				{
-					"id": "e-wa33-wa6.damage",
+					"id": "e-wa33-wa34.pulse",
 					"source": "wa33",
-					"target": "wa6",
-					"targetHandle": "damage"
-				},
-				{
-					"id": "e-wa35-wa36.pulse",
-					"source": "wa35",
-					"target": "wa36",
+					"target": "wa34",
 					"targetHandle": "pulse"
 				},
 				{
-					"id": "e-wa36-wa37.damage",
-					"source": "wa36",
-					"target": "wa37",
+					"id": "e-wa34-wa35.damage",
+					"source": "wa34",
+					"target": "wa35",
 					"targetHandle": "damage"
 				},
 				{
-					"id": "e-wa38-wa37.target",
-					"source": "wa38",
-					"target": "wa37",
+					"id": "e-wa36-wa35.target",
+					"source": "wa36",
+					"target": "wa35",
 					"targetHandle": "target"
 				},
 				{
-					"id": "e-wa39-wa36.reset",
-					"source": "wa39",
-					"target": "wa36",
+					"id": "e-wa37-wa34.reset",
+					"source": "wa37",
+					"target": "wa34",
 					"targetHandle": "reset"
 				},
 				{
-					"id": "e-wa39-wa41.reset",
-					"source": "wa39",
-					"target": "wa41",
+					"id": "e-wa37-wa39.reset",
+					"source": "wa37",
+					"target": "wa39",
 					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa38-wa39.pulse",
+					"source": "wa38",
+					"target": "wa39",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa39-wa35.heal",
+					"source": "wa39",
+					"target": "wa35",
+					"targetHandle": "heal"
 				},
 				{
 					"id": "e-wa40-wa41.pulse",
@@ -1315,22 +2314,250 @@
 					"targetHandle": "pulse"
 				},
 				{
-					"id": "e-wa41-wa37.heal",
+					"id": "e-wa41-wa42.damage",
 					"source": "wa41",
-					"target": "wa37",
+					"target": "wa42",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa43-wa42.target",
+					"source": "wa43",
+					"target": "wa42",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa44-wa41.reset",
+					"source": "wa44",
+					"target": "wa41",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa44-wa46.reset",
+					"source": "wa44",
+					"target": "wa46",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa45-wa46.pulse",
+					"source": "wa45",
+					"target": "wa46",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa46-wa42.heal",
+					"source": "wa46",
+					"target": "wa42",
 					"targetHandle": "heal"
 				},
 				{
-					"id": "e-wa43-wa42.zone",
-					"source": "wa43",
-					"target": "wa42",
-					"targetHandle": "zone"
+					"id": "e-wa47-wa48.pulse",
+					"source": "wa47",
+					"target": "wa48",
+					"targetHandle": "pulse"
 				},
 				{
-					"id": "e-wa42-wa6.damage",
-					"source": "wa42",
-					"target": "wa6",
+					"id": "e-wa48-wa49.damage",
+					"source": "wa48",
+					"target": "wa49",
 					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa50-wa49.target",
+					"source": "wa50",
+					"target": "wa49",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa51-wa48.reset",
+					"source": "wa51",
+					"target": "wa48",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa51-wa53.reset",
+					"source": "wa51",
+					"target": "wa53",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa52-wa53.pulse",
+					"source": "wa52",
+					"target": "wa53",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa53-wa49.heal",
+					"source": "wa53",
+					"target": "wa49",
+					"targetHandle": "heal"
+				},
+				{
+					"id": "e-wa54-wa55.pulse",
+					"source": "wa54",
+					"target": "wa55",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa55-wa56.damage",
+					"source": "wa55",
+					"target": "wa56",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa57-wa56.target",
+					"source": "wa57",
+					"target": "wa56",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa58-wa55.reset",
+					"source": "wa58",
+					"target": "wa55",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa58-wa60.reset",
+					"source": "wa58",
+					"target": "wa60",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa59-wa60.pulse",
+					"source": "wa59",
+					"target": "wa60",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa60-wa56.heal",
+					"source": "wa60",
+					"target": "wa56",
+					"targetHandle": "heal"
+				},
+				{
+					"id": "e-wa61-wa62.pulse",
+					"source": "wa61",
+					"target": "wa62",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa62-wa63.damage",
+					"source": "wa62",
+					"target": "wa63",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa64-wa63.target",
+					"source": "wa64",
+					"target": "wa63",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa65-wa62.reset",
+					"source": "wa65",
+					"target": "wa62",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa65-wa67.reset",
+					"source": "wa65",
+					"target": "wa67",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa66-wa67.pulse",
+					"source": "wa66",
+					"target": "wa67",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa67-wa63.heal",
+					"source": "wa67",
+					"target": "wa63",
+					"targetHandle": "heal"
+				},
+				{
+					"id": "e-wa68-wa69.pulse",
+					"source": "wa68",
+					"target": "wa69",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa69-wa70.damage",
+					"source": "wa69",
+					"target": "wa70",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa71-wa70.target",
+					"source": "wa71",
+					"target": "wa70",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa72-wa69.reset",
+					"source": "wa72",
+					"target": "wa69",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa72-wa74.reset",
+					"source": "wa72",
+					"target": "wa74",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa73-wa74.pulse",
+					"source": "wa73",
+					"target": "wa74",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa74-wa70.heal",
+					"source": "wa74",
+					"target": "wa70",
+					"targetHandle": "heal"
+				},
+				{
+					"id": "e-wa75-wa76.pulse",
+					"source": "wa75",
+					"target": "wa76",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa76-wa77.damage",
+					"source": "wa76",
+					"target": "wa77",
+					"targetHandle": "damage"
+				},
+				{
+					"id": "e-wa78-wa77.target",
+					"source": "wa78",
+					"target": "wa77",
+					"targetHandle": "target"
+				},
+				{
+					"id": "e-wa79-wa76.reset",
+					"source": "wa79",
+					"target": "wa76",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa79-wa81.reset",
+					"source": "wa79",
+					"target": "wa81",
+					"targetHandle": "reset"
+				},
+				{
+					"id": "e-wa80-wa81.pulse",
+					"source": "wa80",
+					"target": "wa81",
+					"targetHandle": "pulse"
+				},
+				{
+					"id": "e-wa81-wa77.heal",
+					"source": "wa81",
+					"target": "wa77",
+					"targetHandle": "heal"
 				},
 				{
 					"id": "e-wh0-wh1.trigger",
@@ -1399,6 +2626,72 @@
 					"targetHandle": "trigger"
 				},
 				{
+					"id": "e-wh21-wh22.trigger",
+					"source": "wh21",
+					"target": "wh22",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh23-wh24.value",
+					"source": "wh23",
+					"target": "wh24",
+					"targetHandle": "value"
+				},
+				{
+					"id": "e-wh25-wh26.value",
+					"source": "wh25",
+					"target": "wh26",
+					"targetHandle": "value"
+				},
+				{
+					"id": "e-wh27-wh28.value",
+					"source": "wh27",
+					"target": "wh28",
+					"targetHandle": "value"
+				},
+				{
+					"id": "e-wh29-wh30.value",
+					"source": "wh29",
+					"target": "wh30",
+					"targetHandle": "value"
+				},
+				{
+					"id": "e-wh31-wh32.trigger",
+					"source": "wh31",
+					"target": "wh32",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh33-wh34.trigger",
+					"source": "wh33",
+					"target": "wh34",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh35-wh36.trigger",
+					"source": "wh35",
+					"target": "wh36",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh37-wh38.trigger",
+					"source": "wh37",
+					"target": "wh38",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh39-wh40.trigger",
+					"source": "wh39",
+					"target": "wh40",
+					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-wh41-wh42.trigger",
+					"source": "wh41",
+					"target": "wh42",
+					"targetHandle": "trigger"
+				},
+				{
 					"id": "e-wc0-wc1.value",
 					"source": "wc0",
 					"target": "wc1",
@@ -1429,12 +2722,12 @@
 							"anchor": "center",
 							"x": 0,
 							"y": 0,
-							"w": 480,
-							"h": 360,
+							"w": 520,
+							"h": 480,
 							"z": 0,
 							"label": "",
 							"style": {
-								"bg": "rgba(22, 18, 28, 0.92)",
+								"bg": "rgba(22, 18, 28, 0.93)",
 								"radius": 18,
 								"border": "1px solid rgba(255, 140, 100, 0.3)"
 							}
@@ -1444,8 +2737,8 @@
 							"kind": "panel",
 							"anchor": "center",
 							"x": 0,
-							"y": -176,
-							"w": 480,
+							"y": -236,
+							"w": 520,
 							"h": 8,
 							"z": 1,
 							"label": "",
@@ -1459,16 +2752,16 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": -122,
-							"w": 420,
-							"h": 56,
+							"y": -188,
+							"w": 460,
+							"h": 60,
 							"z": 1,
 							"label": "WAVES",
 							"style": {
-								"size": 46,
+								"size": 52,
 								"weight": "800",
 								"color": "#ff9c6b",
-								"align": "left"
+								"align": "center"
 							}
 						},
 						{
@@ -1476,15 +2769,15 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": -66,
-							"w": 420,
+							"y": -136,
+							"w": 440,
 							"h": 44,
 							"z": 1,
-							"label": "Hold the crystal. Every wave brings more enemies through the portals; the round ends when the last one falls.",
+							"label": "Five levels of enemies pour out of the portals. Pick your gun, hold the crystal.",
 							"style": {
 								"size": 14,
 								"color": "#e6dede",
-								"align": "left"
+								"align": "center"
 							},
 							"wrap": true
 						},
@@ -1493,14 +2786,14 @@
 							"kind": "button",
 							"anchor": "center",
 							"x": 0,
-							"y": 8,
-							"w": 420,
-							"h": 54,
+							"y": -68,
+							"w": 440,
+							"h": 60,
 							"z": 1,
-							"label": "Start",
+							"label": "▶  Play",
 							"enabled": true,
 							"style": {
-								"size": 20,
+								"size": 22,
 								"weight": "700",
 								"bg": "#d9533f",
 								"color": "#ffffff",
@@ -1508,20 +2801,96 @@
 							}
 						},
 						{
-							"id": "wv-log",
+							"id": "wv-nav-howto",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 2,
+							"w": 440,
+							"h": 46,
+							"z": 1,
+							"label": "How to play",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-nav-loadout",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 56,
+							"w": 440,
+							"h": 46,
+							"z": 1,
+							"label": "Loadout",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-nav-options",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 110,
+							"w": 440,
+							"h": 46,
+							"z": 1,
+							"label": "Options",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-loadout-now",
 							"kind": "list",
 							"anchor": "center",
 							"x": 0,
-							"y": 92,
-							"w": 420,
-							"h": 76,
+							"y": 160,
+							"w": 440,
+							"h": 22,
 							"z": 1,
 							"label": "",
 							"rows": [],
 							"style": {
-								"size": 12,
+								"size": 13,
+								"weight": "600",
+								"color": "#ffd0b0",
+								"align": "center",
+								"bg": "transparent"
+							}
+						},
+						{
+							"id": "wv-best",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": 184,
+							"w": 440,
+							"h": 22,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 13,
 								"color": "#d6c8c8",
-								"align": "left",
+								"align": "center",
 								"bg": "transparent"
 							}
 						},
@@ -1530,15 +2899,825 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": 150,
-							"w": 420,
+							"y": 216,
+							"w": 460,
 							"h": 20,
 							"z": 1,
-							"label": "Knock them down: walk into them or grab and throw  ·  P pauses",
+							"label": "Trigger / click: shoot  ·  Grip / Q: ability  ·  P: pause",
 							"style": {
 								"size": 11,
 								"color": "#9b8f8f",
+								"align": "center"
+							}
+						}
+					]
+				},
+				{
+					"id": "howto",
+					"name": "How to play",
+					"input": "menu",
+					"elements": [
+						{
+							"id": "howto-panel",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 640,
+							"h": 540,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(22, 18, 28, 0.93)",
+								"radius": 18,
+								"border": "1px solid rgba(255, 140, 100, 0.3)"
+							}
+						},
+						{
+							"id": "howto-title",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -226,
+							"w": 560,
+							"h": 44,
+							"z": 1,
+							"label": "HOW TO PLAY",
+							"style": {
+								"size": 32,
+								"weight": "800",
+								"color": "#ff9c6b",
+								"align": "center"
+							}
+						},
+						{
+							"id": "howto-icon-1-bg",
+							"kind": "panel",
+							"anchor": "center",
+							"x": -250,
+							"y": -150,
+							"w": 64,
+							"h": 64,
+							"z": 1,
+							"label": "",
+							"style": {
+								"bg": "#1e8fb0",
+								"radius": 14,
+								"border": "1px solid rgba(255,255,255,0.25)"
+							}
+						},
+						{
+							"id": "howto-icon-1",
+							"kind": "text",
+							"anchor": "center",
+							"x": -250,
+							"y": -150,
+							"w": 64,
+							"h": 64,
+							"z": 2,
+							"label": "🎯",
+							"style": {
+								"size": 34,
+								"color": "#ffffff",
+								"align": "center"
+							}
+						},
+						{
+							"id": "howto-1",
+							"kind": "text",
+							"anchor": "center",
+							"x": 50,
+							"y": -150,
+							"w": 480,
+							"h": 74,
+							"z": 1,
+							"label": "SHOOT — pull the trigger (desktop: click). The gun is in your right hand; switch hands in Options.",
+							"style": {
+								"size": 14,
+								"color": "#e6dede",
 								"align": "left"
+							},
+							"wrap": true
+						},
+						{
+							"id": "howto-icon-2-bg",
+							"kind": "panel",
+							"anchor": "center",
+							"x": -250,
+							"y": -64,
+							"w": 64,
+							"h": 64,
+							"z": 1,
+							"label": "",
+							"style": {
+								"bg": "#2a8a9a",
+								"radius": 14,
+								"border": "1px solid rgba(255,255,255,0.25)"
+							}
+						},
+						{
+							"id": "howto-icon-2",
+							"kind": "text",
+							"anchor": "center",
+							"x": -250,
+							"y": -64,
+							"w": 64,
+							"h": 64,
+							"z": 2,
+							"label": "💎",
+							"style": {
+								"size": 34,
+								"color": "#ffffff",
+								"align": "center"
+							}
+						},
+						{
+							"id": "howto-2",
+							"kind": "text",
+							"anchor": "center",
+							"x": 50,
+							"y": -64,
+							"w": 480,
+							"h": 74,
+							"z": 1,
+							"label": "HOLD THE CRYSTAL — enemies walk from the portals to it. One that reaches it explodes: −2 crystal. At zero the run is lost.",
+							"style": {
+								"size": 14,
+								"color": "#e6dede",
+								"align": "left"
+							},
+							"wrap": true
+						},
+						{
+							"id": "howto-icon-3-bg",
+							"kind": "panel",
+							"anchor": "center",
+							"x": -250,
+							"y": 22,
+							"w": 64,
+							"h": 64,
+							"z": 1,
+							"label": "",
+							"style": {
+								"bg": "#8a5cff",
+								"radius": 14,
+								"border": "1px solid rgba(255,255,255,0.25)"
+							}
+						},
+						{
+							"id": "howto-icon-3",
+							"kind": "text",
+							"anchor": "center",
+							"x": -250,
+							"y": 22,
+							"w": 64,
+							"h": 64,
+							"z": 2,
+							"label": "✋",
+							"style": {
+								"size": 34,
+								"color": "#ffffff",
+								"align": "center"
+							}
+						},
+						{
+							"id": "howto-3",
+							"kind": "text",
+							"anchor": "center",
+							"x": 50,
+							"y": 22,
+							"w": 480,
+							"h": 74,
+							"z": 1,
+							"label": "ABILITY — squeeze the grip on your free hand (desktop: Q): Shield, Slow-mo or Pulse. Then it recharges.",
+							"style": {
+								"size": 14,
+								"color": "#e6dede",
+								"align": "left"
+							},
+							"wrap": true
+						},
+						{
+							"id": "howto-icon-4-bg",
+							"kind": "panel",
+							"anchor": "center",
+							"x": -250,
+							"y": 108,
+							"w": 64,
+							"h": 64,
+							"z": 1,
+							"label": "",
+							"style": {
+								"bg": "#b8901c",
+								"radius": 14,
+								"border": "1px solid rgba(255,255,255,0.25)"
+							}
+						},
+						{
+							"id": "howto-icon-4",
+							"kind": "text",
+							"anchor": "center",
+							"x": -250,
+							"y": 108,
+							"w": 64,
+							"h": 64,
+							"z": 2,
+							"label": "⭐",
+							"style": {
+								"size": 34,
+								"color": "#ffffff",
+								"align": "center"
+							}
+						},
+						{
+							"id": "howto-4",
+							"kind": "text",
+							"anchor": "center",
+							"x": 50,
+							"y": 108,
+							"w": 480,
+							"h": 74,
+							"z": 1,
+							"label": "LEVELS — every 3 waves is a new level: runners, then tanks, then faster. Higher levels score more.",
+							"style": {
+								"size": 14,
+								"color": "#e6dede",
+								"align": "left"
+							},
+							"wrap": true
+						},
+						{
+							"id": "wv-back-howto",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 212,
+							"w": 260,
+							"h": 46,
+							"z": 1,
+							"label": "Back",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
+							}
+						}
+					]
+				},
+				{
+					"id": "loadout",
+					"name": "Loadout",
+					"input": "menu",
+					"elements": [
+						{
+							"id": "loadout-panel",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 660,
+							"h": 520,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(22, 18, 28, 0.93)",
+								"radius": 18,
+								"border": "1px solid rgba(255, 140, 100, 0.3)"
+							}
+						},
+						{
+							"id": "loadout-title",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -214,
+							"w": 560,
+							"h": 44,
+							"z": 1,
+							"label": "LOADOUT",
+							"style": {
+								"size": 32,
+								"weight": "800",
+								"color": "#ff9c6b",
+								"align": "center"
+							}
+						},
+						{
+							"id": "loadout-gun",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -168,
+							"w": 600,
+							"h": 22,
+							"z": 1,
+							"label": "GUN",
+							"style": {
+								"size": 12,
+								"weight": "700",
+								"color": "#c8b8b8",
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-gun-blaster",
+							"kind": "button",
+							"anchor": "center",
+							"x": -205,
+							"y": -126,
+							"w": 190,
+							"h": 50,
+							"z": 1,
+							"label": "Blaster",
+							"enabled": true,
+							"style": {
+								"size": 17,
+								"weight": "700",
+								"bg": "#1e8fb0",
+								"color": "#ffffff",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-gun-blaster-blurb",
+							"kind": "text",
+							"anchor": "center",
+							"x": -205,
+							"y": -78,
+							"w": 190,
+							"h": 40,
+							"z": 1,
+							"label": "Semi-auto. One precise bolt per pull.",
+							"style": {
+								"size": 12,
+								"color": "#d6c8c8",
+								"align": "center"
+							},
+							"wrap": true
+						},
+						{
+							"id": "wv-gun-scatter",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": -126,
+							"w": 190,
+							"h": 50,
+							"z": 1,
+							"label": "Scatter",
+							"enabled": true,
+							"style": {
+								"size": 17,
+								"weight": "700",
+								"bg": "#c46a1c",
+								"color": "#ffffff",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-gun-scatter-blurb",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -78,
+							"w": 190,
+							"h": 40,
+							"z": 1,
+							"label": "7 pellets, slow pump. Brutal up close.",
+							"style": {
+								"size": 12,
+								"color": "#d6c8c8",
+								"align": "center"
+							},
+							"wrap": true
+						},
+						{
+							"id": "wv-gun-beam",
+							"kind": "button",
+							"anchor": "center",
+							"x": 205,
+							"y": -126,
+							"w": 190,
+							"h": 50,
+							"z": 1,
+							"label": "Beam",
+							"enabled": true,
+							"style": {
+								"size": 17,
+								"weight": "700",
+								"bg": "#a2308c",
+								"color": "#ffffff",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-gun-beam-blurb",
+							"kind": "text",
+							"anchor": "center",
+							"x": 205,
+							"y": -78,
+							"w": 190,
+							"h": 40,
+							"z": 1,
+							"label": "Hold to burn. Overheats — let it cool.",
+							"style": {
+								"size": 12,
+								"color": "#d6c8c8",
+								"align": "center"
+							},
+							"wrap": true
+						},
+						{
+							"id": "loadout-ability",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -24,
+							"w": 600,
+							"h": 22,
+							"z": 1,
+							"label": "ABILITY",
+							"style": {
+								"size": 12,
+								"weight": "700",
+								"color": "#c8b8b8",
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-ab-shield",
+							"kind": "button",
+							"anchor": "center",
+							"x": -205,
+							"y": 18,
+							"w": 190,
+							"h": 50,
+							"z": 1,
+							"label": "Shield",
+							"enabled": true,
+							"style": {
+								"size": 17,
+								"weight": "700",
+								"bg": "#1e8fb0",
+								"color": "#ffffff",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-ab-shield-blurb",
+							"kind": "text",
+							"anchor": "center",
+							"x": -205,
+							"y": 66,
+							"w": 190,
+							"h": 40,
+							"z": 1,
+							"label": "Blocks all crystal damage for 3 s.",
+							"style": {
+								"size": 12,
+								"color": "#d6c8c8",
+								"align": "center"
+							},
+							"wrap": true
+						},
+						{
+							"id": "wv-ab-slowmo",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 18,
+							"w": 190,
+							"h": 50,
+							"z": 1,
+							"label": "Slow-mo",
+							"enabled": true,
+							"style": {
+								"size": 17,
+								"weight": "700",
+								"bg": "#5a4fc0",
+								"color": "#ffffff",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-ab-slowmo-blurb",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": 66,
+							"w": 190,
+							"h": 40,
+							"z": 1,
+							"label": "Every enemy at 40% for 4 s.",
+							"style": {
+								"size": 12,
+								"color": "#d6c8c8",
+								"align": "center"
+							},
+							"wrap": true
+						},
+						{
+							"id": "wv-ab-pulse",
+							"kind": "button",
+							"anchor": "center",
+							"x": 205,
+							"y": 18,
+							"w": 190,
+							"h": 50,
+							"z": 1,
+							"label": "Pulse",
+							"enabled": true,
+							"style": {
+								"size": 17,
+								"weight": "700",
+								"bg": "#b8901c",
+								"color": "#ffffff",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-ab-pulse-blurb",
+							"kind": "text",
+							"anchor": "center",
+							"x": 205,
+							"y": 66,
+							"w": 190,
+							"h": 40,
+							"z": 1,
+							"label": "A shockwave shoves them back.",
+							"style": {
+								"size": 12,
+								"color": "#d6c8c8",
+								"align": "center"
+							},
+							"wrap": true
+						},
+						{
+							"id": "wv-loadout-pick",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": 128,
+							"w": 560,
+							"h": 28,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 17,
+								"weight": "700",
+								"color": "#ffd0b0",
+								"align": "center",
+								"bg": "transparent"
+							}
+						},
+						{
+							"id": "wv-back-loadout",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 196,
+							"w": 260,
+							"h": 46,
+							"z": 1,
+							"label": "Back",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
+							}
+						}
+					]
+				},
+				{
+					"id": "options",
+					"name": "Options",
+					"input": "menu",
+					"elements": [
+						{
+							"id": "options-panel",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 540,
+							"h": 460,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(22, 18, 28, 0.93)",
+								"radius": 18,
+								"border": "1px solid rgba(255, 140, 100, 0.3)"
+							}
+						},
+						{
+							"id": "options-title",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": -184,
+							"w": 480,
+							"h": 44,
+							"z": 1,
+							"label": "OPTIONS",
+							"style": {
+								"size": 32,
+								"weight": "800",
+								"color": "#ff9c6b",
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-opt-music",
+							"kind": "button",
+							"anchor": "center",
+							"x": -80,
+							"y": -112,
+							"w": 260,
+							"h": 46,
+							"z": 1,
+							"label": "Music",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-opt-music-v",
+							"kind": "list",
+							"anchor": "center",
+							"x": 150,
+							"y": -112,
+							"w": 170,
+							"h": 30,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 16,
+								"weight": "700",
+								"color": "#ffd0b0",
+								"align": "left",
+								"bg": "transparent"
+							}
+						},
+						{
+							"id": "wv-opt-sfx",
+							"kind": "button",
+							"anchor": "center",
+							"x": -80,
+							"y": -52,
+							"w": 260,
+							"h": 46,
+							"z": 1,
+							"label": "Sound effects",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-opt-sfx-v",
+							"kind": "list",
+							"anchor": "center",
+							"x": 150,
+							"y": -52,
+							"w": 170,
+							"h": 30,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 16,
+								"weight": "700",
+								"color": "#ffd0b0",
+								"align": "left",
+								"bg": "transparent"
+							}
+						},
+						{
+							"id": "wv-opt-hand",
+							"kind": "button",
+							"anchor": "center",
+							"x": -80,
+							"y": 8,
+							"w": 260,
+							"h": 46,
+							"z": 1,
+							"label": "Gun hand",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-opt-hand-v",
+							"kind": "list",
+							"anchor": "center",
+							"x": 150,
+							"y": 8,
+							"w": 170,
+							"h": 30,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 16,
+								"weight": "700",
+								"color": "#ffd0b0",
+								"align": "left",
+								"bg": "transparent"
+							}
+						},
+						{
+							"id": "wv-opt-haptics",
+							"kind": "button",
+							"anchor": "center",
+							"x": -80,
+							"y": 68,
+							"w": 260,
+							"h": 46,
+							"z": 1,
+							"label": "Vibration",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-opt-haptics-v",
+							"kind": "list",
+							"anchor": "center",
+							"x": 150,
+							"y": 68,
+							"w": 170,
+							"h": 30,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"style": {
+								"size": 16,
+								"weight": "700",
+								"color": "#ffd0b0",
+								"align": "left",
+								"bg": "transparent"
+							}
+						},
+						{
+							"id": "options-hint",
+							"kind": "text",
+							"anchor": "center",
+							"x": 0,
+							"y": 130,
+							"w": 480,
+							"h": 20,
+							"z": 1,
+							"label": "Tap a setting to change it. Saved on this device.",
+							"style": {
+								"size": 12,
+								"color": "#9b8f8f",
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-back-options",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 182,
+							"w": 260,
+							"h": 46,
+							"z": 1,
+							"label": "Back",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
+								"radius": 12
 							}
 						}
 					]
@@ -1555,8 +3734,8 @@
 							"anchor": "top-center",
 							"x": 0,
 							"y": 10,
-							"w": 150,
-							"h": 68,
+							"w": 190,
+							"h": 86,
 							"z": 0,
 							"label": "",
 							"style": {
@@ -1571,15 +3750,32 @@
 							"anchor": "top-center",
 							"x": 0,
 							"y": 14,
-							"w": 122,
-							"h": 34,
+							"w": 170,
+							"h": 32,
 							"z": 1,
 							"label": "Wave 1",
 							"style": {
 								"size": 24,
 								"weight": "800",
 								"color": "#ff9c6b",
-								"align": "left"
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-level",
+							"kind": "text",
+							"anchor": "top-center",
+							"x": 0,
+							"y": 46,
+							"w": 170,
+							"h": 20,
+							"z": 1,
+							"label": "LEVEL 1",
+							"style": {
+								"size": 12,
+								"weight": "700",
+								"color": "#ffd24a",
+								"align": "center"
 							}
 						},
 						{
@@ -1587,14 +3783,64 @@
 							"kind": "text",
 							"anchor": "top-center",
 							"x": 0,
-							"y": 48,
-							"w": 122,
-							"h": 24,
+							"y": 66,
+							"w": 170,
+							"h": 22,
 							"z": 1,
 							"label": "",
 							"style": {
-								"size": 14,
+								"size": 13,
 								"color": "#e6dede",
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-score-bg",
+							"kind": "panel",
+							"anchor": "top-left",
+							"x": 16,
+							"y": 12,
+							"w": 180,
+							"h": 70,
+							"z": 0,
+							"label": "",
+							"style": {
+								"bg": "rgba(22, 18, 28, 0.78)",
+								"radius": 14,
+								"border": "1px solid rgba(255, 140, 100, 0.25)"
+							}
+						},
+						{
+							"id": "wv-score-label",
+							"kind": "text",
+							"anchor": "top-left",
+							"x": 30,
+							"y": 18,
+							"w": 150,
+							"h": 18,
+							"z": 1,
+							"label": "SCORE",
+							"style": {
+								"size": 11,
+								"weight": "700",
+								"color": "#c8b8b8",
+								"align": "left"
+							}
+						},
+						{
+							"id": "wv-score",
+							"kind": "text",
+							"anchor": "top-left",
+							"x": 30,
+							"y": 38,
+							"w": 160,
+							"h": 36,
+							"z": 1,
+							"label": "0",
+							"style": {
+								"size": 28,
+								"weight": "800",
+								"color": "#ffffff",
 								"align": "left"
 							}
 						},
@@ -1607,12 +3853,12 @@
 							"w": 340,
 							"h": 18,
 							"z": 1,
-							"label": "HEALTH",
+							"label": "CRYSTAL",
 							"style": {
-								"size": 10,
+								"size": 11,
 								"weight": "700",
-								"color": "#c8e6cc",
-								"align": "left"
+								"color": "#9ff0ff",
+								"align": "center"
 							}
 						},
 						{
@@ -1631,9 +3877,106 @@
 							"orientation": "horizontal",
 							"showPercent": false,
 							"style": {
-								"color": "#6fcf7a",
+								"color": "#39e0ff",
 								"bg": "rgba(0,0,0,0.45)",
 								"radius": 10
+							}
+						},
+						{
+							"id": "wv-ability-label",
+							"kind": "list",
+							"anchor": "bottom-right",
+							"x": 20,
+							"y": 62,
+							"w": 200,
+							"h": 24,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"rowHeight": 20,
+							"style": {
+								"size": 11,
+								"weight": "700",
+								"color": "#ffe7a0",
+								"align": "left",
+								"bg": "transparent"
+							}
+						},
+						{
+							"id": "wv-ability",
+							"kind": "bar",
+							"anchor": "bottom-right",
+							"x": 20,
+							"y": 46,
+							"w": 200,
+							"h": 14,
+							"z": 1,
+							"label": "",
+							"min": 0,
+							"max": 1,
+							"value": 1,
+							"orientation": "horizontal",
+							"showPercent": false,
+							"style": {
+								"color": "#ffd24a",
+								"bg": "rgba(0,0,0,0.45)",
+								"radius": 7
+							}
+						},
+						{
+							"id": "wv-heat-label",
+							"kind": "text",
+							"anchor": "bottom-right",
+							"x": 20,
+							"y": 30,
+							"w": 200,
+							"h": 14,
+							"z": 1,
+							"label": "HEAT",
+							"style": {
+								"size": 9,
+								"weight": "700",
+								"color": "#ff9ce8",
+								"align": "right"
+							}
+						},
+						{
+							"id": "wv-heat",
+							"kind": "bar",
+							"anchor": "bottom-right",
+							"x": 20,
+							"y": 18,
+							"w": 200,
+							"h": 10,
+							"z": 1,
+							"label": "",
+							"min": 0,
+							"max": 1,
+							"value": 0,
+							"orientation": "horizontal",
+							"showPercent": false,
+							"style": {
+								"color": "#ff4fd8",
+								"bg": "rgba(0,0,0,0.45)",
+								"radius": 5
+							}
+						},
+						{
+							"id": "wv-crosshair",
+							"kind": "crosshair",
+							"anchor": "center",
+							"x": 0,
+							"y": 0,
+							"w": 24,
+							"h": 24,
+							"z": 2,
+							"label": "",
+							"thickness": 2,
+							"gap": 5,
+							"dot": true,
+							"style": {
+								"color": "#ffffff",
+								"opacity": 0.85
 							}
 						},
 						{
@@ -1673,7 +4016,7 @@
 							"z": 0,
 							"label": "",
 							"style": {
-								"bg": "rgba(22, 18, 28, 0.92)",
+								"bg": "rgba(22, 18, 28, 0.93)",
 								"radius": 18,
 								"border": "1px solid rgba(255, 140, 100, 0.3)"
 							}
@@ -1692,7 +4035,7 @@
 								"size": 28,
 								"weight": "800",
 								"color": "#e6dede",
-								"align": "left"
+								"align": "center"
 							}
 						},
 						{
@@ -1756,7 +4099,7 @@
 				},
 				{
 					"id": "over",
-					"name": "Round over",
+					"name": "Results",
 					"showWhile": "over",
 					"input": "menu",
 					"elements": [
@@ -1766,14 +4109,29 @@
 							"anchor": "center",
 							"x": 0,
 							"y": 0,
-							"w": 480,
-							"h": 360,
+							"w": 520,
+							"h": 440,
 							"z": 0,
 							"label": "",
 							"style": {
-								"bg": "rgba(22, 18, 28, 0.92)",
+								"bg": "rgba(22, 18, 28, 0.93)",
 								"radius": 18,
 								"border": "1px solid rgba(255, 140, 100, 0.3)"
+							}
+						},
+						{
+							"id": "over-stripe",
+							"kind": "panel",
+							"anchor": "center",
+							"x": 0,
+							"y": -216,
+							"w": 520,
+							"h": 8,
+							"z": 1,
+							"label": "",
+							"style": {
+								"bg": "#ff7a4a",
+								"radius": 4
 							}
 						},
 						{
@@ -1781,16 +4139,57 @@
 							"kind": "text",
 							"anchor": "center",
 							"x": 0,
-							"y": -126,
-							"w": 420,
-							"h": 44,
+							"y": -176,
+							"w": 460,
+							"h": 40,
 							"z": 1,
-							"label": "ARENA CLEARED",
+							"label": "RESULTS",
 							"style": {
-								"size": 32,
+								"size": 30,
 								"weight": "800",
 								"color": "#ff9c6b",
-								"align": "left"
+								"align": "center"
+							}
+						},
+						{
+							"id": "wv-result-title",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": -124,
+							"w": 300,
+							"h": 34,
+							"z": 1,
+							"label": "",
+							"rows": [
+								"ROUND OVER"
+							],
+							"rowHeight": 30,
+							"style": {
+								"size": 22,
+								"weight": "800",
+								"color": "#ffd0b0",
+								"align": "left",
+								"bg": "transparent"
+							}
+						},
+						{
+							"id": "wv-result",
+							"kind": "list",
+							"anchor": "center",
+							"x": 0,
+							"y": -58,
+							"w": 300,
+							"h": 80,
+							"z": 1,
+							"label": "",
+							"rows": [],
+							"rowHeight": 24,
+							"style": {
+								"size": 15,
+								"color": "#e6dede",
+								"align": "left",
+								"bg": "transparent"
 							}
 						},
 						{
@@ -1798,34 +4197,16 @@
 							"kind": "list",
 							"anchor": "center",
 							"x": 0,
-							"y": -50,
-							"w": 420,
-							"h": 90,
+							"y": 30,
+							"w": 300,
+							"h": 76,
 							"z": 1,
 							"label": "",
 							"rows": [],
 							"style": {
-								"size": 14,
-								"color": "#e6dede",
-								"align": "center",
-								"bg": "transparent"
-							}
-						},
-						{
-							"id": "wv-log-over",
-							"kind": "list",
-							"anchor": "center",
-							"x": 0,
-							"y": 40,
-							"w": 420,
-							"h": 70,
-							"z": 1,
-							"label": "",
-							"rows": [],
-							"style": {
-								"size": 12,
-								"color": "#d6c8c8",
-								"align": "center",
+								"size": 13,
+								"color": "#ffe0d0",
+								"align": "left",
 								"bg": "transparent"
 							}
 						},
@@ -1834,17 +4215,36 @@
 							"kind": "button",
 							"anchor": "center",
 							"x": 0,
-							"y": 124,
-							"w": 260,
-							"h": 48,
+							"y": 118,
+							"w": 300,
+							"h": 52,
 							"z": 1,
-							"label": "Again",
+							"label": "Play again",
 							"enabled": true,
 							"style": {
-								"size": 16,
+								"size": 18,
 								"weight": "700",
 								"bg": "#d9533f",
 								"color": "#ffffff",
+								"radius": 12
+							}
+						},
+						{
+							"id": "wv-menu",
+							"kind": "button",
+							"anchor": "center",
+							"x": 0,
+							"y": 176,
+							"w": 300,
+							"h": 44,
+							"z": 1,
+							"label": "Menu",
+							"enabled": true,
+							"style": {
+								"size": 15,
+								"weight": "600",
+								"bg": "#3a3440",
+								"color": "#e6dede",
 								"radius": 12
 							}
 						}
@@ -1975,11 +4375,11 @@
 		},
 		{
 			"type": "group",
-			"name": "Enemy 1",
+			"name": "Enemy 01",
 			"pos": [
-				-6,
+				-6.75,
 				0.62,
-				-8
+				-14.5
 			],
 			"physics": {
 				"mode": "dynamic",
@@ -1994,7 +4394,7 @@
 			"children": [
 				{
 					"type": "capsule",
-					"name": "Enemy 1 body",
+					"name": "Enemy 01 body",
 					"r": 0.32,
 					"h": 0.5,
 					"pos": [
@@ -2008,9 +4408,9 @@
 				},
 				{
 					"type": "box",
-					"name": "Enemy 1 visor",
+					"name": "Enemy 01 visor",
 					"size": [
-						0.44,
+						0.4416,
 						0.11,
 						0.2
 					],
@@ -2018,7 +4418,7 @@
 					"pos": [
 						0,
 						0.2,
-						0.2
+						0.1984
 					],
 					"color": 8255999,
 					"emissive": 8255999,
@@ -2027,17 +4427,18 @@
 					"shadow": false
 				},
 				{
-					"type": "box",
-					"name": "Enemy 1 belt",
-					"size": [
-						0.66,
-						0.06,
-						0.66
-					],
-					"bevel": 0.03,
+					"type": "torus",
+					"name": "Enemy 01 belt",
+					"r": 0.3136,
+					"tube": 0.035,
 					"pos": [
 						0,
 						-0.12,
+						0
+					],
+					"rot": [
+						1.5707963267948966,
+						0,
 						0
 					],
 					"color": 3809840,
@@ -2047,11 +4448,11 @@
 		},
 		{
 			"type": "group",
-			"name": "Enemy 2",
+			"name": "Enemy 02",
 			"pos": [
-				-4.5,
+				-3.35,
 				0.62,
-				-8
+				-14.5
 			],
 			"physics": {
 				"mode": "dynamic",
@@ -2066,7 +4467,7 @@
 			"children": [
 				{
 					"type": "capsule",
-					"name": "Enemy 2 body",
+					"name": "Enemy 02 body",
 					"r": 0.32,
 					"h": 0.5,
 					"pos": [
@@ -2080,9 +4481,9 @@
 				},
 				{
 					"type": "box",
-					"name": "Enemy 2 visor",
+					"name": "Enemy 02 visor",
 					"size": [
-						0.44,
+						0.4416,
 						0.11,
 						0.2
 					],
@@ -2090,7 +4491,7 @@
 					"pos": [
 						0,
 						0.2,
-						0.2
+						0.1984
 					],
 					"color": 8255999,
 					"emissive": 8255999,
@@ -2099,17 +4500,18 @@
 					"shadow": false
 				},
 				{
-					"type": "box",
-					"name": "Enemy 2 belt",
-					"size": [
-						0.66,
-						0.06,
-						0.66
-					],
-					"bevel": 0.03,
+					"type": "torus",
+					"name": "Enemy 02 belt",
+					"r": 0.3136,
+					"tube": 0.035,
 					"pos": [
 						0,
 						-0.12,
+						0
+					],
+					"rot": [
+						1.5707963267948966,
+						0,
 						0
 					],
 					"color": 3809840,
@@ -2119,11 +4521,11 @@
 		},
 		{
 			"type": "group",
-			"name": "Enemy 3",
+			"name": "Enemy 03",
 			"pos": [
-				-3,
+				0.04999999999999982,
 				0.62,
-				-8
+				-14.5
 			],
 			"physics": {
 				"mode": "dynamic",
@@ -2138,7 +4540,7 @@
 			"children": [
 				{
 					"type": "capsule",
-					"name": "Enemy 3 body",
+					"name": "Enemy 03 body",
 					"r": 0.32,
 					"h": 0.5,
 					"pos": [
@@ -2152,9 +4554,9 @@
 				},
 				{
 					"type": "box",
-					"name": "Enemy 3 visor",
+					"name": "Enemy 03 visor",
 					"size": [
-						0.44,
+						0.4416,
 						0.11,
 						0.2
 					],
@@ -2162,7 +4564,7 @@
 					"pos": [
 						0,
 						0.2,
-						0.2
+						0.1984
 					],
 					"color": 8255999,
 					"emissive": 8255999,
@@ -2171,17 +4573,18 @@
 					"shadow": false
 				},
 				{
-					"type": "box",
-					"name": "Enemy 3 belt",
-					"size": [
-						0.66,
-						0.06,
-						0.66
-					],
-					"bevel": 0.03,
+					"type": "torus",
+					"name": "Enemy 03 belt",
+					"r": 0.3136,
+					"tube": 0.035,
 					"pos": [
 						0,
 						-0.12,
+						0
+					],
+					"rot": [
+						1.5707963267948966,
+						0,
 						0
 					],
 					"color": 3809840,
@@ -2191,11 +4594,11 @@
 		},
 		{
 			"type": "group",
-			"name": "Enemy 4",
+			"name": "Enemy 04",
 			"pos": [
-				-1.5,
+				3.4499999999999993,
 				0.62,
-				-8
+				-14.5
 			],
 			"physics": {
 				"mode": "dynamic",
@@ -2210,7 +4613,7 @@
 			"children": [
 				{
 					"type": "capsule",
-					"name": "Enemy 4 body",
+					"name": "Enemy 04 body",
 					"r": 0.32,
 					"h": 0.5,
 					"pos": [
@@ -2224,9 +4627,9 @@
 				},
 				{
 					"type": "box",
-					"name": "Enemy 4 visor",
+					"name": "Enemy 04 visor",
 					"size": [
-						0.44,
+						0.4416,
 						0.11,
 						0.2
 					],
@@ -2234,7 +4637,7 @@
 					"pos": [
 						0,
 						0.2,
-						0.2
+						0.1984
 					],
 					"color": 8255999,
 					"emissive": 8255999,
@@ -2243,21 +4646,664 @@
 					"shadow": false
 				},
 				{
-					"type": "box",
-					"name": "Enemy 4 belt",
-					"size": [
-						0.66,
-						0.06,
-						0.66
-					],
-					"bevel": 0.03,
+					"type": "torus",
+					"name": "Enemy 04 belt",
+					"r": 0.3136,
+					"tube": 0.035,
 					"pos": [
 						0,
 						-0.12,
 						0
 					],
+					"rot": [
+						1.5707963267948966,
+						0,
+						0
+					],
 					"color": 3809840,
 					"roughness": 0.6
+				}
+			]
+		},
+		{
+			"type": "group",
+			"name": "Enemy 05 Runner",
+			"pos": [
+				6.85,
+				0.52,
+				-14.5
+			],
+			"physics": {
+				"mode": "dynamic",
+				"mass": 0.6,
+				"friction": 0.6,
+				"collider": "capsule",
+				"freeze": {
+					"rx": true,
+					"rz": true
+				}
+			},
+			"children": [
+				{
+					"type": "capsule",
+					"name": "Enemy 05 Runner body",
+					"r": 0.24,
+					"h": 0.46,
+					"pos": [
+						0,
+						0,
+						0
+					],
+					"color": 12120138,
+					"roughness": 0.45,
+					"clearcoat": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 05 Runner visor",
+					"size": [
+						0.33119999999999994,
+						0.11,
+						0.2
+					],
+					"bevel": 0.04,
+					"pos": [
+						0,
+						0.18400000000000002,
+						0.1488
+					],
+					"color": 16726830,
+					"emissive": 16726830,
+					"emissiveIntensity": 2.2,
+					"roughness": 0.2,
+					"shadow": false
+				},
+				{
+					"type": "torus",
+					"name": "Enemy 05 Runner belt",
+					"r": 0.2352,
+					"tube": 0.035,
+					"pos": [
+						0,
+						-0.1104,
+						0
+					],
+					"rot": [
+						1.5707963267948966,
+						0,
+						0
+					],
+					"color": 3809840,
+					"roughness": 0.6
+				},
+				{
+					"type": "box",
+					"name": "Enemy 05 Runner fin L",
+					"size": [
+						0.04,
+						0.26,
+						0.2
+					],
+					"bevel": 0.015,
+					"pos": [
+						-0.26,
+						0.046000000000000006,
+						-0.04
+					],
+					"rot": [
+						0.3,
+						0,
+						-0.35
+					],
+					"color": 2767380,
+					"roughness": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 05 Runner fin R",
+					"size": [
+						0.04,
+						0.26,
+						0.2
+					],
+					"bevel": 0.015,
+					"pos": [
+						0.26,
+						0.046000000000000006,
+						-0.04
+					],
+					"rot": [
+						0.3,
+						0,
+						0.35
+					],
+					"color": 2767380,
+					"roughness": 0.5
+				}
+			]
+		},
+		{
+			"type": "group",
+			"name": "Enemy 06 Runner",
+			"pos": [
+				-6.75,
+				0.52,
+				-16
+			],
+			"physics": {
+				"mode": "dynamic",
+				"mass": 0.6,
+				"friction": 0.6,
+				"collider": "capsule",
+				"freeze": {
+					"rx": true,
+					"rz": true
+				}
+			},
+			"children": [
+				{
+					"type": "capsule",
+					"name": "Enemy 06 Runner body",
+					"r": 0.24,
+					"h": 0.46,
+					"pos": [
+						0,
+						0,
+						0
+					],
+					"color": 12120138,
+					"roughness": 0.45,
+					"clearcoat": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 06 Runner visor",
+					"size": [
+						0.33119999999999994,
+						0.11,
+						0.2
+					],
+					"bevel": 0.04,
+					"pos": [
+						0,
+						0.18400000000000002,
+						0.1488
+					],
+					"color": 16726830,
+					"emissive": 16726830,
+					"emissiveIntensity": 2.2,
+					"roughness": 0.2,
+					"shadow": false
+				},
+				{
+					"type": "torus",
+					"name": "Enemy 06 Runner belt",
+					"r": 0.2352,
+					"tube": 0.035,
+					"pos": [
+						0,
+						-0.1104,
+						0
+					],
+					"rot": [
+						1.5707963267948966,
+						0,
+						0
+					],
+					"color": 3809840,
+					"roughness": 0.6
+				},
+				{
+					"type": "box",
+					"name": "Enemy 06 Runner fin L",
+					"size": [
+						0.04,
+						0.26,
+						0.2
+					],
+					"bevel": 0.015,
+					"pos": [
+						-0.26,
+						0.046000000000000006,
+						-0.04
+					],
+					"rot": [
+						0.3,
+						0,
+						-0.35
+					],
+					"color": 2767380,
+					"roughness": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 06 Runner fin R",
+					"size": [
+						0.04,
+						0.26,
+						0.2
+					],
+					"bevel": 0.015,
+					"pos": [
+						0.26,
+						0.046000000000000006,
+						-0.04
+					],
+					"rot": [
+						0.3,
+						0,
+						0.35
+					],
+					"color": 2767380,
+					"roughness": 0.5
+				}
+			]
+		},
+		{
+			"type": "group",
+			"name": "Enemy 07",
+			"pos": [
+				-3.35,
+				0.62,
+				-16
+			],
+			"physics": {
+				"mode": "dynamic",
+				"mass": 1,
+				"friction": 0.6,
+				"collider": "capsule",
+				"freeze": {
+					"rx": true,
+					"rz": true
+				}
+			},
+			"children": [
+				{
+					"type": "capsule",
+					"name": "Enemy 07 body",
+					"r": 0.32,
+					"h": 0.5,
+					"pos": [
+						0,
+						0,
+						0
+					],
+					"color": 16747100,
+					"roughness": 0.45,
+					"clearcoat": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 07 visor",
+					"size": [
+						0.4416,
+						0.11,
+						0.2
+					],
+					"bevel": 0.04,
+					"pos": [
+						0,
+						0.2,
+						0.1984
+					],
+					"color": 8255999,
+					"emissive": 8255999,
+					"emissiveIntensity": 2.2,
+					"roughness": 0.2,
+					"shadow": false
+				},
+				{
+					"type": "torus",
+					"name": "Enemy 07 belt",
+					"r": 0.3136,
+					"tube": 0.035,
+					"pos": [
+						0,
+						-0.12,
+						0
+					],
+					"rot": [
+						1.5707963267948966,
+						0,
+						0
+					],
+					"color": 3809840,
+					"roughness": 0.6
+				}
+			]
+		},
+		{
+			"type": "group",
+			"name": "Enemy 08 Tank",
+			"pos": [
+				0.04999999999999982,
+				0.82,
+				-16
+			],
+			"physics": {
+				"mode": "dynamic",
+				"mass": 3,
+				"friction": 0.6,
+				"collider": "capsule",
+				"freeze": {
+					"rx": true,
+					"rz": true
+				}
+			},
+			"children": [
+				{
+					"type": "capsule",
+					"name": "Enemy 08 Tank body",
+					"r": 0.46,
+					"h": 0.62,
+					"pos": [
+						0,
+						0,
+						0
+					],
+					"color": 9067775,
+					"roughness": 0.45,
+					"clearcoat": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 08 Tank visor",
+					"size": [
+						0.6348,
+						0.11,
+						0.2
+					],
+					"bevel": 0.04,
+					"pos": [
+						0,
+						0.248,
+						0.2852
+					],
+					"color": 16765514,
+					"emissive": 16765514,
+					"emissiveIntensity": 2.2,
+					"roughness": 0.2,
+					"shadow": false
+				},
+				{
+					"type": "torus",
+					"name": "Enemy 08 Tank belt",
+					"r": 0.45080000000000003,
+					"tube": 0.035,
+					"pos": [
+						0,
+						-0.1488,
+						0
+					],
+					"rot": [
+						1.5707963267948966,
+						0,
+						0
+					],
+					"color": 3809840,
+					"roughness": 0.6
+				},
+				{
+					"type": "box",
+					"name": "Enemy 08 Tank pauldron L",
+					"size": [
+						0.26,
+						0.2,
+						0.42
+					],
+					"bevel": 0.05,
+					"pos": [
+						-0.52,
+						0.186,
+						0
+					],
+					"color": 3811930,
+					"roughness": 0.4,
+					"metalness": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 08 Tank pauldron R",
+					"size": [
+						0.26,
+						0.2,
+						0.42
+					],
+					"bevel": 0.05,
+					"pos": [
+						0.52,
+						0.186,
+						0
+					],
+					"color": 3811930,
+					"roughness": 0.4,
+					"metalness": 0.5
+				}
+			]
+		},
+		{
+			"type": "group",
+			"name": "Enemy 09 Runner",
+			"pos": [
+				3.4499999999999993,
+				0.52,
+				-16
+			],
+			"physics": {
+				"mode": "dynamic",
+				"mass": 0.6,
+				"friction": 0.6,
+				"collider": "capsule",
+				"freeze": {
+					"rx": true,
+					"rz": true
+				}
+			},
+			"children": [
+				{
+					"type": "capsule",
+					"name": "Enemy 09 Runner body",
+					"r": 0.24,
+					"h": 0.46,
+					"pos": [
+						0,
+						0,
+						0
+					],
+					"color": 12120138,
+					"roughness": 0.45,
+					"clearcoat": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 09 Runner visor",
+					"size": [
+						0.33119999999999994,
+						0.11,
+						0.2
+					],
+					"bevel": 0.04,
+					"pos": [
+						0,
+						0.18400000000000002,
+						0.1488
+					],
+					"color": 16726830,
+					"emissive": 16726830,
+					"emissiveIntensity": 2.2,
+					"roughness": 0.2,
+					"shadow": false
+				},
+				{
+					"type": "torus",
+					"name": "Enemy 09 Runner belt",
+					"r": 0.2352,
+					"tube": 0.035,
+					"pos": [
+						0,
+						-0.1104,
+						0
+					],
+					"rot": [
+						1.5707963267948966,
+						0,
+						0
+					],
+					"color": 3809840,
+					"roughness": 0.6
+				},
+				{
+					"type": "box",
+					"name": "Enemy 09 Runner fin L",
+					"size": [
+						0.04,
+						0.26,
+						0.2
+					],
+					"bevel": 0.015,
+					"pos": [
+						-0.26,
+						0.046000000000000006,
+						-0.04
+					],
+					"rot": [
+						0.3,
+						0,
+						-0.35
+					],
+					"color": 2767380,
+					"roughness": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 09 Runner fin R",
+					"size": [
+						0.04,
+						0.26,
+						0.2
+					],
+					"bevel": 0.015,
+					"pos": [
+						0.26,
+						0.046000000000000006,
+						-0.04
+					],
+					"rot": [
+						0.3,
+						0,
+						0.35
+					],
+					"color": 2767380,
+					"roughness": 0.5
+				}
+			]
+		},
+		{
+			"type": "group",
+			"name": "Enemy 10 Tank",
+			"pos": [
+				6.85,
+				0.82,
+				-16
+			],
+			"physics": {
+				"mode": "dynamic",
+				"mass": 3,
+				"friction": 0.6,
+				"collider": "capsule",
+				"freeze": {
+					"rx": true,
+					"rz": true
+				}
+			},
+			"children": [
+				{
+					"type": "capsule",
+					"name": "Enemy 10 Tank body",
+					"r": 0.46,
+					"h": 0.62,
+					"pos": [
+						0,
+						0,
+						0
+					],
+					"color": 9067775,
+					"roughness": 0.45,
+					"clearcoat": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 10 Tank visor",
+					"size": [
+						0.6348,
+						0.11,
+						0.2
+					],
+					"bevel": 0.04,
+					"pos": [
+						0,
+						0.248,
+						0.2852
+					],
+					"color": 16765514,
+					"emissive": 16765514,
+					"emissiveIntensity": 2.2,
+					"roughness": 0.2,
+					"shadow": false
+				},
+				{
+					"type": "torus",
+					"name": "Enemy 10 Tank belt",
+					"r": 0.45080000000000003,
+					"tube": 0.035,
+					"pos": [
+						0,
+						-0.1488,
+						0
+					],
+					"rot": [
+						1.5707963267948966,
+						0,
+						0
+					],
+					"color": 3809840,
+					"roughness": 0.6
+				},
+				{
+					"type": "box",
+					"name": "Enemy 10 Tank pauldron L",
+					"size": [
+						0.26,
+						0.2,
+						0.42
+					],
+					"bevel": 0.05,
+					"pos": [
+						-0.52,
+						0.186,
+						0
+					],
+					"color": 3811930,
+					"roughness": 0.4,
+					"metalness": 0.5
+				},
+				{
+					"type": "box",
+					"name": "Enemy 10 Tank pauldron R",
+					"size": [
+						0.26,
+						0.2,
+						0.42
+					],
+					"bevel": 0.05,
+					"pos": [
+						0.52,
+						0.186,
+						0
+					],
+					"color": 3811930,
+					"roughness": 0.4,
+					"metalness": 0.5
 				}
 			]
 		},

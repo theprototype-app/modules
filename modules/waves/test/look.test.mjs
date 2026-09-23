@@ -1,18 +1,18 @@
 // the arena's look — pure (30-visuals-mod): the rule objects keep their contract, the look is
 // one group, the standard shell holds, the juice is a pure function of time.
-import { wavesDef } from '../src/def.js';
+import { wavesDef, ROSTER } from '../src/def.js';
 import { arenaObjects, enemyObject, flashLevel, coreGlow, FLASH, ARENA, CORE, CARD_CAMERA } from '../src/look.js';
 
 /** @param {(ok: boolean, label: string) => void} check */
 export function run(check) {
 	const d = wavesDef();
 	const top = d.objects.map((o) => o.name);
-	check(['Ground', 'Goal', 'Spawn 1', 'Spawn 2', 'Spawn 3', 'Enemy 1', 'Enemy 2', 'Enemy 3', 'Enemy 4', 'Home'].every((n) => top.includes(n)), 'the ten rule objects keep their names');
-	const enemies = d.objects.filter((o) => /^Enemy \d$/.test(o.name));
+	check(['Ground', 'Goal', 'Spawn 1', 'Spawn 2', 'Spawn 3', 'Home', ...ROSTER].every((n) => top.includes(n)), 'the rule objects keep their names (30b: a roster of ten enemies)');
+	const enemies = d.objects.filter((o) => /^Enemy \d\d/.test(o.name));
 	const bodies = (/** @type {any} */ o) => [o, ...(o.children ?? []).flatMap(bodies)].filter((x) => x.physics?.mode === 'dynamic');
-	check(enemies.length === 4 && enemies.every((e) => bodies(e).length === 1 && e.physics?.mode === 'dynamic' && e.physics.collider === 'capsule' && e.physics.freeze?.rx && e.physics.freeze?.rz && !e.physics.freeze?.ry), 'every enemy is ONE dynamic body (the group), a capsule collider kept upright (tilt locked) — the health/knock contract');
+	check(enemies.length === 10 && enemies.every((e) => bodies(e).length === 1 && e.physics?.mode === 'dynamic' && e.physics.collider === 'capsule' && e.physics.freeze?.rx && e.physics.freeze?.rz && !e.physics.freeze?.ry), 'every enemy is ONE dynamic body (the group), a capsule collider kept upright (tilt locked) — the health/knock contract');
 	check(enemies.every((e) => e.children.some((c) => c.type === 'capsule') && e.children.some((c) => /visor/.test(c.name) && c.emissiveIntensity > 1)), '  a capsule figure with a glowing visor');
-	check(d.objects.filter((o) => o.physics?.mode === 'dynamic').length === 4, '  and nothing else in the scene is dynamic');
+	check(d.objects.filter((o) => o.physics?.mode === 'dynamic').length === 10, '  and nothing else in the scene is dynamic');
 	const arena = d.objects.find((o) => o.name === ARENA);
 	check(!!arena && arena.type === 'group' && d.objects.filter((o) => o.type === 'group' && !/^Enemy/.test(o.name)).length === 1, 'the look is ONE top-level group');
 	const ys = arena.physics?.colliderVerts?.filter((/** @type {any} */ _, /** @type {number} */ i) => i % 3 === 1) ?? [];

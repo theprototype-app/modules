@@ -731,3 +731,29 @@ follows the same peer's core knock within 250 ms so one swing is never two touch
 
 **Ask:** gate the knock on "holding something" (a user hold on a body) rather than on the grip
 button; then football's tip kick could retire to just the `kick` sound and the scaled haptic.
+
+## 30. No model loader on the api (a GLB gun, a GLB enemy)
+
+**Found in:** 30b-waves. The round's Meshy pipeline can make a gun or an enemy as a `.glb`, and a
+module zip can carry it (`api.assetUrl('assets/gun.glb')`), but the api hands a module `THREE`
+only — no `GLTFLoader`. Bundling three's loader into a module pulls a SECOND copy of three (its
+`import … from 'three'`), whose classes are not the scene's; aliasing `three` to the runtime
+`api.THREE` needs a hand-written shim of ~40 names.
+
+**Ask:** `api.loadModel(url) -> Promise<THREE.Group>` through core's own loader (the same path an
+Explorer import takes), or `api.GLTFLoader`.
+
+**Meanwhile:** the Waves guns are built from primitives (src/models.js); the enemies are the
+template's capsule groups.
+
+## Roadmap 30b (30b-waves) — felt again
+
+- **#27** (`api.game` cannot tell `menu` from `over`): the results panel must not fire on Quit or
+  Restart; Waves reads the crystal's health value (0 = destroyed) to tell a loss from a quit.
+- **#28** (no camera on the api): the headset's START board faces the way the CONTROLLERS point
+  (`api.vrHand` yaw), since the head's direction is not readable.
+- **#23 / #27** (placing the player): Waves calls `api.setSpawn?.(home, 0)` — the 30b C1 seam —
+  and writes `physics.play.spawn` into its def; both no-ops on a core without C1.
+- A per-player HUD Button's stamp IS readable by a module (`api.flow.triggerStamp` on the
+  `hudbutton` node, `perPlayer: true`): the Waves Loadout / Options screens need no new seam —
+  an alternative to #22's Delay bridge for local choices.

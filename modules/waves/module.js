@@ -14,6 +14,21 @@ function clamp(n, lo, hi, fallback = lo) {
   if (!Number.isFinite(v)) return fallback;
   return Math.min(hi, Math.max(lo, v));
 }
+function levelOf(wave, perLevel) {
+  const p = Math.round(clamp(perLevel, 0, 50, 0));
+  if (!p) return 1;
+  return Math.max(1, Math.ceil(Math.max(1, wave) / p));
+}
+function levelSpeed(level, step) {
+  return 1 + clamp(step, 0, 2, 0) * Math.max(0, level - 1);
+}
+function opensLevel(wave, perLevel) {
+  const p = Math.round(clamp(perLevel, 0, 50, 0));
+  return p > 0 && wave > 1 && (wave - 1) % p === 0;
+}
+function killScore(points, level) {
+  return Math.round(points * Math.max(1, level));
+}
 function curveOf(data, enemies) {
   return {
     waves: Math.round(clamp(data?.waves, 1, 50, DEFAULTS.waves)),
@@ -66,17 +81,62 @@ function healsBefore(i, n, c) {
   if (first === null || n <= first) return 0;
   return n - first;
 }
+var KINDS = Object.freeze({
+  grunt: Object.freeze({ speed: 1, knock: 0.55, points: 100 }),
+  runner: Object.freeze({ speed: 1.8, knock: 0.8, points: 150 }),
+  tank: Object.freeze({ speed: 0.6, knock: 0.16, points: 400 })
+});
+function kindOf(label) {
+  const s = String(label ?? "");
+  if (/runner/i.test(s)) return "runner";
+  if (/tank/i.test(s)) return "tank";
+  return "grunt";
+}
 function enemyPosition(p) {
   const speed = clamp(p.speed, 0.01, 100, DEFAULTS.speed);
   const stagger = clamp(p.stagger, 0, 60, DEFAULTS.stagger);
-  const t = p.now - p.waveStart - stagger * p.index;
+  const leave = p.waveStart + stagger * p.index;
+  const t = p.slows?.length ? warpedElapsed(leave, p.now, p.slows) : p.now - leave;
   if (!(t > 0)) return p.start.slice();
   const dx = p.goal[0] - p.start[0];
   const dz = p.goal[2] - p.start[2];
   const dist = Math.hypot(dx, dz);
   if (dist < 1e-6) return p.start.slice();
-  const f = Math.min(1, t * speed / dist);
+  const along = Math.min(dist, Math.max(0, t * speed - Math.max(0, Number(p.setback) || 0)));
+  const f = along / dist;
   return [p.start[0] + dx * f, p.start[1], p.start[2] + dz * f];
+}
+var SLOW_RATE = 0.4;
+function warpedElapsed(from, to, slows, rate = SLOW_RATE) {
+  if (!(to > from)) return to - from;
+  const w = (slows ?? []).map((x) => [Math.max(from, Number(x.at)), Math.min(to, Number(x.until))]).filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b) && b > a).sort((a, b) => a[0] - b[0]);
+  let slowed = 0;
+  let end = -Infinity;
+  for (const [a, b] of w) {
+    const s = Math.max(a, end);
+    if (b > s) slowed += b - s;
+    end = Math.max(end, b);
+  }
+  return to - from - (1 - rate) * slowed;
+}
+function pushedBy(uuid, events, since, now) {
+  let m = 0;
+  for (const e of events ?? []) if (e?.k === "push" && e.at >= since && e.at <= now) m += Number(e.d?.[uuid]) || 0;
+  return m;
+}
+function appendFx(held, round, event, cap2 = 40) {
+  const list = held && typeof held === "object" && held.round === round && Array.isArray(held.ev) ? held.ev : [];
+  return { round, ev: [...list, event].sort((a, b) => a.at - b.at).slice(-cap2) };
+}
+function fxOf(held, round) {
+  return held && typeof held === "object" && held.round === round && Array.isArray(held.ev) ? held.ev : [];
+}
+function setbackOf(hits, heals, max, knock) {
+  const taken = Math.max(0, Math.min(max, (Number(hits) || 0) - (Number(heals) || 0)));
+  return taken * Math.max(0, Number(knock) || 0);
+}
+function groundDistance(a, b) {
+  return Math.hypot(a[0] - b[0], a[2] - b[2]);
 }
 function spawnFor(i, points, fallback) {
   if (!points.length) return fallback.slice();
@@ -93,18 +153,21 @@ function runEntry(r) {
     players: r.rows.map((x) => ({ name: String(x.name ?? ""), kills: Number(x.kills) || 0 })).sort((a, b) => b.kills - a.kills || a.name.localeCompare(b.name))
   };
 }
-function appendRun(log, entry, cap = 50) {
+function appendRun(log, entry, cap2 = 50) {
   const same = (e) => typeof entry.round === "number" && e.round === entry.round || e.at === entry.at;
   const list = Array.isArray(log) ? log.filter((e) => e && !same(e)) : [];
   list.push(entry);
-  return list.slice(-cap);
+  return list.slice(-cap2);
 }
 
 // modules/waves/src/engine.js
 var SWEEP = 0.1;
 var LOG_PREFIX = "waves:";
+var FX_PREFIX = "waves:fx:";
 var toSeconds = (ms) => ms / 1e3 % 86400;
 var KILLS_ROW = "kills";
+var SCORE_ROW = "score";
+var STASH_DEPTH = -30;
 function createWavesEngine(api) {
   const state = /* @__PURE__ */ new Map();
   const waveSeen = /* @__PURE__ */ new Map();
@@ -114,6 +177,16 @@ function createWavesEngine(api) {
   const parked = /* @__PURE__ */ new Map();
   const healExpected = /* @__PURE__ */ new Map();
   const listeners = /* @__PURE__ */ new Set();
+  const hitExpected = /* @__PURE__ */ new Map();
+  const seenHits = /* @__PURE__ */ new Map();
+  const announcedKills = /* @__PURE__ */ new Map();
+  const stashed = /* @__PURE__ */ new Set();
+  const roundRun = /* @__PURE__ */ new Map();
+  const breached = /* @__PURE__ */ new Map();
+  const firstSeen = /* @__PURE__ */ new Map();
+  const runListeners = /* @__PURE__ */ new Set();
+  let guard = () => false;
+  const enemyListeners = /* @__PURE__ */ new Set();
   const now = () => api.now();
   function objectOf(uuid) {
     if (!uuid) return null;
@@ -162,10 +235,14 @@ function createWavesEngine(api) {
       let heals = 0;
       for (const id of healCounters) heals += Number(api.flow.nodeValue(id)) || 0;
       const max = clamp(node.data?.max, 1, 1e6, 5);
+      const damageId = damageCounters.flatMap((c) => into(g, c, "pulse").filter((id) => g.byId.get(id)?.type === "damage"))[0] ?? null;
+      const label = object?.name || (uuid ? uuid.slice(0, 8) + "\u2026" : "(no target)");
       out.push({
         healthId: node.id,
         uuid,
-        label: object?.name || (uuid ? uuid.slice(0, 8) + "\u2026" : "(no target)"),
+        label,
+        kind: kindOf(label),
+        damageId,
         max,
         hits,
         heals,
@@ -213,7 +290,18 @@ function createWavesEngine(api) {
     const round = roundSeen.get(node.id) ?? null;
     const goalUuid = selectorInto(g, node, "goal");
     const goalObject = objectOf(goalUuid);
+    const fx = running ? fxOf(api.game.getVar(FX_PREFIX + name, null), round) : [];
+    const perLevel = clamp(d.perLevel, 0, 50, 0);
+    const level = levelOf(wave, perLevel);
     return {
+      fx,
+      perLevel,
+      level,
+      levelSpeed: levelSpeed(level, d.levelSpeed),
+      // 30b: an enemy that reaches the goal BREACHES it (explodes, hurts the players) — only
+      // when the node asks; a pre-30b arena keeps its enemies standing at the goal
+      breach: d.breach === true,
+      slows: fx.filter((e) => e?.k === "slow"),
       id: node.id,
       name,
       curve,
@@ -254,9 +342,14 @@ function createWavesEngine(api) {
       healExpected.set(e.healthId, heals + fire);
     }
   }
+  const hitsOf = (e) => Math.max(e.hits, hitExpected.get(e.healthId) ?? 0);
+  function stash(object, to) {
+    object.position.fromArray(to);
+  }
   function moveSweep(s) {
     const used = usedIn(s.wave, s.curve);
-    const alive = new Set(aliveIn(s.wave, s.enemies.map((e) => e.kills), s.curve));
+    const kills = s.enemies.map((e) => killsOf(hitsOf(e), e.max));
+    const alive = new Set(aliveIn(s.wave, kills, s.curve));
     for (let k = 0; k < s.enemies.length; k++) {
       const e = s.enemies[k];
       const object = objectOf(e.uuid);
@@ -267,18 +360,150 @@ function createWavesEngine(api) {
       const walking = s.running && s.started && index >= 0 && alive.has(k) && s.goal;
       if (walking && s.waveStart !== null) {
         const start = spawnFor(index, s.spawns, home);
-        object.position.fromArray(enemyPosition({ start, goal: (
+        const kind = KINDS[e.kind] ?? KINDS.grunt;
+        object.position.fromArray(
+          enemyPosition({
+            start,
+            goal: (
+              /** @type {number[]} */
+              s.goal
+            ),
+            waveStart: s.waveStart,
+            index,
+            now: now(),
+            speed: s.speed * kind.speed * (s.levelSpeed ?? 1),
+            stagger: s.stagger,
+            setback: setbackOf(hitsOf(e), e.heals, e.max, kind.knock) + pushedBy(e.uuid, s.fx, s.waveStart, now()),
+            slows: s.slows
+          })
+        );
+        e.pos = object.position.toArray();
+        if (s.breach && groundDistance(
+          e.pos,
           /** @type {number[]} */
           s.goal
-        ), waveStart: s.waveStart, index, now: now(), speed: s.speed, stagger: s.stagger }));
+        ) <= s.reach) breachBy(s, e, object);
       } else if (!s.running) {
         object.position.fromArray(home);
-      } else if (index >= 0 && !alive.has(k) === false) {
+      } else if (index >= 0 && alive.has(k)) {
         object.position.fromArray(spawnFor(index, s.spawns, home));
+      } else {
+        stash(object, [home[0], STASH_DEPTH, home[2]]);
+        if (index < 0 && object.visible) {
+          object.visible = false;
+          stashed.add(e.uuid);
+        }
+      }
+      if (index >= 0 && stashed.has(e.uuid)) {
+        object.visible = true;
+        stashed.delete(e.uuid);
       }
       object.updateMatrixWorld?.();
     }
-    if (!s.running) for (const e of s.enemies) parked.delete(e.uuid);
+    if (!s.running) {
+      for (const e of s.enemies) {
+        parked.delete(e.uuid);
+        if (stashed.has(e.uuid)) {
+          const object = objectOf(e.uuid);
+          if (object) object.visible = true;
+          stashed.delete(e.uuid);
+        }
+      }
+    }
+  }
+  function breachBy(s, e, object) {
+    const life = killsOf(hitsOf(e), e.max);
+    if (breached.get(e.uuid) === life) return;
+    if (performance.now() / 1e3 - (firstSeen.get(s.id) ?? Infinity) < 1) return;
+    const left = e.max - Math.max(0, hitsOf(e) - e.heals);
+    if (left <= 0 || !e.damageId) return;
+    breached.set(e.uuid, life);
+    for (let i = 0; i < left; i++) api.fireNodeTrigger("damage", (_d, id) => id === e.damageId, { replicate: false });
+    hitExpected.set(e.healthId, hitsOf(e) + left);
+    announcedKills.set(e.uuid, killsOf(hitsOf(e), e.max));
+    const pos = object.getWorldPosition(new api.THREE.Vector3()).toArray();
+    const blocked = guard();
+    if (!blocked) emit(s.name, "breach");
+    emitRun({ kind: "breach", s, enemy: e, pos, blocked });
+  }
+  function emitRun(ev) {
+    for (const fn of runListeners) {
+      try {
+        fn(ev);
+      } catch (error) {
+        console.warn("[waves] run listener failed", error);
+      }
+    }
+  }
+  function targets() {
+    const out = [];
+    for (const s of state.values()) {
+      if (!s.running) continue;
+      const used = usedIn(s.wave, s.curve);
+      for (const k of used) {
+        const e = s.enemies[k];
+        if (!e?.damageId || !e.uuid) continue;
+        const hp = e.max - Math.max(0, hitsOf(e) - e.heals);
+        if (hp <= 0) continue;
+        out.push({ ...e, hp, runId: s.id, walking: s.started, level: s.level });
+      }
+    }
+    return out;
+  }
+  function hit(uuid, n) {
+    const e = targets().find((x) => x.uuid === uuid);
+    if (!e) return null;
+    const landed = Math.max(0, Math.min(Math.floor(n), e.hp));
+    if (!landed) return null;
+    for (let i = 0; i < landed; i++) api.fireNodeTrigger("damage", (_d, id) => id === e.damageId);
+    hitExpected.set(e.healthId, hitsOf(e) + landed);
+    const killed = landed >= e.hp;
+    const pos = objectOf(uuid)?.getWorldPosition(new api.THREE.Vector3()).toArray() ?? e.pos ?? [0, 0, 0];
+    if (killed) {
+      api.peerVars.setMine(KILLS_ROW, api.peerVars.mine(KILLS_ROW, 0) + 1);
+      const points = killScore((KINDS[e.kind] ?? KINDS.grunt).points, e.level ?? 1);
+      api.peerVars.setMine(SCORE_ROW, api.peerVars.mine(SCORE_ROW, 0) + points);
+      const kills = killsOf(hitsOf(e), e.max);
+      announcedKills.set(uuid, kills);
+      emitEnemy({ kind: "death", uuid, pos, enemy: e, mine: true });
+    } else emitEnemy({ kind: "hurt", uuid, pos, enemy: e, mine: true });
+    const seen = seenHits.get(uuid);
+    if (seen) seenHits.set(uuid, { hits: hitsOf(e), kills: killsOf(hitsOf(e), e.max) });
+    return { landed, killed, enemy: e };
+  }
+  function addFx(event) {
+    const s = [...state.values()].find((x) => x.running);
+    if (!s || typeof s.round !== "number") return false;
+    const key = FX_PREFIX + s.name;
+    api.game.setVar(key, appendFx(api.game.getVar(key, null), s.round, event));
+    s.fx = fxOf(api.game.getVar(key, null), s.round);
+    s.slows = s.fx.filter((e) => e?.k === "slow");
+    return true;
+  }
+  function emitEnemy(ev) {
+    for (const fn of enemyListeners) {
+      try {
+        fn(ev);
+      } catch (error) {
+        console.warn("[waves] enemy listener failed", error);
+      }
+    }
+  }
+  function hurtSweep(s) {
+    for (const e of s.enemies) {
+      if (!e.uuid) continue;
+      const hits = hitsOf(e);
+      const kills = killsOf(hits, e.max);
+      const prev = seenHits.get(e.uuid);
+      seenHits.set(e.uuid, { hits, kills });
+      if (!prev || !s.running || hits <= prev.hits) continue;
+      const pos = objectOf(e.uuid)?.getWorldPosition(new api.THREE.Vector3()).toArray() ?? e.pos ?? [0, 0, 0];
+      if (kills > prev.kills) {
+        if ((announcedKills.get(e.uuid) ?? -1) >= kills) continue;
+        announcedKills.set(e.uuid, kills);
+        emitEnemy({ kind: "death", uuid: e.uuid, pos, enemy: e, mine: false });
+      } else emitEnemy({ kind: "hurt", uuid: e.uuid, pos, enemy: e, mine: false });
+    }
   }
   function emit(name, kind) {
     api.fireNodeTrigger("wavesevent", (d) => nameOf({ data: d }) === name && String(d?.event ?? "wave") === kind, { replicate: false });
@@ -287,16 +512,28 @@ function createWavesEngine(api) {
     const prevWave = waveSeen.get(s.id);
     const prevDone = doneSeen.get(s.id);
     const prevRun = runSeen.get(s.id);
+    const prevRound = roundRun.get(s.id);
+    roundRun.set(s.id, s.running ? s.round : null);
     waveSeen.set(s.id, s.wave);
     doneSeen.set(s.id, s.done);
     runSeen.set(s.id, s.running);
     if (firstSight) return;
-    if (s.running && prevRun === false) emit(s.name, "start");
-    if (typeof prevWave === "number" && s.wave > prevWave && !s.done) emit(s.name, "wave");
+    if (s.running && (prevRun === false || typeof prevRound === "number" && prevRound !== s.round)) {
+      emit(s.name, "start");
+      emitRun({ kind: "start", s });
+    }
+    if (typeof prevWave === "number" && s.wave > prevWave && !s.done) {
+      emit(s.name, "wave");
+      if (opensLevel(s.wave, s.perLevel)) {
+        emit(s.name, "level");
+        emitRun({ kind: "level", s });
+      } else emitRun({ kind: "wave", s });
+    }
     if (s.done && prevDone === false) {
       emit(s.name, "over");
       logRun(s);
-    }
+      emitRun({ kind: "over", s, won: true });
+    } else if (!s.running && prevRun === true && !s.done) emitRun({ kind: "over", s, won: false });
   }
   function logRun(s) {
     if (typeof s.clearedAt !== "number") return;
@@ -318,16 +555,18 @@ function createWavesEngine(api) {
       if (node.type !== "waves") continue;
       live.add(node.id);
       const firstSight = !state.has(node.id);
+      if (firstSight) firstSeen.set(node.id, performance.now() / 1e3);
       const s = derive(node, g);
       state.set(node.id, s);
       edges(s, firstSight);
       healSweep(s);
-      moveSweep(s);
+      hurtSweep(s);
     }
     for (const id of [...state.keys()])
       if (!live.has(id)) {
         state.delete(id);
         waveSeen.delete(id);
+        roundRun.delete(id);
         doneSeen.delete(id);
         runSeen.delete(id);
       }
@@ -335,18 +574,26 @@ function createWavesEngine(api) {
       for (const e of s.enemies) {
         const expected = healExpected.get(e.healthId);
         if (expected !== void 0 && (e.heals >= expected || e.heals === 0 && e.hits === 0)) healExpected.delete(e.healthId);
+        const shot = hitExpected.get(e.healthId);
+        if (shot !== void 0 && (e.hits >= shot || e.hits === 0 && !s.running)) hitExpected.delete(e.healthId);
       }
     for (const fn of listeners) fn();
   }
   let lastSweep = -1;
   api.registerFrameTask(() => {
     const t = performance.now() / 1e3;
-    if (t - lastSweep < SWEEP) return;
-    lastSweep = t;
+    if (t - lastSweep >= SWEEP) {
+      lastSweep = t;
+      try {
+        sweep();
+      } catch (error) {
+        console.warn("[waves] sweep failed", error);
+      }
+    }
     try {
-      sweep();
+      for (const s of state.values()) moveSweep(s);
     } catch (error) {
-      console.warn("[waves] sweep failed", error);
+      console.warn("[waves] walk failed", error);
     }
   });
   function read(name) {
@@ -361,6 +608,13 @@ function createWavesEngine(api) {
     runSeen.clear();
     parked.clear();
     healExpected.clear();
+    hitExpected.clear();
+    seenHits.clear();
+    announcedKills.clear();
+    stashed.clear();
+    breached.clear();
+    firstSeen.clear();
+    roundRun.clear();
   }
   return {
     state,
@@ -370,6 +624,23 @@ function createWavesEngine(api) {
     graphView,
     runLog,
     sweep,
+    targets,
+    hit,
+    addFx,
+    /** @param {(e: {kind: string, s: any, enemy?: any, pos?: number[]}) => void} fn */
+    onRun: (fn) => {
+      runListeners.add(fn);
+      return () => runListeners.delete(fn);
+    },
+    /** @param {() => boolean} fn the local rule a breach asks before it hurts this player */
+    setGuard: (fn) => {
+      guard = fn;
+    },
+    /** @param {(e: {kind: 'hurt' | 'death', uuid: string, pos: number[], enemy: any, mine: boolean}) => void} fn */
+    onEnemy: (fn) => {
+      enemyListeners.add(fn);
+      return () => enemyListeners.delete(fn);
+    },
     onChange: (fn) => {
       listeners.add(fn);
       return () => listeners.delete(fn);
@@ -379,9 +650,10 @@ function createWavesEngine(api) {
 }
 
 // modules/waves/src/nodes.js
-var READS = ["wave", "left", "size", "waves", "done"];
-var EVENTS = ["wave", "over", "start"];
-function registerNodes(api, engine) {
+var READS = ["wave", "left", "size", "waves", "done", "level"];
+var EVENTS = ["wave", "over", "start", "level", "breach"];
+var PLAYER_READS = ["ability", "heat", "score", "best"];
+function registerNodes(api, engine, player = {}) {
   api.registerNodeGroup({
     group: "Waves",
     items: [
@@ -398,7 +670,11 @@ function registerNodes(api, engine) {
           { key: "speed", kind: "range", min: 0.1, max: 20, step: 0.1 },
           { key: "stagger", kind: "range", min: 0, max: 10, step: 0.1 },
           { key: "reach", kind: "range", min: 0.5, max: 10, step: 0.5 },
-          { key: "spawnPrefix", kind: "text", placeholder: "Spawn", maxLength: 40 }
+          { key: "spawnPrefix", kind: "text", placeholder: "Spawn", maxLength: 40 },
+          // 30b: levels (every N waves; 0 = none), their speed-up, and the breach
+          { key: "perLevel", kind: "range", min: 0, max: 10, step: 1 },
+          { key: "levelSpeed", kind: "range", min: 0, max: 0.5, step: 0.01 },
+          { key: "breach", kind: "toggle" }
         ]
       },
       {
@@ -419,6 +695,14 @@ function registerNodes(api, engine) {
           { key: "floor", kind: "range", min: 0, max: 1, step: 0.05 },
           { key: "spin", kind: "range", min: 0, max: 4, step: 0.1 }
         ]
+      },
+      {
+        // 30b: THIS player's gun and ability, for the HUD's bars (a local value: each
+        // peer shows its own charge and heat)
+        type: "wavesplayer",
+        label: "Waves Player",
+        defaults: { read: "ability" },
+        params: [{ key: "read", kind: "select", options: PLAYER_READS }]
       },
       {
         type: "wavesevent",
@@ -450,6 +734,8 @@ function registerNodes(api, engine) {
           return s.curve.waves;
         case "done":
           return s.done ? 1 : 0;
+        case "level":
+          return s.level ?? 1;
         default:
           return s.wave;
       }
@@ -457,6 +743,14 @@ function registerNodes(api, engine) {
     { vtype: "number" }
   );
   api.registerValueNode("wavesevent", () => 0, { vtype: "event" });
+  api.registerValueNode(
+    "wavesplayer",
+    (data) => {
+      const fn = player[String(data?.read ?? "ability")];
+      return typeof fn === "function" ? Number(fn()) || 0 : 0;
+    },
+    { vtype: "number" }
+  );
 }
 
 // modules/waves/src/toolbox.js
@@ -489,7 +783,12 @@ function arenaRecipe(spec) {
   const edges = [];
   let row = spec.row;
   const y = () => Y0 + row * ROW;
-  const wavesIdx = nodes.push({ type: "waves", x: X0, y: y(), data: { name, waves: o.waves, sizeStart: o.sizeStart, sizeStep: o.sizeStep, interval: o.interval, speed: o.speed, stagger: DEFAULTS.stagger, reach: o.reach, spawnPrefix: o.spawnPrefix } }) - 1;
+  const extra = {
+    ...o.stagger !== void 0 ? { stagger: o.stagger } : { stagger: DEFAULTS.stagger },
+    ...o.perLevel ? { perLevel: o.perLevel, levelSpeed: o.levelSpeed ?? 0 } : {},
+    ...o.breach ? { breach: true } : {}
+  };
+  const wavesIdx = nodes.push({ type: "waves", x: X0, y: y(), data: { name, waves: o.waves, sizeStart: o.sizeStart, sizeStep: o.sizeStep, interval: o.interval, speed: o.speed, reach: o.reach, spawnPrefix: o.spawnPrefix, ...extra } }) - 1;
   if (spec.goal) {
     const sel = nodes.push({ type: "objectselector", x: X0 - 0, y: y() + 100, data: { selected: spec.goal } }) - 1;
     edges.push({ from: sel, to: wavesIdx, handle: "goal" });
@@ -504,22 +803,28 @@ function arenaRecipe(spec) {
   if (!playerRef) {
     const pd = nodes.push({ type: "damage", x: X0 + 3 * COL, y: y(), data: { amount: 1, source: "wired" } }) - 1;
     const pc = nodes.push({ type: "counter", x: X0 + 4 * COL, y: y(), data: { op: "up", step: 1 } }) - 1;
-    const ph = nodes.push({ type: "health", x: X0 + 5 * COL, y: y(), data: { name: playerName, scope: "player", max: o.playerHp, regen: o.playerRegen, deathAction: "respawn", respawnDelay: 3 } }) - 1;
+    const ph = nodes.push({ type: "health", x: X0 + 5 * COL, y: y(), data: { name: playerName, scope: "player", max: o.playerHp, regen: o.playerRegen, deathAction: o.breach ? "nothing" : "respawn", respawnDelay: 3 } }) - 1;
     const pr = nodes.push({ type: "healthreset", x: X0 + 3 * COL, y: y() + 100, data: { name: playerName } }) - 1;
     edges.push({ from: pd, to: pc, handle: "pulse" }, { from: pc, to: ph, handle: "damage" }, { from: pr, to: pc, handle: "reset" });
     playerRef = ph;
+    if (o.breach) {
+      const bd = nodes.push({ type: "damage", x: X0 + 3 * COL, y: y() + 200, data: { amount: o.breachDamage ?? 2, source: "wired" } }) - 1;
+      const be = nodes.push({ type: "wavesevent", x: X0 + 2 * COL, y: y() + 200, data: { name, event: "breach" } }) - 1;
+      const death = nodes.push({ type: "healthevent", x: X0 + 4 * COL, y: y() + 300, data: { name: playerName, event: "death" } }) - 1;
+      const lost = nodes.push({ type: "setgamestate", x: X0 + 5 * COL, y: y() + 300, data: { state: "over", outcome: "lost" } }) - 1;
+      edges.push({ from: be, to: bd, handle: "trigger" }, { from: bd, to: pc, handle: "pulse" }, { from: death, to: lost, handle: "trigger" });
+    }
   }
   row++;
-  for (const uuid of spec.enemies) {
+  spec.enemies.forEach((uuid, i) => {
     const d = nodes.push({ type: "damage", x: X0, y: y(), data: { amount: 1, source: o.source, scale: o.source === "hit" ? "speed" : "none", speedRef: 3 } }) - 1;
     const c = nodes.push({ type: "counter", x: X0 + COL, y: y(), data: { op: "up", step: 1 } }) - 1;
-    const h = nodes.push({ type: "health", x: X0 + 2 * COL, y: y(), data: { name, scope: "object", max: o.hp, deathAction: "hide", respawnDelay: 3 } }) - 1;
+    const hp = spec.hps?.[i] ?? o.hp;
+    const h = nodes.push({ type: "health", x: X0 + 2 * COL, y: y(), data: { name, scope: "object", max: hp, deathAction: "hide", respawnDelay: 3 } }) - 1;
     const s = nodes.push({ type: "objectselector", x: X0 + 3 * COL, y: y(), data: { selected: uuid } }) - 1;
     const r = nodes.push({ type: "healthreset", x: X0, y: y() + 100, data: { name } }) - 1;
     const he = nodes.push({ type: "heal", x: X0 + COL, y: y() + 100, data: { amount: 1 } }) - 1;
     const hc = nodes.push({ type: "counter", x: X0 + 2 * COL, y: y() + 100, data: { op: "up", step: 1 } }) - 1;
-    const z = nodes.push({ type: "damage", x: X0 + 4 * COL, y: y(), data: { amount: o.enemyDamage, source: "zone", perSecond: o.enemyRate, radius: o.reach } }) - 1;
-    const zs = nodes.push({ type: "objectselector", x: X0 + 4 * COL, y: y() + 100, data: { selected: uuid } }) - 1;
     edges.push(
       { from: d, to: c, handle: "pulse" },
       { from: c, to: h, handle: "damage" },
@@ -527,12 +832,15 @@ function arenaRecipe(spec) {
       { from: r, to: c, handle: "reset" },
       { from: r, to: hc, handle: "reset" },
       { from: he, to: hc, handle: "pulse" },
-      { from: hc, to: h, handle: "heal" },
-      { from: zs, to: z, handle: "zone" },
-      { from: z, to: playerRef, handle: "damage" }
+      { from: hc, to: h, handle: "heal" }
     );
+    if (o.zone !== false) {
+      const z = nodes.push({ type: "damage", x: X0 + 4 * COL, y: y(), data: { amount: o.enemyDamage, source: "zone", perSecond: o.enemyRate, radius: o.reach } }) - 1;
+      const zs = nodes.push({ type: "objectselector", x: X0 + 4 * COL, y: y() + 100, data: { selected: uuid } }) - 1;
+      edges.push({ from: zs, to: z, handle: "zone" }, { from: z, to: playerRef, handle: "damage" });
+    }
     row++;
-  }
+  });
   return { nodes, edges, rows: row - spec.row };
 }
 function registerToolbox(api, engine) {
@@ -715,8 +1023,41 @@ function registerToolbox(api, engine) {
 }
 
 // modules/waves/src/hud.js
-var PANEL = { bg: "rgba(22, 18, 28, 0.92)", radius: 18, border: "1px solid rgba(255, 140, 100, 0.3)" };
-var BUTTON = (bg) => ({ size: 16, weight: "700", bg, color: "#ffffff", radius: 12 });
+var PANEL = { bg: "rgba(22, 18, 28, 0.93)", radius: 18, border: "1px solid rgba(255, 140, 100, 0.3)" };
+var BUTTON = (bg, size = 16) => ({ size, weight: "700", bg, color: "#ffffff", radius: 12 });
+var QUIET = { size: 15, weight: "600", bg: "#3a3440", color: "#e6dede", radius: 12 };
+var TITLE = (size) => ({ size, weight: "800", color: "#ff9c6b", align: "center" });
+var BODY = { size: 14, color: "#e6dede", align: "left" };
+var GUN_BUTTONS = Object.freeze([
+  ["wv-gun-blaster", "Blaster", "#1e8fb0", "Semi-auto. One precise bolt per pull."],
+  ["wv-gun-scatter", "Scatter", "#c46a1c", "7 pellets, slow pump. Brutal up close."],
+  ["wv-gun-beam", "Beam", "#a2308c", "Hold to burn. Overheats \u2014 let it cool."]
+]);
+var ABILITY_BUTTONS = Object.freeze([
+  ["wv-ab-shield", "Shield", "#1e8fb0", "Blocks all crystal damage for 3 s."],
+  ["wv-ab-slowmo", "Slow-mo", "#5a4fc0", "Every enemy at 40% for 4 s."],
+  ["wv-ab-pulse", "Pulse", "#b8901c", "A shockwave shoves them back."]
+]);
+var OPTION_BUTTONS = Object.freeze([
+  ["wv-opt-music", "Music"],
+  ["wv-opt-sfx", "Sound effects"],
+  ["wv-opt-hand", "Gun hand"],
+  ["wv-opt-haptics", "Vibration"]
+]);
+var NAV = Object.freeze([
+  ["wv-nav-howto", "howto", "show"],
+  ["wv-nav-loadout", "loadout", "show"],
+  ["wv-nav-options", "options", "show"],
+  ["wv-back-howto", "howto", "hide"],
+  ["wv-back-loadout", "loadout", "hide"],
+  ["wv-back-options", "options", "hide"]
+]);
+function tile(id, x, y, glyph, bg) {
+  return [
+    { id: id + "-bg", kind: "panel", anchor: "center", x, y, w: 64, h: 64, z: 1, label: "", style: { bg, radius: 14, border: "1px solid rgba(255,255,255,0.25)" } },
+    { id, kind: "text", anchor: "center", x, y, w: 64, h: 64, z: 2, label: glyph, style: { size: 34, color: "#ffffff", align: "center" } }
+  ];
+}
 function arenaHud() {
   return {
     scene: {
@@ -729,13 +1070,71 @@ function arenaHud() {
           showWhile: "menu",
           input: "menu",
           elements: [
-            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 480, h: 360, z: 0, label: "", style: PANEL },
-            { id: "menu-stripe", kind: "panel", anchor: "center", x: 0, y: -176, w: 480, h: 8, z: 1, label: "", style: { bg: "#ff7a4a", radius: 4 } },
-            { id: "title", kind: "text", anchor: "center", x: 0, y: -122, w: 420, h: 56, z: 1, label: "WAVES", style: { size: 46, weight: "800", color: "#ff9c6b", align: "left" } },
-            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -66, w: 420, h: 44, z: 1, label: "Hold the crystal. Every wave brings more enemies through the portals; the round ends when the last one falls.", style: { size: 14, color: "#e6dede", align: "left" }, wrap: true },
-            { id: "wv-start", kind: "button", anchor: "center", x: 0, y: 8, w: 420, h: 54, z: 1, label: "Start", enabled: true, style: { ...BUTTON("#d9533f"), size: 20 } },
-            { id: "wv-log", kind: "list", anchor: "center", x: 0, y: 92, w: 420, h: 76, z: 1, label: "", rows: [], style: { size: 12, color: "#d6c8c8", align: "left", bg: "transparent" } },
-            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 150, w: 420, h: 20, z: 1, label: "Knock them down: walk into them or grab and throw  \xB7  P pauses", style: { size: 11, color: "#9b8f8f", align: "left" } }
+            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 520, h: 480, z: 0, label: "", style: PANEL },
+            { id: "menu-stripe", kind: "panel", anchor: "center", x: 0, y: -236, w: 520, h: 8, z: 1, label: "", style: { bg: "#ff7a4a", radius: 4 } },
+            { id: "title", kind: "text", anchor: "center", x: 0, y: -188, w: 460, h: 60, z: 1, label: "WAVES", style: TITLE(52) },
+            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -136, w: 440, h: 44, z: 1, label: "Five levels of enemies pour out of the portals. Pick your gun, hold the crystal.", style: { size: 14, color: "#e6dede", align: "center" }, wrap: true },
+            { id: "wv-start", kind: "button", anchor: "center", x: 0, y: -68, w: 440, h: 60, z: 1, label: "\u25B6  Play", enabled: true, style: BUTTON("#d9533f", 22) },
+            { id: "wv-nav-howto", kind: "button", anchor: "center", x: 0, y: 2, w: 440, h: 46, z: 1, label: "How to play", enabled: true, style: QUIET },
+            { id: "wv-nav-loadout", kind: "button", anchor: "center", x: 0, y: 56, w: 440, h: 46, z: 1, label: "Loadout", enabled: true, style: QUIET },
+            { id: "wv-nav-options", kind: "button", anchor: "center", x: 0, y: 110, w: 440, h: 46, z: 1, label: "Options", enabled: true, style: QUIET },
+            { id: "wv-loadout-now", kind: "list", anchor: "center", x: 0, y: 160, w: 440, h: 22, z: 1, label: "", rows: [], style: { size: 13, weight: "600", color: "#ffd0b0", align: "center", bg: "transparent" } },
+            { id: "wv-best", kind: "list", anchor: "center", x: 0, y: 184, w: 440, h: 22, z: 1, label: "", rows: [], style: { size: 13, color: "#d6c8c8", align: "center", bg: "transparent" } },
+            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 216, w: 460, h: 20, z: 1, label: "Trigger / click: shoot  \xB7  Grip / Q: ability  \xB7  P: pause", style: { size: 11, color: "#9b8f8f", align: "center" } }
+          ]
+        },
+        {
+          id: "howto",
+          name: "How to play",
+          input: "menu",
+          elements: [
+            { id: "howto-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 640, h: 540, z: 0, label: "", style: PANEL },
+            { id: "howto-title", kind: "text", anchor: "center", x: 0, y: -226, w: 560, h: 44, z: 1, label: "HOW TO PLAY", style: TITLE(32) },
+            ...tile("howto-icon-1", -250, -150, "\u{1F3AF}", "#1e8fb0"),
+            { id: "howto-1", kind: "text", anchor: "center", x: 50, y: -150, w: 480, h: 74, z: 1, label: "SHOOT \u2014 pull the trigger (desktop: click). The gun is in your right hand; switch hands in Options.", style: BODY, wrap: true },
+            ...tile("howto-icon-2", -250, -64, "\u{1F48E}", "#2a8a9a"),
+            { id: "howto-2", kind: "text", anchor: "center", x: 50, y: -64, w: 480, h: 74, z: 1, label: "HOLD THE CRYSTAL \u2014 enemies walk from the portals to it. One that reaches it explodes: \u22122 crystal. At zero the run is lost.", style: BODY, wrap: true },
+            ...tile("howto-icon-3", -250, 22, "\u270B", "#8a5cff"),
+            { id: "howto-3", kind: "text", anchor: "center", x: 50, y: 22, w: 480, h: 74, z: 1, label: "ABILITY \u2014 squeeze the grip on your free hand (desktop: Q): Shield, Slow-mo or Pulse. Then it recharges.", style: BODY, wrap: true },
+            ...tile("howto-icon-4", -250, 108, "\u2B50", "#b8901c"),
+            { id: "howto-4", kind: "text", anchor: "center", x: 50, y: 108, w: 480, h: 74, z: 1, label: "LEVELS \u2014 every 3 waves is a new level: runners, then tanks, then faster. Higher levels score more.", style: BODY, wrap: true },
+            { id: "wv-back-howto", kind: "button", anchor: "center", x: 0, y: 212, w: 260, h: 46, z: 1, label: "Back", enabled: true, style: QUIET }
+          ]
+        },
+        {
+          id: "loadout",
+          name: "Loadout",
+          input: "menu",
+          elements: [
+            { id: "loadout-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 660, h: 520, z: 0, label: "", style: PANEL },
+            { id: "loadout-title", kind: "text", anchor: "center", x: 0, y: -214, w: 560, h: 44, z: 1, label: "LOADOUT", style: TITLE(32) },
+            { id: "loadout-gun", kind: "text", anchor: "center", x: 0, y: -168, w: 600, h: 22, z: 1, label: "GUN", style: { size: 12, weight: "700", color: "#c8b8b8", align: "center" } },
+            ...GUN_BUTTONS.flatMap(([id, label, bg, blurb], i) => [
+              { id, kind: "button", anchor: "center", x: -205 + i * 205, y: -126, w: 190, h: 50, z: 1, label, enabled: true, style: BUTTON(bg, 17) },
+              { id: id + "-blurb", kind: "text", anchor: "center", x: -205 + i * 205, y: -78, w: 190, h: 40, z: 1, label: blurb, style: { size: 12, color: "#d6c8c8", align: "center" }, wrap: true }
+            ]),
+            { id: "loadout-ability", kind: "text", anchor: "center", x: 0, y: -24, w: 600, h: 22, z: 1, label: "ABILITY", style: { size: 12, weight: "700", color: "#c8b8b8", align: "center" } },
+            ...ABILITY_BUTTONS.flatMap(([id, label, bg, blurb], i) => [
+              { id, kind: "button", anchor: "center", x: -205 + i * 205, y: 18, w: 190, h: 50, z: 1, label, enabled: true, style: BUTTON(bg, 17) },
+              { id: id + "-blurb", kind: "text", anchor: "center", x: -205 + i * 205, y: 66, w: 190, h: 40, z: 1, label: blurb, style: { size: 12, color: "#d6c8c8", align: "center" }, wrap: true }
+            ]),
+            { id: "wv-loadout-pick", kind: "list", anchor: "center", x: 0, y: 128, w: 560, h: 28, z: 1, label: "", rows: [], style: { size: 17, weight: "700", color: "#ffd0b0", align: "center", bg: "transparent" } },
+            { id: "wv-back-loadout", kind: "button", anchor: "center", x: 0, y: 196, w: 260, h: 46, z: 1, label: "Back", enabled: true, style: QUIET }
+          ]
+        },
+        {
+          id: "options",
+          name: "Options",
+          input: "menu",
+          elements: [
+            { id: "options-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 540, h: 460, z: 0, label: "", style: PANEL },
+            { id: "options-title", kind: "text", anchor: "center", x: 0, y: -184, w: 480, h: 44, z: 1, label: "OPTIONS", style: TITLE(32) },
+            ...OPTION_BUTTONS.flatMap(([id, label], i) => [
+              { id, kind: "button", anchor: "center", x: -80, y: -112 + i * 60, w: 260, h: 46, z: 1, label, enabled: true, style: QUIET },
+              { id: id + "-v", kind: "list", anchor: "center", x: 150, y: -112 + i * 60, w: 170, h: 30, z: 1, label: "", rows: [], style: { size: 16, weight: "700", color: "#ffd0b0", align: "left", bg: "transparent" } }
+            ]),
+            { id: "options-hint", kind: "text", anchor: "center", x: 0, y: 130, w: 480, h: 20, z: 1, label: "Tap a setting to change it. Saved on this device.", style: { size: 12, color: "#9b8f8f", align: "center" } },
+            { id: "wv-back-options", kind: "button", anchor: "center", x: 0, y: 182, w: 260, h: 46, z: 1, label: "Back", enabled: true, style: QUIET }
           ]
         },
         {
@@ -744,11 +1143,20 @@ function arenaHud() {
           showWhile: "playing",
           input: "game",
           elements: [
-            { id: "wv-banner", kind: "panel", anchor: "top-center", x: 0, y: 10, w: 150, h: 68, z: 0, label: "", style: { bg: "rgba(22, 18, 28, 0.78)", radius: 14, border: "1px solid rgba(255, 140, 100, 0.25)" } },
-            { id: "wv-wave", kind: "text", anchor: "top-center", x: 0, y: 14, w: 122, h: 34, z: 1, label: "Wave 1", style: { size: 24, weight: "800", color: "#ff9c6b", align: "left" } },
-            { id: "wv-left", kind: "text", anchor: "top-center", x: 0, y: 48, w: 122, h: 24, z: 1, label: "", style: { size: 14, color: "#e6dede", align: "left" } },
-            { id: "wv-hp-label", kind: "text", anchor: "bottom-center", x: 0, y: 46, w: 340, h: 18, z: 1, label: "HEALTH", style: { size: 10, weight: "700", color: "#c8e6cc", align: "left" } },
-            { id: "wv-hp", kind: "bar", anchor: "bottom-center", x: 0, y: 24, w: 340, h: 20, z: 1, label: "", min: 0, max: 1, value: 1, orientation: "horizontal", showPercent: false, style: { color: "#6fcf7a", bg: "rgba(0,0,0,0.45)", radius: 10 } },
+            { id: "wv-banner", kind: "panel", anchor: "top-center", x: 0, y: 10, w: 190, h: 86, z: 0, label: "", style: { bg: "rgba(22, 18, 28, 0.78)", radius: 14, border: "1px solid rgba(255, 140, 100, 0.25)" } },
+            { id: "wv-wave", kind: "text", anchor: "top-center", x: 0, y: 14, w: 170, h: 32, z: 1, label: "Wave 1", style: { size: 24, weight: "800", color: "#ff9c6b", align: "center" } },
+            { id: "wv-level", kind: "text", anchor: "top-center", x: 0, y: 46, w: 170, h: 20, z: 1, label: "LEVEL 1", style: { size: 12, weight: "700", color: "#ffd24a", align: "center" } },
+            { id: "wv-left", kind: "text", anchor: "top-center", x: 0, y: 66, w: 170, h: 22, z: 1, label: "", style: { size: 13, color: "#e6dede", align: "center" } },
+            { id: "wv-score-bg", kind: "panel", anchor: "top-left", x: 16, y: 12, w: 180, h: 70, z: 0, label: "", style: { bg: "rgba(22, 18, 28, 0.78)", radius: 14, border: "1px solid rgba(255, 140, 100, 0.25)" } },
+            { id: "wv-score-label", kind: "text", anchor: "top-left", x: 30, y: 18, w: 150, h: 18, z: 1, label: "SCORE", style: { size: 11, weight: "700", color: "#c8b8b8", align: "left" } },
+            { id: "wv-score", kind: "text", anchor: "top-left", x: 30, y: 38, w: 160, h: 36, z: 1, label: "0", style: { size: 28, weight: "800", color: "#ffffff", align: "left" } },
+            { id: "wv-hp-label", kind: "text", anchor: "bottom-center", x: 0, y: 46, w: 340, h: 18, z: 1, label: "CRYSTAL", style: { size: 11, weight: "700", color: "#9ff0ff", align: "center" } },
+            { id: "wv-hp", kind: "bar", anchor: "bottom-center", x: 0, y: 24, w: 340, h: 20, z: 1, label: "", min: 0, max: 1, value: 1, orientation: "horizontal", showPercent: false, style: { color: "#39e0ff", bg: "rgba(0,0,0,0.45)", radius: 10 } },
+            { id: "wv-ability-label", kind: "list", anchor: "bottom-right", x: 20, y: 62, w: 200, h: 24, z: 1, label: "", rows: [], rowHeight: 20, style: { size: 11, weight: "700", color: "#ffe7a0", align: "left", bg: "transparent" } },
+            { id: "wv-ability", kind: "bar", anchor: "bottom-right", x: 20, y: 46, w: 200, h: 14, z: 1, label: "", min: 0, max: 1, value: 1, orientation: "horizontal", showPercent: false, style: { color: "#ffd24a", bg: "rgba(0,0,0,0.45)", radius: 7 } },
+            { id: "wv-heat-label", kind: "text", anchor: "bottom-right", x: 20, y: 30, w: 200, h: 14, z: 1, label: "HEAT", style: { size: 9, weight: "700", color: "#ff9ce8", align: "right" } },
+            { id: "wv-heat", kind: "bar", anchor: "bottom-right", x: 20, y: 18, w: 200, h: 10, z: 1, label: "", min: 0, max: 1, value: 0, orientation: "horizontal", showPercent: false, style: { color: "#ff4fd8", bg: "rgba(0,0,0,0.45)", radius: 5 } },
+            { id: "wv-crosshair", kind: "crosshair", anchor: "center", x: 0, y: 0, w: 24, h: 24, z: 2, label: "", thickness: 2, gap: 5, dot: true, style: { color: "#ffffff", opacity: 0.85 } },
             { id: "wv-kills", kind: "list", anchor: "top-right", x: 16, y: 14, w: 220, h: 100, z: 1, label: "", rows: [], style: { size: 13, weight: "600", color: "#ffe0d0", align: "right", bg: "transparent" } }
           ]
         },
@@ -758,23 +1166,27 @@ function arenaHud() {
           input: "menu",
           elements: [
             { id: "pause-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 380, h: 300, z: 0, label: "", style: PANEL },
-            { id: "pause-title", kind: "text", anchor: "center", x: 0, y: -95, w: 260, h: 36, z: 1, label: "PAUSED", style: { size: 28, weight: "800", color: "#e6dede", align: "left" } },
+            { id: "pause-title", kind: "text", anchor: "center", x: 0, y: -95, w: 260, h: 36, z: 1, label: "PAUSED", style: { size: 28, weight: "800", color: "#e6dede", align: "center" } },
             { id: "resume-btn", kind: "button", anchor: "center", x: 0, y: -30, w: 260, h: 44, z: 1, label: "Resume", enabled: true, style: BUTTON("#3b7dd8") },
             { id: "restart-btn", kind: "button", anchor: "center", x: 0, y: 24, w: 260, h: 44, z: 1, label: "Restart round", enabled: true, style: BUTTON("#d9533f") },
-            { id: "quit-btn", kind: "button", anchor: "center", x: 0, y: 78, w: 260, h: 44, z: 1, label: "Quit to menu", enabled: true, style: { size: 15, weight: "600", bg: "#3a3440", color: "#e6dede", radius: 12 } }
+            { id: "quit-btn", kind: "button", anchor: "center", x: 0, y: 78, w: 260, h: 44, z: 1, label: "Quit to menu", enabled: true, style: QUIET }
           ]
         },
         {
           id: "over",
-          name: "Round over",
+          name: "Results",
           showWhile: "over",
           input: "menu",
           elements: [
-            { id: "over-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 480, h: 360, z: 0, label: "", style: PANEL },
-            { id: "over-title", kind: "text", anchor: "center", x: 0, y: -126, w: 420, h: 44, z: 1, label: "ARENA CLEARED", style: { size: 32, weight: "800", color: "#ff9c6b", align: "left" } },
-            { id: "wv-kills-over", kind: "list", anchor: "center", x: 0, y: -50, w: 420, h: 90, z: 1, label: "", rows: [], style: { size: 14, color: "#e6dede", align: "center", bg: "transparent" } },
-            { id: "wv-log-over", kind: "list", anchor: "center", x: 0, y: 40, w: 420, h: 70, z: 1, label: "", rows: [], style: { size: 12, color: "#d6c8c8", align: "center", bg: "transparent" } },
-            { id: "wv-again", kind: "button", anchor: "center", x: 0, y: 124, w: 260, h: 48, z: 1, label: "Again", enabled: true, style: BUTTON("#d9533f") }
+            { id: "over-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 520, h: 440, z: 0, label: "", style: PANEL },
+            { id: "over-stripe", kind: "panel", anchor: "center", x: 0, y: -216, w: 520, h: 8, z: 1, label: "", style: { bg: "#ff7a4a", radius: 4 } },
+            { id: "over-title", kind: "text", anchor: "center", x: 0, y: -176, w: 460, h: 40, z: 1, label: "RESULTS", style: TITLE(30) },
+            // list rows align left (core draws them so): the rows sit in the buttons' column
+            { id: "wv-result-title", kind: "list", anchor: "center", x: 0, y: -124, w: 300, h: 34, z: 1, label: "", rows: ["ROUND OVER"], rowHeight: 30, style: { size: 22, weight: "800", color: "#ffd0b0", align: "left", bg: "transparent" } },
+            { id: "wv-result", kind: "list", anchor: "center", x: 0, y: -58, w: 300, h: 80, z: 1, label: "", rows: [], rowHeight: 24, style: { size: 15, color: "#e6dede", align: "left", bg: "transparent" } },
+            { id: "wv-kills-over", kind: "list", anchor: "center", x: 0, y: 30, w: 300, h: 76, z: 1, label: "", rows: [], style: { size: 13, color: "#ffe0d0", align: "left", bg: "transparent" } },
+            { id: "wv-again", kind: "button", anchor: "center", x: 0, y: 118, w: 300, h: 52, z: 1, label: "Play again", enabled: true, style: BUTTON("#d9533f", 18) },
+            { id: "wv-menu", kind: "button", anchor: "center", x: 0, y: 176, w: 300, h: 44, z: 1, label: "Menu", enabled: true, style: QUIET }
           ]
         }
       ]
@@ -795,7 +1207,8 @@ function hudGraph(o) {
     { type: "hudtext", x: x + 220, y: y + 300, data: { element: "wv-left", format: "{v} left", decimals: 0 } },
     { type: "healthvalue", x, y: y + 400, data: { name: o.playerName, read: "fraction" } },
     { type: "hudbar", x: x + 220, y: y + 400, data: { element: "wv-hp", min: 0, max: 1 } },
-    { type: "leaderboard", x, y: y + 500, data: { variable: "kills", element: "wv-kills,wv-kills-over", limit: 8 } },
+    // 30b: the board ranks SCORE (each player's own row), in play and on the results
+    { type: "leaderboard", x, y: y + 500, data: { variable: "score", element: "wv-kills,wv-kills-over", limit: 8 } },
     // 30: the pause menu — P toggles it, Resume hides it, Restart re-enters playing (a fresh
     // round stamp) and Quit goes back to the menu; both close the pause screen
     { type: "keypress", x, y: y + 600, data: { code: "KeyP", edge: "down", pulse: 0.3 } },
@@ -822,7 +1235,40 @@ function hudGraph(o) {
     { from: 18, to: 19, handle: "trigger" },
     { from: 18, to: 20, handle: "trigger" }
   ];
-  return { nodes, edges };
+  const add = (node) => nodes.push(node) - 1;
+  let row = y + 1e3;
+  {
+    const b = add({ type: "hudbutton", x, y: row, data: { element: "wv-menu" } });
+    const g = add({ type: "setgamestate", x: x + 220, y: row, data: { state: "menu", outcome: "", reset: true } });
+    edges.push({ from: b, to: g, handle: "trigger" });
+    row += 100;
+  }
+  for (
+    const [type, data, target, tdata] of
+    /** @type {[string, any, string, any][]} */
+    [
+      ["wavesvalue", { name: o.name, read: "level" }, "hudtext", { element: "wv-level", format: "LEVEL {v}", decimals: 0 }],
+      ["wavesplayer", { read: "score" }, "hudtext", { element: "wv-score", format: "{v}", decimals: 0 }],
+      ["wavesplayer", { read: "ability" }, "hudbar", { element: "wv-ability", min: 0, max: 1 }],
+      ["wavesplayer", { read: "heat" }, "hudbar", { element: "wv-heat", min: 0, max: 1 }]
+    ]
+  ) {
+    const a = add({ type, x, y: row, data });
+    const b = add({ type: target, x: x + 220, y: row, data: tdata });
+    edges.push({ from: a, to: b, handle: "value" });
+    row += 100;
+  }
+  for (const [element, screen, action] of NAV) {
+    const b = add({ type: "hudbutton", x, y: row, data: { element, perPlayer: true } });
+    const s = add({ type: "hudscreen", x: x + 220, y: row, data: { screen, action } });
+    edges.push({ from: b, to: s, handle: "trigger" });
+    row += 100;
+  }
+  for (const [element] of [...GUN_BUTTONS, ...ABILITY_BUTTONS, ...OPTION_BUTTONS]) {
+    add({ type: "hudbutton", x, y: row, data: { element, perPlayer: true } });
+    row += 80;
+  }
+  return { nodes, edges, rows: Math.ceil((row - y) / 200) };
 }
 
 // modules/waves/src/look.js
@@ -835,9 +1281,17 @@ function coreGlow(fraction, floor = 0.15) {
   const f = Number.isFinite(fraction) ? Math.min(1, Math.max(0, fraction)) : 1;
   return floor + (1 - floor) * f;
 }
+var ENEMY_BODY = 16747100;
+var VISOR = 8255999;
+var ENEMY_LOOKS = Object.freeze({
+  grunt: Object.freeze({ body: ENEMY_BODY, visor: VISOR, r: 0.32, h: 0.5, mass: 1 }),
+  runner: Object.freeze({ body: 12120138, visor: 16726830, r: 0.24, h: 0.46, mass: 0.6 }),
+  tank: Object.freeze({ body: 9067775, visor: 16765514, r: 0.46, h: 0.62, mass: 3 })
+});
 
 // modules/waves/src/fx.js
-function registerFx(api, engine) {
+var POP_COLOR = { grunt: 16747100, runner: 14221130, tank: 11563263 };
+function registerFx(api, engine, juice = null, feel = null) {
   const flashes = /* @__PURE__ */ new Map();
   const clock = () => typeof performance !== "undefined" ? performance.now() / 1e3 : 0;
   const enemyUuids = () => new Set(engine.all().flatMap((s) => s.enemies.map((e) => e.uuid)));
@@ -845,6 +1299,17 @@ function registerFx(api, engine) {
     api.onHit((hit) => {
       if (hit?.uuid && enemyUuids().has(hit.uuid)) flashes.set(hit.uuid, clock());
     });
+  engine.onEnemy((ev) => {
+    flashes.set(ev.uuid, clock());
+    if (ev.kind === "death") {
+      juice?.pop(
+        ev.pos,
+        /** @type {any} */
+        POP_COLOR[ev.enemy?.kind] ?? POP_COLOR.grunt
+      );
+      feel?.sound("explosion", ev.pos);
+    } else feel?.sound("hurt", ev.pos);
+  });
   function paint(object, level) {
     object.traverse((mesh) => {
       const m = mesh.material;
@@ -887,12 +1352,1286 @@ function registerFx(api, engine) {
   return { flashes };
 }
 
+// modules/waves/src/board.js
+var W = 1.6;
+var H = 0.9;
+var PX = 640;
+function createBoard(api) {
+  const THREE = api.THREE;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(W * PX);
+  canvas.height = Math.round(H * PX);
+  const ctx = (
+    /** @type {CanvasRenderingContext2D} */
+    canvas.getContext("2d")
+  );
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false, depthWrite: false, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(W, H), material);
+  mesh.name = "Waves board face";
+  mesh.renderOrder = 10;
+  const group = new THREE.Group();
+  group.name = "Waves board";
+  group.visible = false;
+  group.add(mesh);
+  let key = "";
+  function draw(card) {
+    const next = JSON.stringify(card);
+    if (next === key) return;
+    key = next;
+    const w = canvas.width;
+    const h = canvas.height;
+    const accent = card.color ?? "#ff9c6b";
+    ctx.clearRect(0, 0, w, h);
+    roundRect(ctx, 8, 8, w - 16, h - 16, 44);
+    ctx.fillStyle = "rgba(22, 18, 28, 0.9)";
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "rgba(255, 140, 100, 0.55)";
+    ctx.stroke();
+    ctx.fillStyle = accent;
+    roundRect(ctx, 8, 8, w - 16, 18, 9);
+    ctx.fill();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = accent;
+    ctx.font = "800 112px system-ui, sans-serif";
+    ctx.fillText(card.title, w / 2, 120);
+    ctx.fillStyle = "#efe6e6";
+    ctx.font = "500 36px system-ui, sans-serif";
+    (card.lines ?? []).slice(0, 4).forEach((line, i) => ctx.fillText(line, w / 2, 222 + i * 50));
+    if (card.button) {
+      const bw = w * 0.62;
+      const bh = 104;
+      const bx = (w - bw) / 2;
+      const by = h - bh - 44;
+      roundRect(ctx, bx, by, bw, bh, 30);
+      ctx.fillStyle = "#d9533f";
+      ctx.fill();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#ffd0c0";
+      ctx.stroke();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "800 50px system-ui, sans-serif";
+      ctx.fillText(card.button, w / 2, by + bh / 2 + 2);
+    }
+    texture.needsUpdate = true;
+  }
+  const _m = new THREE.Matrix4();
+  const _p = new THREE.Vector3();
+  const _q = new THREE.Quaternion();
+  const _s = new THREE.Vector3();
+  function placeFacing(at, yaw) {
+    const world = new THREE.Matrix4().compose(new THREE.Vector3(at[0], at[1], at[2]), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1));
+    const parent = group.parent;
+    if (parent) {
+      parent.updateMatrixWorld?.(true);
+      _m.copy(parent.matrixWorld).invert().multiply(world);
+    } else _m.copy(world);
+    _m.decompose(_p, _q, _s);
+    group.position.copy(_p);
+    group.quaternion.copy(_q);
+    group.scale.copy(_s);
+    group.updateMatrixWorld(true);
+  }
+  function rect() {
+    group.updateMatrixWorld(true);
+    const center = new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld);
+    const normal = new THREE.Vector3(0, 0, 1).transformDirection(mesh.matrixWorld);
+    const right = new THREE.Vector3(1, 0, 0).transformDirection(mesh.matrixWorld);
+    const scale = new THREE.Vector3().setFromMatrixScale(mesh.matrixWorld);
+    return { center: center.toArray(), normal: normal.toArray(), right: right.toArray(), w: W * scale.x, h: H * scale.y };
+  }
+  return {
+    group,
+    rect,
+    draw,
+    placeFacing,
+    show: (on) => {
+      group.visible = !!on;
+    },
+    visible: () => group.visible,
+    dispose: () => {
+      group.parent?.remove(group);
+      mesh.geometry.dispose();
+      material.dispose();
+      texture.dispose();
+    }
+  };
+}
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// modules/waves/src/vr.js
+function rotate(q, v) {
+  const [qx, qy, qz, qw] = q;
+  const [vx, vy, vz] = v;
+  const tx = 2 * (qy * vz - qz * vy);
+  const ty = 2 * (qz * vx - qx * vz);
+  const tz = 2 * (qx * vy - qy * vx);
+  return [vx + qw * tx + (qy * tz - qz * ty), vy + qw * ty + (qz * tx - qx * tz), vz + qw * tz + (qx * ty - qy * tx)];
+}
+function aimRay(hand) {
+  return { origin: hand.position.slice(0, 3), dir: rotate(hand.quaternion, [0, 0, -1]) };
+}
+function yawOf(dir) {
+  return Math.atan2(-dir[0], -dir[2]);
+}
+function rayRect(ray, rect) {
+  const d = ray.dir;
+  const n = rect.normal;
+  const denom = d[0] * n[0] + d[1] * n[1] + d[2] * n[2];
+  if (Math.abs(denom) < 1e-6) return null;
+  const o = ray.origin;
+  const c = rect.center;
+  const t = ((c[0] - o[0]) * n[0] + (c[1] - o[1]) * n[1] + (c[2] - o[2]) * n[2]) / denom;
+  if (!(t > 0)) return null;
+  const p = [o[0] + d[0] * t - c[0], o[1] + d[1] * t - c[1], o[2] + d[2] * t - c[2]];
+  const r = rect.right;
+  const up = [n[1] * r[2] - n[2] * r[1], n[2] * r[0] - n[0] * r[2], n[0] * r[1] - n[1] * r[0]];
+  const u = (p[0] * r[0] + p[1] * r[1] + p[2] * r[2]) / rect.w;
+  const v = (p[0] * up[0] + p[1] * up[1] + p[2] * up[2]) / rect.h;
+  if (Math.abs(u) > 0.5 || Math.abs(v) > 0.5) return null;
+  return { t, u, v };
+}
+function createEdges() {
+  const prev = /* @__PURE__ */ new Map();
+  return {
+    /** @param {string} key @param {boolean} down */
+    edge(key, down) {
+      const was = prev.get(key) === true;
+      prev.set(key, !!down);
+      return !!down && !was;
+    },
+    /** @param {string} key @param {boolean} down  true on the frame `down` goes false */
+    release(key, down) {
+      const was = prev.get(key) === true;
+      prev.set(key, !!down);
+      return !down && was;
+    },
+    clear() {
+      prev.clear();
+    }
+  };
+}
+function inGame(api) {
+  if (api.isPlaying?.()) return true;
+  return typeof api.editorMode === "function" && api.editorMode() === "interact";
+}
+
+// modules/waves/src/start.js
+var START_ELEMENT = "wv-start";
+var DISTANCE = 2.4;
+var DEBOUNCE = 1.2;
+function registerStart(api, root) {
+  const board = createBoard(api);
+  root.add(board.group);
+  const edges = createEdges();
+  let pressedAt = -Infinity;
+  let placed = false;
+  let transient = (
+    /** @type {{card: any, until: number} | null} */
+    null
+  );
+  let resultCard = () => null;
+  const hands = () => ["right", "left"].map((hand) => ({ hand, snap: api.vrHand?.(hand) ?? null }));
+  const hasStart = () => api.flow.nodes("hudbutton").some((n) => String(n.data?.element ?? "") === START_ELEMENT);
+  function press() {
+    const t = performance.now() / 1e3;
+    if (t - pressedAt < DEBOUNCE) return false;
+    pressedAt = t;
+    api.fireNodeTrigger("hudbutton", (d) => String(d?.element ?? "") === START_ELEMENT);
+    api.hapticPattern ? api.hapticPattern("success") : api.haptic?.(0.6, 80);
+    api.playSound?.(api.music ? "portal" : "ding");
+    return true;
+  }
+  function place(lift = 0.15, distance = DISTANCE) {
+    const head = api.playerPosition?.() ?? [0, 1.6, 0];
+    const tracked = hands().filter((h) => h.snap?.position && h.snap?.quaternion);
+    let yaw = 0;
+    if (tracked.length) {
+      const d = aimRay(
+        /** @type {any} */
+        tracked[0].snap
+      ).dir;
+      yaw = yawOf([d[0], 0, d[2]]);
+    }
+    const at = [head[0] - Math.sin(yaw) * distance, head[1] + lift, head[2] - Math.cos(yaw) * distance];
+    board.placeFacing(at, yaw);
+    placed = true;
+  }
+  const running = () => {
+    const cutoff = api.game.roundCutoff();
+    return typeof cutoff === "number" && Number.isFinite(cutoff) && api.game.roundUnderway();
+  };
+  let mode = "";
+  function frame() {
+    const vrGame = !!api.isVR?.() && inGame(api);
+    if (transient && performance.now() / 1e3 < transient.until && vrGame) {
+      board.draw(transient.card);
+      if (mode !== "card") {
+        place(0.9, 3.4);
+        mode = "card";
+      }
+      board.show(true);
+      return;
+    }
+    transient = null;
+    if (mode === "card") {
+      placed = false;
+      mode = "";
+    }
+    const want = vrGame && !running() && hasStart();
+    if (!want) {
+      if (board.visible()) board.show(false);
+      placed = false;
+      edges.clear();
+      return;
+    }
+    const result = resultCard();
+    board.draw(result ? { title: result.title, lines: result.lines, button: "SHOOT TO PLAY AGAIN", color: result.color } : { title: "WAVES", lines: ["Hold the crystal against the waves.", "Aim a controller here and pull the trigger."], button: "SHOOT TO START" });
+    if (!placed) place();
+    board.show(true);
+    const rect = board.rect();
+    for (const { hand, snap } of hands()) {
+      if (!snap?.position || !snap?.quaternion) continue;
+      const pulled = edges.edge("trigger-" + hand, !!snap.trigger);
+      if (pulled && rayRect(aimRay(snap), rect)) press();
+    }
+  }
+  api.registerFrameTask(() => {
+    try {
+      frame();
+    } catch (error) {
+      console.warn("[waves] start board failed", error);
+    }
+  });
+  return {
+    board,
+    press,
+    hasStart,
+    visible: () => board.visible(),
+    /** a banner on the board for `ms` (the headset's announce fallback) @param {any} card @param {number} ms */
+    card(card, ms) {
+      transient = { card, until: performance.now() / 1e3 + ms / 1e3 };
+      mode = "";
+    },
+    /** @param {() => any} fn */
+    setResult(fn) {
+      resultCard = fn;
+    }
+  };
+}
+
+// modules/waves/src/juice.js
+var TRACER_LIFE = 0.09;
+var FLASH_LIFE = 0.06;
+var POP_LIFE = 0.38;
+var SHARD_LIFE = 0.55;
+function createJuice(api, root) {
+  const THREE = api.THREE;
+  const group = new THREE.Group();
+  group.name = "Waves juice";
+  root.add(group);
+  const clock = () => performance.now() / 1e3;
+  const unit = new THREE.BoxGeometry(1, 1, 1);
+  unit.translate(0, 0, -0.5);
+  const ball = new THREE.IcosahedronGeometry(1, 1);
+  const star = new THREE.PlaneGeometry(1, 1);
+  const glow = (color, opacity = 1) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const live = [];
+  const drawn = (
+    /** @type {Record<string, number>} */
+    {}
+  );
+  const pool = /* @__PURE__ */ new Map();
+  function take(kind, make) {
+    const list = pool.get(kind) ?? [];
+    const mesh = list.pop() ?? make();
+    if (!mesh.parent) group.add(mesh);
+    mesh.visible = true;
+    drawn[kind] = (drawn[kind] ?? 0) + 1;
+    return mesh;
+  }
+  const _a = new THREE.Vector3();
+  const _b = new THREE.Vector3();
+  const local = (p) => group.worldToLocal(new THREE.Vector3(p[0], p[1], p[2]));
+  function tracer(from, to, color, width = 0.018) {
+    const mesh = take("tracer", () => new THREE.Mesh(unit, glow(color, 0.95)));
+    mesh.material.color.setHex(color);
+    mesh.material.opacity = 0.95;
+    place(mesh, from, to, width);
+    live.push({ mesh, born: clock(), life: TRACER_LIFE, kind: "tracer" });
+  }
+  function place(mesh, from, to, width) {
+    group.updateMatrixWorld(true);
+    _a.set(from[0], from[1], from[2]);
+    _b.set(to[0], to[1], to[2]);
+    const len = Math.max(1e-3, _a.distanceTo(_b));
+    mesh.position.copy(local(from));
+    mesh.lookAt(_a.clone().multiplyScalar(2).sub(_b));
+    mesh.scale.set(width, width, len);
+  }
+  function flash(at, color) {
+    const mesh = take("flash", () => {
+      const m = new THREE.Group();
+      const a = new THREE.Mesh(star, glow(16777215, 1));
+      const b = new THREE.Mesh(star, glow(16777215, 1));
+      b.rotation.y = Math.PI / 2;
+      const c = new THREE.Mesh(ball, glow(16777215, 0.9));
+      c.scale.setScalar(0.35);
+      m.add(a, b, c);
+      return m;
+    });
+    mesh.children.forEach((c) => c.material.color.setHex(color));
+    mesh.position.copy(local(at));
+    mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+    mesh.scale.setScalar(0.09);
+    live.push({ mesh, born: clock(), life: FLASH_LIFE, kind: "flash" });
+  }
+  function spark(at, color) {
+    const mesh = take("spark", () => new THREE.Mesh(ball, glow(16777215, 1)));
+    mesh.material.color.setHex(color);
+    mesh.position.copy(local(at));
+    mesh.scale.setScalar(0.06);
+    live.push({ mesh, born: clock(), life: 0.12, kind: "spark" });
+  }
+  function pop(at, color) {
+    const core = take("pop", () => new THREE.Mesh(ball, glow(16777215, 1)));
+    core.material.color.setHex(color);
+    core.material.opacity = 1;
+    core.position.copy(local(at));
+    core.scale.setScalar(0.1);
+    live.push({ mesh: core, born: clock(), life: POP_LIFE, kind: "pop" });
+    for (let i = 0; i < 10; i++) {
+      const shard = take("shard", () => new THREE.Mesh(unit, glow(16777215, 1)));
+      shard.material.color.setHex(i % 2 ? color : 16765088);
+      shard.material.opacity = 1;
+      shard.position.copy(local(at));
+      shard.scale.set(0.05, 0.05, 0.12);
+      shard.rotation.set(Math.random() * 6, Math.random() * 6, 0);
+      const a = i / 10 * Math.PI * 2 + Math.random() * 0.4;
+      const up = 2.2 + Math.random() * 2.2;
+      const out = 1.8 + Math.random() * 2;
+      live.push({ mesh: shard, born: clock(), life: SHARD_LIFE, kind: "shard", vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out) });
+    }
+    api.effects?.burst?.(at, { kind: "sparks", color: "#" + color.toString(16).padStart(6, "0"), count: 24 });
+    api.effects?.burst?.(at, { kind: "smoke", count: 10 });
+  }
+  const beams = /* @__PURE__ */ new Map();
+  function beam(hand, from, to, color, heat = 0) {
+    let mesh = beams.get(hand);
+    if (!from || !to) {
+      if (mesh) mesh.visible = false;
+      return;
+    }
+    if (!mesh) {
+      mesh = new THREE.Group();
+      mesh.add(new THREE.Mesh(unit, glow(color, 0.9)));
+      const outer = new THREE.Mesh(unit, glow(color, 0.25));
+      outer.scale.set(3, 3, 1);
+      mesh.add(outer);
+      group.add(mesh);
+      beams.set(hand, mesh);
+    }
+    mesh.visible = true;
+    const c = new THREE.Color(color).lerp(new THREE.Color(16724e3), Math.max(0, Math.min(1, heat)));
+    mesh.children.forEach((m) => m.material.color.copy(c));
+    const w = 0.012 + 6e-3 * Math.sin(clock() * 60);
+    place(mesh, from, to, w);
+  }
+  let lastT = clock();
+  function frame() {
+    const t = clock();
+    const dt = Math.min(0.05, t - lastT);
+    lastT = t;
+    for (let i = live.length - 1; i >= 0; i--) {
+      const p = live[i];
+      const age = (t - p.born) / p.life;
+      if (age >= 1) {
+        p.mesh.visible = false;
+        (pool.get(p.kind) ?? pool.set(p.kind, []).get(p.kind))?.push(p.mesh);
+        live.splice(i, 1);
+        continue;
+      }
+      if (p.kind === "tracer") p.mesh.material.opacity = 0.95 * (1 - age);
+      else if (p.kind === "flash") p.mesh.scale.setScalar(0.09 + 0.05 * age);
+      else if (p.kind === "spark") p.mesh.scale.setScalar(0.06 + 0.1 * age);
+      else if (p.kind === "pop") {
+        p.mesh.scale.setScalar(0.12 + 0.9 * Math.sqrt(age));
+        p.mesh.material.opacity = 1 - age;
+      } else if (p.kind === "shard" && p.vel) {
+        p.vel.y -= 9.8 * dt;
+        p.mesh.position.addScaledVector(p.vel, dt);
+        p.mesh.rotation.x += dt * 9;
+        p.mesh.material.opacity = 1 - age;
+      }
+    }
+  }
+  return { group, tracer, flash, spark, pop, beam, frame, live: () => live.length, drawn: () => ({ ...drawn }) };
+}
+
+// modules/waves/src/guns.js
+var GUNS = Object.freeze({
+  blaster: Object.freeze({ id: "blaster", name: "Blaster", mode: "semi", refire: 0.16, damage: 1, pellets: 1, spread: 0, range: 60, color: 3793151, sound: "shoot", blurb: "Semi-auto. One precise bolt per pull." }),
+  scatter: Object.freeze({ id: "scatter", name: "Scatter", mode: "spread", refire: 0.85, damage: 1, pellets: 7, spread: 0.075, range: 28, color: 16752704, sound: "shoot", blurb: "Seven pellets in a cone. Slow, brutal up close." }),
+  beam: Object.freeze({ id: "beam", name: "Beam", mode: "beam", refire: 0.12, damage: 1, pellets: 1, spread: 0, range: 40, color: 16732120, sound: "laser", heatPerSecond: 0.42, coolPerSecond: 0.55, lockUntil: 0.35, blurb: "Hold to burn. Overheats \u2014 let it cool." })
+});
+var GUN_IDS = Object.freeze(Object.keys(GUNS));
+function gunOf(id) {
+  return (
+    /** @type {any} */
+    GUNS[String(id)] ?? GUNS.blaster
+  );
+}
+function trigger(gun, s, input) {
+  const dt = Math.max(0, Math.min(0.25, input.t - (Number.isFinite(s.at) ? s.at : input.t)));
+  let { last, heat, locked } = s;
+  let fire = false;
+  if (gun.mode === "beam") {
+    const want = input.held && !locked;
+    if (want) {
+      heat = Math.min(1, heat + (gun.heatPerSecond ?? 0.4) * dt);
+      if (heat >= 1) locked = true;
+      if (!locked && input.t - last >= gun.refire) fire = true;
+    } else heat = Math.max(0, heat - (gun.coolPerSecond ?? 0.5) * dt);
+    if (locked && heat <= (gun.lockUntil ?? 0.35)) locked = false;
+  } else {
+    heat = 0;
+    locked = false;
+    if (input.pressed && input.t - last >= gun.refire) fire = true;
+  }
+  if (fire) last = input.t;
+  return { fire, state: { last, heat, locked, at: input.t } };
+}
+var idleHand = () => ({ last: -Infinity, heat: 0, locked: false, at: NaN });
+function pelletDirs(dir, pellets, spread, twist = 0) {
+  if (pellets <= 1 || !(spread > 0)) return [dir.slice(0, 3)];
+  const up = Math.abs(dir[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
+  const a = norm(cross(dir, up));
+  const b = cross(a, dir);
+  const out = [dir.slice(0, 3)];
+  const ring = pellets - 1;
+  for (let i = 0; i < ring; i++) {
+    const ang = twist + i / ring * Math.PI * 2;
+    const r = Math.tan(spread) * (i % 2 ? 0.6 : 1);
+    out.push(norm([dir[0] + (a[0] * Math.cos(ang) + b[0] * Math.sin(ang)) * r, dir[1] + (a[1] * Math.cos(ang) + b[1] * Math.sin(ang)) * r, dir[2] + (a[2] * Math.cos(ang) + b[2] * Math.sin(ang)) * r]));
+  }
+  return out;
+}
+function cross(a, b) {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+function norm(v) {
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
+}
+function gunHands(hand) {
+  if (hand === "left") return ["left"];
+  if (hand === "both") return ["right", "left"];
+  return ["right"];
+}
+function abilityHand(hand) {
+  return hand === "left" ? "right" : "left";
+}
+
+// modules/waves/src/prefs.js
+var ABILITY_IDS = Object.freeze(["shield", "slowmo", "pulse"]);
+var HANDS = Object.freeze(["right", "left", "both"]);
+var MUSIC = Object.freeze(["off", "low", "high"]);
+var DEFAULT_PREFS = Object.freeze({ gun: "blaster", ability: "pulse", hand: "right", sfx: true, music: "low", haptics: true });
+var KEY = "prefs";
+function normalize(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  return {
+    gun: GUN_IDS.includes(r.gun) ? r.gun : DEFAULT_PREFS.gun,
+    ability: ABILITY_IDS.includes(r.ability) ? r.ability : DEFAULT_PREFS.ability,
+    hand: HANDS.includes(r.hand) ? r.hand : DEFAULT_PREFS.hand,
+    sfx: typeof r.sfx === "boolean" ? r.sfx : DEFAULT_PREFS.sfx,
+    music: MUSIC.includes(r.music) ? r.music : DEFAULT_PREFS.music,
+    haptics: typeof r.haptics === "boolean" ? r.haptics : DEFAULT_PREFS.haptics
+  };
+}
+function cycle(list, value) {
+  const i = list.indexOf(value);
+  return list[(i + 1) % list.length];
+}
+function createPrefs(api) {
+  let prefs = normalize(api.storage?.get?.(KEY, null));
+  const listeners = /* @__PURE__ */ new Set();
+  return {
+    get: () => prefs,
+    /** @param {Partial<typeof DEFAULT_PREFS>} patch */
+    set(patch) {
+      prefs = normalize({ ...prefs, ...patch });
+      api.storage?.set?.(KEY, prefs);
+      for (const fn of listeners) fn(prefs);
+      return prefs;
+    },
+    /** @param {(p: typeof DEFAULT_PREFS) => void} fn */
+    onChange(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    }
+  };
+}
+
+// modules/waves/src/feel.js
+var HAPTIC_FALLBACK = Object.freeze({ tap: [0.2, 18], bump: [0.45, 35], hit: [0.8, 70], success: [0.6, 120], fail: [0.7, 160], rumble: [0.5, 220], heartbeat: [0.5, 90] });
+var hasGameSounds = (api) => !!api.music && typeof api.music.play === "function";
+function createFeel(api, prefs) {
+  return {
+    /** @param {string} name @param {number[]=} at */
+    sound(name, at) {
+      if (!prefs.get().sfx || !hasGameSounds(api)) return;
+      api.playSound?.(name, at);
+    },
+    /** @param {string} pattern @param {string=} hand 'right' | 'left' ('desk' and absent buzz nothing / both) */
+    haptic(pattern, hand) {
+      if (!prefs.get().haptics || hand === "desk") return;
+      if (typeof api.hapticPattern === "function") api.hapticPattern(pattern, hand);
+      else {
+        const [i, ms] = (
+          /** @type {any} */
+          HAPTIC_FALLBACK[pattern] ?? [0.4, 40]
+        );
+        api.haptic?.(i, ms, hand);
+      }
+    }
+  };
+}
+
+// modules/waves/src/models.js
+function buildGun(THREE, id, accent) {
+  const g = new THREE.Group();
+  g.name = "Waves gun " + id;
+  const body = new THREE.MeshStandardMaterial({ color: 2830394, roughness: 0.42, metalness: 0.55 });
+  const dark = new THREE.MeshStandardMaterial({ color: 1382172, roughness: 0.7, metalness: 0.2 });
+  const glow = new THREE.MeshStandardMaterial({ color: accent, emissive: accent, emissiveIntensity: 2.2, roughness: 0.3 });
+  const add = (geo, mat, pos, rot) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.fromArray(pos);
+    if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
+    m.castShadow = false;
+    m.receiveShadow = false;
+    g.add(m);
+    return m;
+  };
+  const barrel = (r, len) => new THREE.CylinderGeometry(r, r, len, 14).rotateX(Math.PI / 2);
+  let tip = -0.24;
+  if (id === "scatter") {
+    add(new THREE.BoxGeometry(0.075, 0.07, 0.2), body, [0, 0.03, -0.07]);
+    add(barrel(0.018, 0.2), dark, [-0.021, 0.045, -0.2]);
+    add(barrel(0.018, 0.2), dark, [0.021, 0.045, -0.2]);
+    add(new THREE.BoxGeometry(0.09, 0.03, 0.08), body, [0, 0.01, -0.2]);
+    add(new THREE.BoxGeometry(0.08, 0.012, 0.16), glow, [0, 0.068, -0.08]);
+    tip = -0.3;
+  } else if (id === "beam") {
+    add(new THREE.CylinderGeometry(0.036, 0.042, 0.2, 18).rotateX(Math.PI / 2), body, [0, 0.035, -0.08]);
+    for (const z of [-0.05, -0.1, -0.15]) add(new THREE.TorusGeometry(0.043, 8e-3, 8, 20), glow, [0, 0.035, z]);
+    add(barrel(0.014, 0.1), dark, [0, 0.035, -0.22]);
+    add(new THREE.SphereGeometry(0.02, 12, 10), glow, [0, 0.035, -0.27]);
+    tip = -0.28;
+  } else {
+    add(new THREE.BoxGeometry(0.05, 0.065, 0.18), body, [0, 0.03, -0.06]);
+    add(barrel(0.014, 0.14), dark, [0, 0.042, -0.19]);
+    add(new THREE.BoxGeometry(0.056, 0.012, 0.12), glow, [0, 0.066, -0.06]);
+    add(new THREE.TorusGeometry(0.018, 5e-3, 8, 16), glow, [0, 0.042, -0.25]);
+  }
+  add(new THREE.BoxGeometry(0.04, 0.1, 0.045), dark, [0, -0.03, 0.01], [0.35, 0, 0]);
+  add(new THREE.TorusGeometry(0.022, 5e-3, 6, 12, Math.PI), dark, [0, -5e-3, -0.035], [0, Math.PI / 2, 0]);
+  const muzzle = new THREE.Object3D();
+  muzzle.name = "muzzle";
+  muzzle.position.set(0, id === "scatter" ? 0.045 : id === "beam" ? 0.035 : 0.042, tip);
+  g.add(muzzle);
+  g.userData.muzzle = muzzle;
+  g.userData.glow = glow;
+  g.userData.accent = accent;
+  return g;
+}
+
+// modules/waves/src/weapon.js
+var GRIP_OFFSET = [0, -0.035, 0.05];
+function registerWeapon(api, engine, root, juice, prefs, feel) {
+  const THREE = api.THREE;
+  const edges = createEdges();
+  const hands = /* @__PURE__ */ new Map();
+  const clock = () => performance.now() / 1e3;
+  const stats = { shots: 0, hits: 0, kills: 0, lastShot: (
+    /** @type {any} */
+    null
+  ) };
+  function handOf(hand) {
+    const id = prefs.get().gun;
+    let h = hands.get(hand);
+    if (!h || h.gun !== id) {
+      if (h) {
+        h.model.parent?.remove(h.model);
+        juice.beam(hand, null, null, 0);
+      }
+      const gun = gunOf(id);
+      const model = buildGun(
+        THREE,
+        /** @type {any} */
+        gun.id,
+        gun.color
+      );
+      model.visible = false;
+      root.add(model);
+      h = { model, gun: gun.id, state: idleHand(), kick: 0, holding: false, lastSound: -Infinity };
+      hands.set(hand, h);
+    }
+    return h;
+  }
+  const mouse = { down: false, pressed: false };
+  if (typeof window !== "undefined") {
+    const onDown = (e) => {
+      if (e.button !== 0) return;
+      const target = (
+        /** @type {any} */
+        e.target
+      );
+      if (!document.pointerLockElement && target?.tagName !== "CANVAS") return;
+      mouse.down = true;
+      mouse.pressed = true;
+    };
+    const onUp = (e) => {
+      if (e.button === 0) mouse.down = false;
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("pointerup", onUp, true);
+    window.addEventListener("blur", () => mouse.down = false);
+  }
+  const running = () => {
+    const cutoff = api.game.roundCutoff();
+    return typeof cutoff === "number" && Number.isFinite(cutoff) && api.game.roundUnderway();
+  };
+  const _m = new THREE.Matrix4();
+  const _p = new THREE.Vector3();
+  const _q = new THREE.Quaternion();
+  const _s = new THREE.Vector3();
+  function setWorld(object, world) {
+    const parent = object.parent;
+    if (parent) {
+      parent.updateMatrixWorld?.(true);
+      _m.copy(parent.matrixWorld).invert().multiply(world);
+    } else _m.copy(world);
+    _m.decompose(_p, _q, _s);
+    object.position.copy(_p);
+    object.quaternion.copy(_q);
+    object.scale.copy(_s);
+    object.updateMatrixWorld(true);
+  }
+  function handMatrix(snap, kick) {
+    const q = new THREE.Quaternion().fromArray(snap.quaternion);
+    const offset = new THREE.Vector3(GRIP_OFFSET[0], GRIP_OFFSET[1], GRIP_OFFSET[2] + kick).applyQuaternion(q);
+    const p = new THREE.Vector3().fromArray(snap.position).add(offset);
+    return new THREE.Matrix4().compose(p, q, new THREE.Vector3(1, 1, 1));
+  }
+  function deskMatrix(ray, kick) {
+    const d = ray.direction.clone().normalize();
+    const right = new THREE.Vector3().crossVectors(d, new THREE.Vector3(0, 1, 0));
+    if (right.lengthSq() < 1e-6) right.set(1, 0, 0);
+    right.normalize();
+    const up = new THREE.Vector3().crossVectors(right, d).normalize();
+    const p = ray.origin.clone().addScaledVector(d, 0.46 - kick).addScaledVector(right, 0.17).addScaledVector(up, -0.15);
+    const basis = new THREE.Matrix4().makeBasis(right, up, d.clone().negate());
+    return new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromRotationMatrix(basis), new THREE.Vector3(1, 1, 1));
+  }
+  const raycaster = new THREE.Raycaster();
+  const shown = (o) => {
+    for (let c = o; c; c = c.parent) if (c.visible === false) return false;
+    return true;
+  };
+  function cast(origin, dir, range, targets) {
+    const group = api.objectsGroup();
+    const o = new THREE.Vector3().fromArray(origin);
+    const d = new THREE.Vector3().fromArray(dir).normalize();
+    raycaster.set(o, d);
+    raycaster.near = 0.05;
+    raycaster.far = range;
+    const found = group ? raycaster.intersectObjects(group.children, true) : [];
+    for (const x of found) {
+      if (!x.object?.isMesh || !shown(x.object)) continue;
+      let top = x.object;
+      while (top.parent && top.parent !== group) top = top.parent;
+      const uuid = targets.has(top.uuid) ? top.uuid : null;
+      return { point: x.point.toArray(), uuid, distance: x.distance };
+    }
+    return { point: o.addScaledVector(d, range).toArray(), uuid: null, distance: range };
+  }
+  function fire(hand, origin, dir, muzzle) {
+    const gun = gunOf(prefs.get().gun);
+    const targets = new Map(engine.targets().map((t) => [t.uuid, t]));
+    const dirs = pelletDirs(dir, gun.pellets, gun.spread, Math.random() * Math.PI);
+    const perEnemy = /* @__PURE__ */ new Map();
+    let end = null;
+    for (const d of dirs) {
+      const hit = cast(origin, d, gun.range, targets);
+      if (!end) end = hit.point;
+      if (gun.mode !== "beam") juice.tracer(muzzle, hit.point, gun.color, gun.pellets > 1 ? 0.012 : 0.02);
+      if (hit.uuid) {
+        perEnemy.set(hit.uuid, (perEnemy.get(hit.uuid) ?? 0) + gun.damage);
+        juice.spark(hit.point, gun.color);
+      } else if (hit.distance < gun.range) juice.spark(hit.point, 16769216);
+    }
+    stats.shots++;
+    const results = [];
+    for (const [uuid, n] of perEnemy) {
+      const r = engine.hit(uuid, n);
+      if (!r) continue;
+      stats.hits += r.landed;
+      if (r.killed) stats.kills++;
+      results.push({ uuid, landed: r.landed, killed: r.killed });
+    }
+    stats.lastShot = { hand, gun: gun.id, pellets: dirs.length, results, end, at: clock() };
+    if (gun.mode !== "beam") {
+      juice.flash(muzzle, gun.color);
+      feel.sound(gun.sound, muzzle);
+    }
+    if (results.some((r) => r.killed)) feel.haptic("hit", hand);
+    else feel.haptic(gun.mode === "beam" ? "tap" : "bump", hand);
+    return { end, results };
+  }
+  function frame() {
+    const game = inGame(api);
+    const vr = !!api.isVR?.();
+    const t = clock();
+    const gun = gunOf(prefs.get().gun);
+    const armed = gunHands(prefs.get().hand);
+    const live = running();
+    const shownHands = /* @__PURE__ */ new Set();
+    if (game && vr) {
+      for (const hand of armed) {
+        const snap = api.vrHand?.(hand);
+        if (!snap?.position || !snap?.quaternion) continue;
+        const h = handOf(hand);
+        shownHands.add(hand);
+        h.kick *= Math.exp(-(1 / 60) * 18);
+        setWorld(h.model, handMatrix(snap, h.kick));
+        h.model.visible = true;
+        const held = !!snap.trigger;
+        const pressed = edges.edge("trigger-" + hand, held);
+        step(hand, h, gun, { pressed, held, t }, () => {
+          const ray = aimRay(snap);
+          const muzzle = h.model.userData.muzzle.getWorldPosition(new THREE.Vector3()).toArray();
+          return { origin: ray.origin, dir: ray.dir, muzzle };
+        });
+      }
+    } else if (game && !vr && live) {
+      const ray = api.pointerRay?.();
+      if (ray) {
+        const h = handOf("desk");
+        shownHands.add("desk");
+        h.kick *= Math.exp(-(1 / 60) * 16);
+        setWorld(h.model, deskMatrix(ray.ray ?? ray, h.kick));
+        h.model.visible = true;
+        const pressed = mouse.pressed;
+        mouse.pressed = false;
+        step("desk", h, gun, { pressed, held: mouse.down, t }, () => {
+          const r = ray.ray ?? ray;
+          const muzzle = h.model.userData.muzzle.getWorldPosition(new THREE.Vector3()).toArray();
+          return { origin: r.origin.toArray(), dir: r.direction.clone().normalize().toArray(), muzzle };
+        });
+      }
+    }
+    if (!shownHands.has("desk")) mouse.pressed = false;
+    for (const [hand, h] of hands)
+      if (!shownHands.has(hand)) {
+        h.model.visible = false;
+        h.holding = false;
+        juice.beam(hand, null, null, 0);
+      }
+  }
+  function step(hand, h, gun, input, aim) {
+    const wasLocked = h.state.locked;
+    const r = trigger(gun, h.state, input);
+    h.state = r.state;
+    if (r.fire) {
+      const a = aim();
+      fire(hand, a.origin, a.dir, a.muzzle);
+      h.kick = gun.mode === "spread" ? 0.06 : gun.mode === "beam" ? 8e-3 : 0.03;
+    }
+    if (gun.mode === "beam") {
+      const burning = input.held && !h.state.locked;
+      if (burning) {
+        const a = aim();
+        const hit = cast(a.origin, a.dir, gun.range, /* @__PURE__ */ new Map());
+        juice.beam(hand, a.muzzle, hit.point, gun.color, h.state.heat);
+        if (!h.holding || input.t - h.lastSound > 0.45) {
+          feel.sound(gun.sound, a.muzzle);
+          h.lastSound = input.t;
+        }
+      } else juice.beam(hand, null, null, 0);
+      h.holding = burning;
+      if (h.state.locked && !wasLocked) {
+        feel.sound("fail");
+        feel.haptic("fail", hand);
+      }
+      const glow = h.model.userData.glow;
+      if (glow) {
+        glow.emissiveIntensity = 1.2 + 3 * h.state.heat;
+        glow.emissive.setHex(h.state.locked ? 16722448 : gun.color);
+      }
+    }
+  }
+  api.registerFrameTask(() => {
+    try {
+      frame();
+    } catch (error) {
+      console.warn("[waves] gun failed", error);
+    }
+  });
+  return {
+    fire,
+    cast,
+    stats,
+    hands,
+    /** the hand's heat 0..1 and whether it is locked (the Beam), for a HUD @param {string} hand */
+    heatOf: (hand) => {
+      const h = hands.get(hand);
+      return h ? { heat: h.state.heat, locked: h.state.locked } : { heat: 0, locked: false };
+    }
+  };
+}
+
+// modules/waves/src/abilities.js
+var ABILITIES = Object.freeze({
+  shield: Object.freeze({ id: "shield", name: "Shield", duration: 3, cooldown: 12, color: 3793151, sound: "ring", blurb: "Blocks all damage for 3 s." }),
+  slowmo: Object.freeze({ id: "slowmo", name: "Slow-mo", duration: 4, cooldown: 16, color: 9076223, sound: "whoosh", blurb: "Enemies at 40% speed for 4 s." }),
+  pulse: Object.freeze({ id: "pulse", name: "Pulse", duration: 0.45, cooldown: 8, color: 16765514, sound: "kick", radius: 6, push: 3.2, blurb: "A shockwave shoves nearby enemies back." })
+});
+function abilityOf(id) {
+  return (
+    /** @type {any} */
+    ABILITIES[String(id)] ?? ABILITIES.pulse
+  );
+}
+var freshCharge = () => ({ readyAt: -Infinity, activeUntil: -Infinity, id: "" });
+function use(a, s, t) {
+  if (t < s.readyAt) return { ok: false, state: s };
+  return { ok: true, state: { readyAt: t + a.cooldown, activeUntil: t + a.duration, id: a.id } };
+}
+function readiness(a, s, t) {
+  if (!(t < s.readyAt)) return 1;
+  return Math.max(0, Math.min(1, 1 - (s.readyAt - t) / a.cooldown));
+}
+var active = (s, t) => t < s.activeUntil;
+function pulseShoves(enemies, at, a) {
+  const out = {};
+  for (const e of enemies) {
+    if (!e.pos) continue;
+    const d = Math.hypot(e.pos[0] - at[0], e.pos[2] - at[2]);
+    if (d > a.radius) continue;
+    const m = a.push * (1 - 0.5 * (d / a.radius)) * (e.kind === "tank" ? 0.35 : 1);
+    out[e.uuid] = Math.round(m * 100) / 100;
+  }
+  return out;
+}
+
+// modules/waves/src/powers.js
+function registerPowers(api, engine, root, prefs, feel) {
+  const THREE = api.THREE;
+  const edges = createEdges();
+  let charge = freshCharge();
+  let wasReady = true;
+  const clock = () => performance.now() / 1e3;
+  const log = (
+    /** @type {{id: string, at: number, shoves?: number}[]} */
+    []
+  );
+  const glow = (color, opacity) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+  const bubble = new THREE.Mesh(new THREE.IcosahedronGeometry(1.05, 2), glow(3793151, 0.14));
+  bubble.name = "Waves shield";
+  bubble.visible = false;
+  const bubbleEdges = new THREE.LineSegments(new THREE.EdgesGeometry(bubble.geometry), new THREE.LineBasicMaterial({ color: 8386303, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
+  bubble.add(bubbleEdges);
+  const wave = new THREE.Mesh(new THREE.TorusGeometry(1, 0.06, 8, 48).rotateX(Math.PI / 2), glow(16765514, 0.9));
+  wave.name = "Waves pulse";
+  wave.visible = false;
+  root.add(bubble, wave);
+  let waveAt = -Infinity;
+  let waveFrom = [0, 0, 0];
+  const placeWorld = (object, p) => {
+    const v = new THREE.Vector3(p[0], p[1], p[2]);
+    object.parent?.worldToLocal(v);
+    object.position.copy(v);
+  };
+  let keyPressed = false;
+  if (typeof window !== "undefined")
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.code !== "KeyQ" || e.repeat) return;
+        const t = (
+          /** @type {any} */
+          e.target
+        );
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName ?? ""))) return;
+        keyPressed = true;
+      },
+      true
+    );
+  const running = () => {
+    const cutoff = api.game.roundCutoff();
+    return typeof cutoff === "number" && Number.isFinite(cutoff) && api.game.roundUnderway();
+  };
+  function trigger2(hand) {
+    const a = abilityOf(prefs.get().ability);
+    const t = clock();
+    const r = use(a, charge, t);
+    if (!r.ok) {
+      feel.haptic("tap", hand);
+      return false;
+    }
+    charge = r.state;
+    wasReady = false;
+    const me = api.playerPosition?.() ?? [0, 1.6, 0];
+    const entry = { id: a.id, at: t, shoves: 0 };
+    if (a.id === "slowmo") {
+      const now = api.now();
+      engine.addFx({ k: "slow", at: now, until: now + a.duration });
+    } else if (a.id === "pulse") {
+      const enemies = engine.targets().map((e) => {
+        const o = api.objectsGroup()?.getObjectByProperty("uuid", e.uuid);
+        return { uuid: e.uuid, kind: e.kind, pos: o ? o.getWorldPosition(new THREE.Vector3()).toArray() : null };
+      });
+      const d = pulseShoves(enemies, me, a);
+      entry.shoves = Object.keys(d).length;
+      if (entry.shoves) engine.addFx({ k: "push", at: api.now(), d });
+      waveAt = t;
+      waveFrom = [me[0], Math.max(0.06, me[1] - 1.5), me[2]];
+      api.effects?.burst?.(waveFrom, { kind: "sparkle", color: "#ffd24a", count: 30 });
+    }
+    log.push(entry);
+    if (log.length > 20) log.shift();
+    feel.sound(a.sound, me);
+    feel.haptic(a.id === "pulse" ? "rumble" : "success", hand);
+    return true;
+  }
+  function frame() {
+    const t = clock();
+    const game = inGame(api) && running();
+    const vr = !!api.isVR?.();
+    const a = abilityOf(prefs.get().ability);
+    if (game) {
+      if (vr) {
+        const hand = abilityHand(prefs.get().hand);
+        const snap = api.vrHand?.(hand);
+        if (edges.edge("grip-" + hand, !!snap?.gripped)) trigger2(hand);
+      } else if (keyPressed) trigger2();
+    } else edges.clear();
+    keyPressed = false;
+    const ready = readiness(a, charge, t) >= 1;
+    if (ready && !wasReady && game) feel.haptic("heartbeat", abilityHand(prefs.get().hand));
+    wasReady = ready;
+    const shielded = game && charge.id === "shield" && active(charge, t);
+    bubble.visible = shielded;
+    if (shielded) {
+      placeWorld(bubble, api.playerPosition?.() ?? [0, 1.6, 0]);
+      const left = charge.activeUntil - t;
+      bubble.material.opacity = 0.1 + 0.06 * Math.sin(t * 9) * (left < 0.8 ? 2 : 1);
+      bubble.rotation.y = t * 0.6;
+    }
+    const age = (t - waveAt) / 0.45;
+    wave.visible = age >= 0 && age < 1;
+    if (wave.visible) {
+      placeWorld(wave, waveFrom);
+      const r = 0.3 + (abilityOf("pulse").radius - 0.3) * Math.sqrt(age);
+      wave.scale.set(r, 1 + 2 * (1 - age), r);
+      wave.material.opacity = 0.9 * (1 - age);
+    }
+  }
+  api.registerFrameTask(() => {
+    try {
+      frame();
+    } catch (error) {
+      console.warn("[waves] ability failed", error);
+    }
+  });
+  return {
+    trigger: trigger2,
+    log,
+    /** 0..1 charged (1 ready) */
+    readiness: () => readiness(abilityOf(prefs.get().ability), charge, clock()),
+    /** is THIS player shielded now — the damage rule reads it */
+    shielded: () => charge.id === "shield" && active(charge, clock()),
+    /** is a slow window on (anyone's) */
+    slowed: () => engine.all().some((s) => (s.slows ?? []).some((w) => api.now() >= w.at && api.now() < w.until)),
+    reset: () => {
+      charge = freshCharge();
+    }
+  };
+}
+
+// modules/waves/src/session.js
+var BEST_KEY = "best";
+var LEVEL_NEWS = { 2: "Runners incoming \u2014 fast and fragile", 3: "Tanks! Heavy, slow, worth 400", 4: "Everything, faster", 5: "The last stand" };
+var fmt = (n) => Math.round(n).toLocaleString("en-US");
+function betterRun(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  if (b.score !== a.score) return b.score > a.score ? b : a;
+  return (b.level ?? 0) > (a.level ?? 0) ? b : a;
+}
+function resultLines(r) {
+  return {
+    title: r.won ? "ARENA CLEARED" : "CRYSTAL DESTROYED",
+    lines: [
+      (r.won ? "All " + r.waves + " waves held" : "Fell on wave " + r.wave + " of " + r.waves) + " \xB7 level " + r.level,
+      "Score " + fmt(r.score) + " \xB7 " + r.kills + (r.kills === 1 ? " kill" : " kills"),
+      r.isBest ? "NEW BEST!" : "Best: " + fmt(r.best?.score ?? 0) + " \xB7 level " + (r.best?.level ?? 1)
+    ]
+  };
+}
+function registerSession(api, engine, juice, feel, prefs, board) {
+  let best = api.storage?.get?.(BEST_KEY, null) ?? null;
+  let result = null;
+  const said = (
+    /** @type {{text: string, sub?: string}[]} */
+    []
+  );
+  function announce(text, o = {}) {
+    said.push({ text, sub: o.sub });
+    if (said.length > 30) said.shift();
+    if (typeof api.announce === "function") {
+      api.announce(text, { sub: o.sub, ms: o.ms ?? 1800, color: o.color });
+      return;
+    }
+    if (api.isVR?.()) board?.card({ title: text, lines: o.sub ? [o.sub] : [], color: o.color }, o.ms ?? 1800);
+    else if (o.big) api.toast?.(o.sub ? text + " \u2014 " + o.sub : text);
+  }
+  const crystal = (s) => s?.goal ? [s.goal[0], s.goal[1] + 1.6, s.goal[2]] : [0, 2, 0];
+  function crystalHp() {
+    const node = api.flow.nodes("health").find((n) => n.data?.scope === "player");
+    return node ? Number(api.flow.nodeValue(node.id)) : NaN;
+  }
+  function crystalFell() {
+    if (crystalHp() <= 0) return true;
+    return api.flow.nodes("healthevent").some((n) => {
+      if (String(n.data?.event ?? "") !== "death") return false;
+      const st = api.flow.triggerStamp(n.id);
+      return !!st && st.stamp !== null && Number(st.age) < 3;
+    });
+  }
+  let pendingLoss = null;
+  function pushRows() {
+    api.hud.rows("wv-best", best ? ["Best: " + fmt(best.score) + " \xB7 level " + best.level] : ["No best run yet"]);
+    if (result) {
+      const r = resultLines(result);
+      api.hud.rows("wv-result-title", [r.title]);
+      api.hud.rows("wv-result", r.lines);
+    }
+  }
+  engine.onRun((ev) => {
+    const s = ev.s;
+    if (ev.kind === "start") {
+      api.peerVars.setMine("score", 0);
+      api.peerVars.setMine("kills", 0);
+      result = null;
+      api.hud.clearRows("wv-result");
+      api.hud.clearRows("wv-result-title");
+      announce("WAVE 1", { sub: "Hold the crystal!", color: "#ff9c6b" });
+      feel.sound("whistle");
+    } else if (ev.kind === "wave") {
+      announce("Wave " + s.wave, { sub: s.perLevel ? "Level " + s.level : void 0, ms: 1300 });
+      feel.sound("whoosh");
+    } else if (ev.kind === "level") {
+      announce("LEVEL " + s.level, { sub: (
+        /** @type {any} */
+        LEVEL_NEWS[s.level] ?? "Faster"
+      ), color: "#ffd24a", big: true });
+      feel.sound("levelup");
+      feel.haptic("success");
+      const c = crystal(s);
+      if (api.effects?.burst) api.effects.burst(c, { kind: "confetti", count: 80 });
+      else juice.pop(c, 16765514);
+    } else if (ev.kind === "breach") {
+      juice.pop(ev.pos ?? crystal(s), 16726830);
+      feel.sound(ev.blocked ? "ring" : "explosion", ev.pos);
+      feel.haptic(ev.blocked ? "bump" : "fail");
+      if (!ev.blocked) api.effects?.burst?.(crystal(s), { kind: "sparks", color: "#ff3b2e", count: 30 });
+    } else if (ev.kind === "over") {
+      if (ev.won) finish(s, true);
+      else pendingLoss = { s, until: performance.now() / 1e3 + 1.5 };
+    }
+    pushRows();
+  });
+  function finish(s, won) {
+    const run = { score: Number(api.peerVars.mine("score", 0)) || 0, level: s.level ?? 1, wave: s.wave, at: Date.now() };
+    const isBest = !best || betterRun(best, run) === run;
+    if (isBest) {
+      best = run;
+      api.storage?.set?.(BEST_KEY, best);
+    }
+    result = { won, level: run.level, wave: s.wave, waves: s.curve.waves, score: run.score, kills: Number(api.peerVars.mine("kills", 0)) || 0, best, isBest };
+    const r = resultLines(result);
+    announce(r.title, { sub: r.lines[1], color: won ? "#6fcf7a" : "#ff5a4a", ms: 2600, big: true });
+    feel.sound(won ? "cheer" : "fail");
+    feel.haptic(won ? "success" : "fail");
+    if (won) {
+      if (api.effects?.burst) api.effects.burst(crystal(s), { kind: "confetti", count: 120 });
+      else juice.pop(crystal(s), 7327610);
+    }
+    pushRows();
+  }
+  let lastRows = 0;
+  api.registerFrameTask(() => {
+    const now = performance.now() / 1e3;
+    if (now - lastRows > 1) {
+      lastRows = now;
+      pushRows();
+    }
+    if (!pendingLoss) return;
+    if (crystalFell()) {
+      const s = pendingLoss.s;
+      pendingLoss = null;
+      finish(s, false);
+    } else if (performance.now() / 1e3 > pendingLoss.until) pendingLoss = null;
+  });
+  pushRows();
+  return {
+    best: () => best,
+    result: () => result,
+    said,
+    announce,
+    pushRows
+  };
+}
+
+// modules/waves/src/menu.js
+var ACTIONS = Object.freeze({
+  ...Object.fromEntries(GUN_IDS.map((id) => ["wv-gun-" + id, () => ({ gun: id })])),
+  ...Object.fromEntries(ABILITY_IDS.map((id) => ["wv-ab-" + id, () => ({ ability: id })])),
+  "wv-opt-music": (p) => ({ music: cycle(MUSIC, p.music) }),
+  "wv-opt-sfx": (p) => ({ sfx: !p.sfx }),
+  "wv-opt-hand": (p) => ({ hand: cycle(HANDS, p.hand) }),
+  "wv-opt-haptics": (p) => ({ haptics: !p.haptics })
+});
+var MUSIC_VOLUME = Object.freeze({ off: 0, low: 0.35, high: 0.7 });
+var cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+function menuRows(p) {
+  const gun = gunOf(p.gun).name;
+  const ability = abilityOf(p.ability).name;
+  return {
+    "wv-loadout-now": [gun + " + " + ability],
+    "wv-loadout-pick": ["Selected: " + gun + " + " + ability],
+    "wv-opt-music-v": [cap(p.music)],
+    "wv-opt-sfx-v": [p.sfx ? "On" : "Off"],
+    "wv-opt-hand-v": [p.hand === "both" ? "Both" : cap(p.hand)],
+    "wv-opt-haptics-v": [p.haptics ? "On" : "Off"],
+    "wv-ability-label": [ability.toUpperCase() + (p.hand === "both" ? " \u2014 left grip / Q" : " \u2014 grip / Q")]
+  };
+}
+function registerMenu(api, engine, prefs, feel) {
+  const acted = /* @__PURE__ */ new Map();
+  const pressed = (
+    /** @type {string[]} */
+    []
+  );
+  function pushRows() {
+    for (const [id, rows] of Object.entries(menuRows(prefs.get()))) api.hud.rows(id, rows);
+  }
+  function sweep() {
+    for (const node of api.flow.nodes("hudbutton")) {
+      const element = String(node.data?.element ?? "");
+      const act = ACTIONS[element];
+      if (!act) continue;
+      const stamp = api.flow.triggerStamp(node.id)?.stamp ?? null;
+      if (!acted.has(node.id)) {
+        acted.set(node.id, stamp);
+        continue;
+      }
+      if (stamp === null || acted.get(node.id) === stamp) continue;
+      acted.set(node.id, stamp);
+      prefs.set(act(prefs.get()));
+      pressed.push(element);
+      if (pressed.length > 40) pressed.shift();
+      feel.sound("click");
+      feel.haptic("tap");
+    }
+  }
+  let playing = (
+    /** @type {string | null} */
+    null
+  );
+  function music() {
+    if (!api.music?.play) return;
+    const p = prefs.get();
+    const volume = (
+      /** @type {any} */
+      MUSIC_VOLUME[p.music] ?? 0
+    );
+    const want = inGame(api) && volume > 0 && engine.all().length > 0 ? "arcade@" + volume : null;
+    if (want === playing) return;
+    if (want) api.music.play("arcade", { volume });
+    else api.music.stop?.();
+    playing = want;
+  }
+  let lastStep = 0;
+  function steps() {
+    const t = performance.now() / 1e3;
+    if (t - lastStep < 0.42 || !inGame(api)) return;
+    const me = api.playerPosition?.();
+    if (!me) return;
+    let best = null;
+    let bestD = 12;
+    for (const e of engine.targets()) {
+      if (!e.walking) continue;
+      const o = api.objectsGroup()?.getObjectByProperty("uuid", e.uuid);
+      if (!o) continue;
+      const p = o.getWorldPosition(new api.THREE.Vector3());
+      const d = Math.hypot(p.x - me[0], p.z - me[2]);
+      if (d < bestD) {
+        bestD = d;
+        best = p.toArray();
+      }
+    }
+    if (!best) return;
+    lastStep = t;
+    feel.sound("step", best);
+  }
+  let last = 0;
+  let lastRows = 0;
+  api.registerFrameTask(() => {
+    const t = performance.now() / 1e3;
+    try {
+      steps();
+      if (t - last < 0.1) return;
+      last = t;
+      sweep();
+      music();
+      if (t - lastRows > 1) {
+        lastRows = t;
+        pushRows();
+      }
+    } catch (error) {
+      console.warn("[waves] menu failed", error);
+    }
+  });
+  prefs.onChange(() => {
+    pushRows();
+    music();
+  });
+  pushRows();
+  return { sweep, pressed, pushRows, playing: () => playing };
+}
+
 // modules/waves/src/index.js
+var ROOT = "waves-module";
 var index_default = {
   id: "waves",
   name: "Waves",
-  version: "1.1.0",
-  description: "Wave survival on the health module: enemies walk from spawn points to a goal, a wave ends when its last enemy dies, the run is over when the last wave does \u2014 derived on every peer, no authority.",
+  version: "2.0.0",
+  description: "A VR wave shooter on the health module: a gun in your hand, five levels of grunts, runners and tanks walking from the portals to your crystal, a loadout of guns and abilities \u2014 every wave derived on every peer, no authority.",
   /** @param {any} api the module SDK surface */
   register(api) {
     if (!api.flow?.addNodes || !api.game?.roundCutoff || !api.peerVars?.all || !api.registerValueNode) {
@@ -900,9 +2639,56 @@ var index_default = {
       return;
     }
     const engine = createWavesEngine(api);
-    registerNodes(api, engine);
-    const fx = registerFx(api, engine);
+    const player = {};
+    registerNodes(api, engine, player);
     const toolbox = registerToolbox(api, engine);
+    const root = new api.THREE.Group();
+    root.name = ROOT;
+    const prefs = createPrefs(api);
+    const feel = createFeel(api, prefs);
+    const juice = createJuice(api, root);
+    const fx = registerFx(api, engine, juice, feel);
+    api.registerFrameTask(() => {
+      if (!root.parent) api.scene()?.add(root);
+    });
+    api.registerSystemGroup?.(ROOT);
+    const start = registerStart(api, root);
+    const weapon = registerWeapon(api, engine, root, juice, prefs, feel);
+    const powers = registerPowers(api, engine, root, prefs, feel);
+    let spawnSet = false;
+    const session = registerSession(api, engine, juice, feel, prefs, start);
+    start.setResult(() => {
+      const r = session.result();
+      if (!r) return null;
+      const l = resultLines(r);
+      return { title: l.title, lines: l.lines, color: r.won ? "#6fcf7a" : "#ff5a4a" };
+    });
+    const menu = registerMenu(api, engine, prefs, feel);
+    api.registerFrameTask(() => {
+      if (spawnSet || typeof api.setSpawn !== "function") return;
+      const home = api.objectsGroup()?.children.find((c) => c.name === "Home");
+      if (!home || !engine.all().length) return;
+      const p = home.getWorldPosition(new api.THREE.Vector3());
+      api.setSpawn([p.x, 0, p.z], 0);
+      spawnSet = true;
+    });
+    api.onSceneClear(() => {
+      spawnSet = false;
+    });
+    engine.setGuard(() => powers.shielded());
+    player.score = () => Number(api.peerVars.mine("score", 0)) || 0;
+    player.best = () => session.best()?.score ?? 0;
+    player.ability = () => powers.readiness();
+    player.heat = () => Math.max(...["right", "left", "desk"].map((h) => weapon.heatOf(h).heat));
+    let roundAt = api.game.roundCutoff();
+    api.registerFrameTask(() => {
+      juice.frame();
+      const r = api.game.roundCutoff();
+      if (r !== roundAt) {
+        roundAt = r;
+        powers.reset();
+      }
+    });
     api.hud.registerDebugLine(() => {
       const runs = engine.all();
       if (!runs.length) return null;
@@ -933,12 +2719,21 @@ var index_default = {
         engine,
         fx,
         toolbox,
+        start,
+        root,
+        prefs,
+        juice,
+        weapon,
+        powers,
+        session,
+        menu,
         hud: arenaHud,
         hudGraph,
         snapshot: () => engine.all().map((s) => ({
           id: s.id,
           name: s.name,
           wave: s.wave,
+          level: s.level,
           completed: s.completed,
           done: s.done,
           running: s.running,
@@ -956,5 +2751,6 @@ var index_default = {
   }
 };
 export {
+  ROOT,
   index_default as default
 };
