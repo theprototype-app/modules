@@ -1511,6 +1511,67 @@ function animateFloor(group, time, view = {}) {
 // modules/dungeon/src/contract.js
 var GROUP_NAME = "dungeon-module";
 var CONTRACT_VERSION = 2;
+var BLOCKED = 3;
+var SOLID = {
+  pillar: { hx: 0.38, hz: 0.38, h: 2.4 },
+  crate: { hx: 0.36, hz: 0.36, h: 0.72 },
+  chest: { hx: 0.43, hz: 0.3, h: 0.55 },
+  brazier: { hx: 0.3, hz: 0.3, h: 0.55 }
+};
+var WALL_HEIGHT = 2.3;
+function spawnCell(room) {
+  return { x: Math.floor(room.x + room.w / 2), y: Math.floor(room.y + room.h / 2) };
+}
+function walkGrid(dungeon) {
+  const { W, grid, rooms, props } = dungeon;
+  const out = Uint8Array.from(grid);
+  const keep = new Set(rooms.map((r) => {
+    const c = spawnCell(r);
+    return c.y * W + c.x;
+  }));
+  for (const p of props) {
+    if (!SOLID[p.kind]) continue;
+    const i = p.y * W + p.x;
+    if (out[i] === FLOOR && !keep.has(i)) out[i] = BLOCKED;
+  }
+  return out;
+}
+function colliderBoxes(dungeon) {
+  const { W, H, grid, props, ox, oy } = dungeon;
+  let open = /* @__PURE__ */ new Map();
+  const boxes = [];
+  const close = (r) => boxes.push({ min: [r.x0 + ox, 0, r.y0 + oy], max: [r.x1 + 1 + ox, WALL_HEIGHT, r.y1 + 1 + oy], kind: "wall" });
+  for (let y = 0; y < H; y++) {
+    const next = /* @__PURE__ */ new Map();
+    let x = 0;
+    while (x < W) {
+      if (grid[y * W + x] !== WALL) {
+        x++;
+        continue;
+      }
+      let x1 = x;
+      while (x1 + 1 < W && grid[y * W + x1 + 1] === WALL) x1++;
+      const key = x + ":" + x1;
+      const run = open.get(key);
+      if (run) {
+        run.y1 = y;
+        open.delete(key);
+        next.set(key, run);
+      } else next.set(key, { x0: x, x1, y0: y, y1: y });
+      x = x1 + 1;
+    }
+    open.forEach(close);
+    open = next;
+  }
+  open.forEach(close);
+  for (const p of props) {
+    const s = SOLID[p.kind];
+    if (!s) continue;
+    const cx = p.x + ox + 0.5, cz = p.y + oy + 0.5;
+    boxes.push({ min: [cx - s.hx, 0, cz - s.hz], max: [cx + s.hx, s.h, cz + s.hz], kind: p.kind });
+  }
+  return boxes;
+}
 function worldRoom(room, ox, oy) {
   return {
     x: room.x + ox,
@@ -1539,7 +1600,9 @@ function playPayload(campaign, floorIndex, extras = {}) {
   const wz = (y) => y + oy + 0.5;
   const play = {
     // ---- the core half (dungeonPlay.js shape — DO NOT CHANGE) ----------------------
-    grid: dungeon.grid,
+    // 30b: the WALK raster — solid props' cells BLOCKED (walkGrid); same shape, same values
+    // for floor / wall
+    grid: walkGrid(dungeon),
     width: dungeon.W,
     height: dungeon.H,
     minX: ox,
@@ -1549,6 +1612,11 @@ function playPayload(campaign, floorIndex, extras = {}) {
     // ---- play settings (playSettings.js) --------------------------------------------
     // a dungeon is WALKED: the fly keys are off unless a rule module says otherwise
     grounded: extras.grounded == null ? true : !!extras.grounded,
+    // 30b (C1): no teleport, no fly in Interact/Play — a dungeon is walked (absent means false
+    // too; published so a publisher-aware resolver never inherits a scene's `true`)
+    locomotion: { teleport: false, fly: false },
+    // 30b: the solids as world AABBs for a physics capsule (the raster above is the walk)
+    colliders: colliderBoxes(dungeon),
     // ---- the inter-module seam (a rule module reads these) --------------------------
     contract: CONTRACT_VERSION,
     seed: campaign.seed,

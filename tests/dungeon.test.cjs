@@ -197,6 +197,38 @@ run(async () => {
 	);
 	check(lightTrace.mid > 4, '  and FADED across (' + lightTrace.mid + ' in-between frames), never a jump');
 
+	// ---- 30b P2: WALK, DON'T CLIP ------------------------------------------------------------
+	// core walks the PUBLISHED raster (dungeonPlay, the real app code here): solid props block it
+	const walk = await A.page.evaluate(() => {
+		let scene;
+		window.__stores.globalScene.subscribe((v) => (scene = v))();
+		const kit = scene.getObjectByName('dungeon-module');
+		const play = kit.userData.play;
+		const dp = window.__stores.dungeonPlay;
+		const raw = { ...play, grid: kit.userData.kit.campaign().floors[play.floorIndex - 1].grid };
+		const solids = play.props.filter((p) => ['pillar', 'crate', 'chest', 'brazier'].includes(p.kind));
+		const stroll = (data, x, z, tx) => {
+			for (let i = 0; i < 80; i++) { const n = dp.slideMove(data, x, z, Math.sign(tx - x) * 0.05, 0, 0.3); x = n.x; z = n.z; }
+			return x;
+		};
+		let stopped = 0, through = 0, tried = 0;
+		for (const p of solids) {
+			// approach from the west along the prop's row, only where the west cell is open floor
+			const W = play.width, cx = p.x, cy = p.y;
+			if (play.grid[cy * W + cx - 1] !== play.floorValue || play.grid[cy * W + cx - 2] !== play.floorValue) continue;
+			tried++;
+			const wx = p.wx, wz = p.wz;
+			if (stroll(play, wx - 1.5, wz, wx + 3) < wx - 0.5) stopped++;
+			if (stroll(raw, wx - 1.5, wz, wx + 3) > wx) through++;
+			if (tried >= 8) break;
+		}
+		return { solids: solids.length, tried, stopped, through, colliders: play.colliders?.length ?? 0, wallBoxes: (play.colliders ?? []).filter((b) => b.kind === 'wall').length, locomotion: play.locomotion };
+	});
+	check(walk.tried >= 2 && walk.stopped === walk.tried, 'the app\'s own walker (dungeonPlay.slideMove) is STOPPED by every solid prop it walks into (' + walk.stopped + '/' + walk.tried + ' of ' + walk.solids + ' pillars/crates/chests/braziers)');
+	check(walk.through === walk.tried, '  counterfactual: on the generator\'s raw grid it walked THROUGH them (' + walk.through + '/' + walk.tried + ')');
+	check(walk.wallBoxes > 10 && walk.colliders === walk.wallBoxes + walk.solids, 'userData.play.colliders: ' + walk.wallBoxes + ' merged wall boxes + one per solid prop (for a physics capsule)');
+	check(walk.locomotion?.teleport === false && walk.locomotion?.fly === false, 'userData.play.locomotion = {teleport: false, fly: false} — a dungeon is walked in Interact/Play');
+
 	// core reads the contract: the minimap shows in play mode (dungeonData -> userData.play)
 	await A.page.locator('#play-button').click();
 	await eventually(() => snap(A.page), (s) => s?.minimapVisible, 'A: play mode shows the core minimap off the Kit\'s contract');
