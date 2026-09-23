@@ -30,6 +30,7 @@ export default {
 
 		api.registerSystemGroup(GROUP_NAME);
 		api.registerInteractiveGroup(GROUP_NAME);
+		api.registerListedGroup?.(GROUP_NAME, { label: 'Dungeon Realms' }); // 30: its object-list row
 
 		// ---- module card buttons -------------------------------------------------
 		api.registerMenu('Generate dungeon', () => {
@@ -42,6 +43,7 @@ export default {
 		});
 
 		// ---- clicks: portals travel, gems collect (desktop editor + VR trigger) ---
+		// 30: portals and gems are PLAY pieces — Interact and Play; an Edit click selects
 		api.registerClickHandler((mesh) => {
 			let cursor = mesh;
 			while (cursor && !cursor.userData?.portal && cursor.name !== 'dr-gems') cursor = cursor.parent;
@@ -69,7 +71,7 @@ export default {
 				api.toast('Sealed — collect ' + (need - have) + ' more gem' + (need - have === 1 ? '' : 's'));
 			} else game.travel(game.state.floorIndex + 1);
 			return true;
-		});
+		}, { modes: ['interact', 'play'] });
 
 		// ---- netcode ---------------------------------------------------------------
 		api.onMessage((data) => game.handleMessage(data));

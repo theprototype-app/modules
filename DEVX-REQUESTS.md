@@ -42,6 +42,9 @@ promise from core.
 | 30 | `api.game` cannot say **which** non-running state (menu vs over) | `untangle` | yes — the rising edge of `roundUnderway()` is enough for "Next" |
 | 31 | no **camera** on the api (the crosshair ray under a lock) | `untangle` | yes — `pointerRay().camera`, else the scene camera nearest `playerPosition()` |
 | 32 | a module HUD kind's `mount` gets no **editor** flag | `untangle` | yes — `el.closest('#hud-layer')` tells the runtime layer from the artboard |
+| 33 | the VR trigger has no editor mode — a `{modes}` game piece still eats it in the headset editor | every clickable module | no — owed on device; modules already pass `modes`, so the fix is core-only |
+| 34 | `registerListedGroup` cannot ask to be PICKED by the Edit select | `dungeon`, `sabers` | yes — the Kit registers as an INTERACTIVE group (joining every tap's raycast) |
+| 35 | a module cannot read the editor's click mode (`api.editorMode()`) | `car`, `essentials` | yes — hints say "press I (Interact)" blind |
 
 ---
 
@@ -497,6 +500,43 @@ directly and the wave never started. It is documented nowhere on the api.
 
 **Ask:** either `api.game.roundStartedAt()` in the same seconds as `api.now()`, or a note in
 MODULES.md on `roundCutoff` saying "ms — compare to `api.now() * 1000`". Cheap either way.
+
+## 26. The VR trigger has no editor mode
+
+**Found in:** the roadmap-30 modes audit (`tests/modes-audit.test.cjs`). Core 30 routes a
+desktop click by the editor's mode — Edit selects, Interact and Play reach the module
+handlers that asked for them — but VR's trigger passes no mode, so it still offers EVERY
+handler first. A `{modes: ['interact', 'play']}` piano key therefore still eats the
+trigger in the headset editor, and a VR user cannot select the piano to move it — the very
+thing the desktop split fixed.
+
+**Ask:** give the VR trigger the same `editorMode` (a radial-menu toggle beside the desktop
+`I`), and pass it to `runClickHandlers`.
+
+**Meanwhile:** every module passes `modes` anyway, so the VR half lands with no module
+change. Owed on device: the music modules and sabers under the new routing in a headset.
+
+## 27. `registerListedGroup` cannot ask to be PICKED
+
+**Found in:** `dungeon`, `sabers` (the modes audit). Only a group passed to
+`registerInteractiveGroup` is raycast by the Edit pick, so a group that is merely listed
+(`registerSystemGroup` / `registerListedGroup`) shows in the object list but a click on it
+in the viewport falls through. The Kit had to become an INTERACTIVE group to be selectable
+— which also enrols it in every Interact and Play tap's raycast although it has no click
+handler at all.
+
+**Ask:** `registerListedGroup(name, {label, pick: true})` — picked by the Edit select only.
+
+## 28. A module cannot read the editor's click mode
+
+**Found in:** `car`, `essentials` (the modes audit). A game piece no longer hears Edit
+clicks, so a module's hints have to tell the user to press `I` blind ("press I (Interact)
+and click the body") — it cannot tell whether they already are in Interact, nor say so on
+its card.
+
+**Ask:** `api.editorMode()` → `'edit' | 'interact'` (and `'play'` while playing), with an
+`onChange` like `api.game.onChange`. Local, never replicated — the same house rule as the
+store it reads.
 
 ---
 

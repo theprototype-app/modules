@@ -1779,6 +1779,8 @@ var index_default = {
     registerNodes(api, core);
     const toolbox = registerToolbox(api, core);
     api.registerSystemGroup(GROUP_NAME);
+    api.registerInteractiveGroup(GROUP_NAME);
+    api.registerListedGroup?.(GROUP_NAME, { label: "Dungeon" });
     core.ensureGroup();
     api.onMessage((data) => core.handleMessage(data));
     api.onSceneClear(() => core.kit.clear({ broadcast: false }));

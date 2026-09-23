@@ -31,7 +31,7 @@ export default {
 
 		// clicks on button objects: desktop click, play-mode tap and the VR trigger all
 		// dispatch through the same handler with the exact mesh that was hit
-		api.registerClickHandler((mesh) => nodes.clickButton(mesh));
+		api.registerClickHandler((mesh) => nodes.clickButton(mesh), { modes: ['interact', 'play'] }); // 30: a button presses in Interact/Play; Edit selects it
 
 		api.onMessage((data) => game.handleMessage(data));
 		api.registerStateSync({

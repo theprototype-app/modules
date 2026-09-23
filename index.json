@@ -16,8 +16,8 @@
 	{
 		"id": "car",
 		"name": "Drivable Car",
-		"version": "1.2.0",
-		"description": "Spawn a jointed demo car; click its body to claim it, then drive with WASD in Play mode while a simulation runs.",
+		"version": "1.2.1",
+		"description": "Spawn a jointed demo car; click its body in Interact mode (I) to claim it, then drive with WASD in Play mode while a simulation runs.",
 		"author": "theprototype-app",
 		"source": "modules/car",
 		"zip": "car.zip",
@@ -30,7 +30,7 @@
 	{
 		"id": "collectible",
 		"name": "Collectibles",
-		"version": "1.1.1",
+		"version": "1.1.2",
 		"description": "One node makes an object collectible: click it or walk into it, it hides and counts. Shared or per-player score, with respawn and never-hiding checkpoints.",
 		"author": "theprototype-app",
 		"source": "modules/collectible",
@@ -45,7 +45,7 @@
 	{
 		"id": "door-keypad",
 		"name": "Door & Keypad",
-		"version": "1.0.0",
+		"version": "1.0.1",
 		"description": "A combination-lock keypad that opens an actuated door. Replicated, VR and desktop, with late-joiner catch-up.",
 		"author": "theprototype-app",
 		"source": "modules/door-keypad",
@@ -91,7 +91,7 @@
 	{
 		"id": "essentials",
 		"name": "VR Essentials",
-		"version": "1.1.0",
+		"version": "1.1.1",
 		"description": "Clickable starter interactables: button, lever, spawner, teleport pad, sound tile, target.",
 		"author": "theprototype-app",
 		"source": "modules/essentials",
@@ -165,7 +165,7 @@
 	{
 		"id": "music-dj",
 		"name": "Music DJ",
-		"version": "0.1.0",
+		"version": "0.1.1",
 		"description": "Two decks and a crossfader as audio devices: drop a track on a deck, scrub the platter, ride the pitch, fade between them - every peer hears the same position.",
 		"author": "theprototype-app",
 		"source": "modules/music-dj",
@@ -194,7 +194,7 @@
 	{
 		"id": "music-lab",
 		"name": "Music Lab",
-		"version": "0.2.0",
+		"version": "0.2.1",
 		"description": "A Piano, a Speaker, a Transport, a Drum machine and Sampler pads as audio devices: cable them, paint a beat, press Play - every peer hears the same beat.",
 		"author": "theprototype-app",
 		"source": "modules/music-lab",
@@ -208,7 +208,7 @@
 	{
 		"id": "music-voice",
 		"name": "Music Voice",
-		"version": "0.1.0",
+		"version": "0.1.1",
 		"description": "A Mic, a Looper, a Synth and a Theremin as audio devices: sing into the graph, loop what is patched in on the bar, play chords, wave a hand - every peer hears the same thing.",
 		"author": "theprototype-app",
 		"source": "modules/music-voice",
@@ -222,7 +222,7 @@
 	{
 		"id": "piano",
 		"name": "Piano",
-		"version": "1.1.0",
+		"version": "1.1.1",
 		"description": "One-octave synth keyboard - every peer hears and sees your notes.",
 		"author": "theprototype-app",
 		"source": "modules/piano",
@@ -236,7 +236,7 @@
 	{
 		"id": "sabers",
 		"name": "Sabers",
-		"version": "1.0.0",
+		"version": "1.0.1",
 		"description": "A glowing blade held wherever you point - VR controller or desktop mouse - with hit sparks and peers seeing your blade.",
 		"author": "theprototype-app",
 		"source": "modules/sabers",
@@ -250,7 +250,7 @@
 	{
 		"id": "tutorial-room",
 		"name": "Tutorial Room",
-		"version": "1.0.0",
+		"version": "1.1.0",
 		"description": "An in-scene onboarding room: signs and clickable stations teaching select, build, connect, flow and VR.",
 		"author": "theprototype-app",
 		"source": "modules/tutorial-room",

@@ -26,7 +26,7 @@
 export default {
 	id: 'sabers',
 	name: 'Sabers',
-	version: '1.0.0',
+	version: '1.0.1',
 	description: 'A glowing blade held wherever you point, with hit sparks.',
 
 	/** @param {any} api */
@@ -90,6 +90,10 @@ export default {
 			api.registerSystemGroup?.(GROUP);
 			return group;
 		}
+		// Listed read-only in the object list's "Module content" section, under a name a
+		// person reads. The blades are never click-SELECTABLE: a desk blade lies along the
+		// pointer ray itself, so a click on it would be every click (see AUTHORING.md).
+		api.registerListedGroup?.(GROUP, { label: 'Sabers' });
 
 		function makeBlade(color) {
 			const holder = new THREE.Group();

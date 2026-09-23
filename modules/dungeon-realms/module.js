@@ -1058,6 +1058,7 @@ var index_default = {
     const nodes = registerNodes(api, game);
     api.registerSystemGroup(GROUP_NAME);
     api.registerInteractiveGroup(GROUP_NAME);
+    api.registerListedGroup?.(GROUP_NAME, { label: "Dungeon Realms" });
     api.registerMenu("Generate dungeon", () => {
       const seed = hash32(api.now() * 1e3 | 0, "menu") % 1e5;
       if (game.newDungeon(seed)) api.toast("Dungeon Realms seed " + seed + " \u2014 press the red Play button to start");
@@ -1093,7 +1094,7 @@ var index_default = {
         api.toast("Sealed \u2014 collect " + (need - have) + " more gem" + (need - have === 1 ? "" : "s"));
       } else game.travel(game.state.floorIndex + 1);
       return true;
-    });
+    }, { modes: ["interact", "play"] });
     api.onMessage((data) => game.handleMessage(data));
     api.registerStateSync({
       getState: () => game.getState(),
