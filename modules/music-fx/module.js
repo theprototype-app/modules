@@ -93,7 +93,7 @@ function pedalGraph(ctx, params) {
 	const output = ctx.createGain();
 	const dry = ctx.createGain();
 	const wet = ctx.createGain();
-	const mix = clamp(num(params.mix, 0.5), 0, 1);
+	const mix = on(params.bypass) ? 0 : clamp(num(params.mix, 0.5), 0, 1);
 	dry.gain.value = 1 - mix;
 	wet.gain.value = mix;
 	input.connect(dry);
@@ -116,9 +116,11 @@ function pedalGraph(ctx, params) {
 	};
 }
 
-/** @param {any} handle @param {any} value */
+/** A BYPASSED pedal (its footswitch, 30b) is fully dry whatever `mix` says — the knob keeps
+ * its value, so stomping it back on returns the sound you had.
+ * @param {any} handle @param {any} value */
 function setMix(handle, value) {
-	const mix = clamp(num(value, 0.5), 0, 1);
+	const mix = on(handle.params.bypass) ? 0 : clamp(num(value, 0.5), 0, 1);
 	glide(handle.dry.gain, 1 - mix, handle.ctx);
 	glide(handle.wet.gain, mix, handle.ctx);
 }
@@ -214,11 +216,78 @@ function mixerMesh(three) {
 		knob.position.set(x, 0.031, -0.09);
 		knob.name = 'pan-' + (i + 1);
 		desk.add(knob);
+		// 30b: a mute BUTTON per strip at the front edge (its own material: it lights red)
+		const mute = new three.Mesh(new three.BoxGeometry(0.03, 0.014, 0.022), material(three, MUTE_OFF, 0.5, 0.2));
+		mute.position.set(x, 0.032, 0.135);
+		mute.name = 'mute-' + (i + 1);
+		desk.add(mute);
 		desk.add(plug(three, 'in', 'in' + (i + 1), [x, 0, -0.17], 'z'));
 	}
 	desk.add(plug(three, 'out', 'out', [0.31, 0, -0.06], 'x'));
 	desk.add(plug(three, 'out', 'send', [0.31, 0, 0.06], 'x'));
 	return desk;
+}
+
+// ---- the footswitch and the mute buttons (30b) -------------------------------------------
+//
+// THE SWEEP HAD NOTHING TO FLIP. A Quest player asked to "hold the trigger and toggle the
+// mixer" found the footswitch was decorative and a channel's mute an Inspector param only —
+// core's hold-and-sweep fires a device's CLICK, and nothing here answered one. Now a pedal's
+// footswitch toggles a `bypass` param and each mixer strip has a mute BUTTON; both go through
+// `api.audio.setParams`, so a stomp replicates, saves and undoes like any knob, and the look
+// (the LED, the lit button) follows the DOCUMENT on every peer, never local state.
+
+/** Every pedal gets `bypass` + a click on its footswitch. @param {any} spec */
+function withFootswitch(spec) {
+	const onParam = spec.onParam;
+	return {
+		...spec,
+		params: [...spec.params, { key: 'bypass', label: 'Bypass (footswitch)', kind: 'toggle', default: false }],
+		/** @param {any} h @param {string} key @param {any} value */
+		onParam(h, key, value) {
+			if (key !== 'bypass') return onParam(h, key, value);
+			h.params.bypass = value;
+			setMix(h, h.params.mix);
+		}
+	};
+}
+
+const MUTE_ON = 0xef4444;
+const MUTE_OFF = 0x4b5563;
+
+/**
+ * What a click on a music-fx device part does: a pedal's footswitch (or its LED) stomps
+ * bypass, a mixer strip's mute button flips that channel's mute. Returns whether it handled
+ * the click. @param {any} api @param {any} object
+ */
+function clickFx(api, object) {
+	let device = object;
+	while (device && !device.userData?.device?.kind) device = device.parent;
+	const kind = String(device?.userData?.device?.kind ?? '');
+	if (!kind.startsWith('mod-music-fx-')) return false;
+	const doc = api.audio.device(device.uuid);
+	const params = doc?.params ?? {};
+	/** @type {Record<string, any> | null} */
+	let patch = null;
+	const mute = /^mute-(\d)$/.exec(object?.name ?? '');
+	if (kind === 'mod-music-fx-mixer' && mute) patch = { ['mute' + mute[1]]: !on(params['mute' + mute[1]]) };
+	else if (kind !== 'mod-music-fx-mixer' && (object?.name === 'footswitch' || object?.name === 'led')) patch = { bypass: !on(params.bypass) };
+	if (!patch) return false;
+	api.audio.setParams(device.uuid, patch);
+	syncLook(api, device, { ...params, ...patch });
+	if (api.hapticPattern) api.hapticPattern('tap');
+	else api.haptic?.(0.35, 30);
+	api.playSound?.('click');
+	return true;
+}
+
+/** The LED and the mute buttons show the document. @param {any} api @param {any} device @param {any} params */
+function syncLook(api, device, params) {
+	for (const child of device.children ?? []) {
+		const mute = /^mute-(\d)$/.exec(child.name ?? '');
+		if (mute && child.material?.color) child.material.color.setHex(on(params['mute' + mute[1]]) ? MUTE_ON : MUTE_OFF);
+		if (child.name === 'led' && child.material) child.material.emissiveIntensity = on(params.bypass) ? 0.05 : 0.8;
+	}
 }
 
 // ---- the mixer -------------------------------------------------------------------------
@@ -784,7 +853,7 @@ function devicesByKind(api, kinds) {
 export default {
 	id: 'music-fx',
 	name: 'Music FX',
-	version: '0.1.0',
+	version: '0.2.0',
 	description: 'A four-channel mixer and five pedals (delay, reverb, filter, distortion, bitcrush) as audio devices. Cable them in any order.',
 	/** @param {any} api */
 	register(api) {
@@ -792,11 +861,25 @@ export default {
 		void api.THREE;
 
 		api.registerAudioDevice(mixerSpec());
-		api.registerAudioDevice(filterSpec());
-		api.registerAudioDevice(distortionSpec());
-		api.registerAudioDevice(delaySpec(api));
-		api.registerAudioDevice(reverbSpec());
-		api.registerAudioDevice(bitcrushSpec());
+		api.registerAudioDevice(withFootswitch(filterSpec()));
+		api.registerAudioDevice(withFootswitch(distortionSpec()));
+		api.registerAudioDevice(withFootswitch(delaySpec(api)));
+		api.registerAudioDevice(withFootswitch(reverbSpec()));
+		api.registerAudioDevice(withFootswitch(bitcrushSpec()));
+
+		// 30b: the footswitch and the mute buttons answer a click — and so a VR sweep
+		api.registerClickHandler((/** @type {any} */ object) => clickFx(api, object), { modes: ['interact', 'play'] });
+		// the lit parts follow the DOCUMENT (a peer's stomp, an undo, a late join)
+		let nextLook = 0;
+		api.registerFrameTask(() => {
+			const now = performance.now();
+			if (now < nextLook) return;
+			nextLook = now + 250;
+			api.objectsGroup()?.traverse?.((/** @type {any} */ node) => {
+				const kind = node?.userData?.device?.kind;
+				if (typeof kind === 'string' && kind.startsWith('mod-music-fx-')) syncLook(api, node, api.audio.device(node.uuid)?.params ?? {});
+			});
+		});
 
 		// ONE task for every synced delay: re-read the shared bpm a few times a second
 		// and re-aim whichever delays it moved. The bpm is the replicated transport, so
