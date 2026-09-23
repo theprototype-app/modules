@@ -103,7 +103,10 @@ export default {
 		// test/debug hook (never serialized): the flight reaches the game here too, so
 		// it can assert before any dungeon exists
 		if (typeof window !== 'undefined') {
-			/** @type {any} */ (window).__dungeonRealms = { game, nodes };
+			// 30b: + the module's own `api` object, so a flight can stand in for SDK calls an older
+			// core lacks (setSpawn, playSound, music, effects, hapticPattern, announce) and prove
+			// exactly what this module sends them
+			/** @type {any} */ (window).__dungeonRealms = { game, nodes, api };
 		}
 	}
 };
