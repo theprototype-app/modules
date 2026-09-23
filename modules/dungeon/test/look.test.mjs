@@ -1,7 +1,9 @@
 // The Kit's look numbers — pure (30-visuals-mod). What makes the dungeon torch-lit instead of
 // black, held to measurable floors: every theme's lifted wall reads, the tiles clear the editor
 // grid, the light count stays capped, the flicker is deterministic.
-import { LOOK, luma, lift, mix, stoneTint, flameFlicker, pickLights, stoneTexture, stoneLayout } from '../src/look.js';
+import { LOOK, LIT, luma, lift, mix, stoneTint, flameFlicker, pickLights, stoneTexture, stoneLayout, bakeTorchLight, litShade, haloTexture, stepLightSlots } from '../src/look.js';
+import { generateCampaign } from '../src/gen/campaign.js';
+import { FLOOR, WALL } from '../src/gen/dungeon.js';
 import { THEMES } from '../src/gen/campaign.js';
 
 export function run(check) {
@@ -53,4 +55,69 @@ export function run(check) {
 	const near = pickLights(spots, { x: 12.2, z: 0 }, 8, 8);
 	check(near.length === 8 && near.every((i) => Math.abs(i - 12) <= 4), 'pickLights(near = budget): the 8 torches nearest the player (' + near.join(',') + ')');
 	check(LOOK.flameIntensity > 1, 'flames are emissive over 1 (bloom catches them)');
+
+	// ---- 30b: lit everywhere ----------------------------------------------------------------
+	// a 9 x 5 map: two rooms split by a wall column at x = 4, a torch on the left room's top wall
+	//   #########
+	//   #...#...#
+	//   #...#...#
+	//   #...#...#
+	//   #########
+	const W = 9, H = 5;
+	const g = new Uint8Array(W * H).fill(WALL);
+	for (let y = 1; y <= 3; y++) for (let x = 1; x <= 7; x++) if (x !== 4) g[y * W + x] = FLOOR;
+	const lit = bakeTorchLight(g, W, H, [{ x: 2, y: 0, fx: 0, fy: 1 }]);
+	check(lit[1 * W + 2] > 0.8, 'bakeTorchLight: the cell under a torch is lit (' + lit[1 * W + 2].toFixed(2) + ')');
+	check(lit[3 * W + 2] > 0 && lit[3 * W + 2] < lit[1 * W + 2], '  the light falls off across the room');
+	check([5, 6, 7].every((x) => [1, 2, 3].every((y) => lit[y * W + x] === 0)), '  NOTHING reaches the room on the far side of the wall (the flood stops at walls)');
+	check(lit[0 * W + 1] > 0 && lit[2 * W + 4] > 0 && lit[2 * W + 8] === 0, '  a wall takes the light of the floor in front of it; the far room\'s wall stays dark');
+	// open the wall at (4, 2): now a doorway — the light turns into the next room, dimmer
+	const g2 = Uint8Array.from(g); g2[2 * W + 4] = FLOOR;
+	const lit2 = bakeTorchLight(g2, W, H, [{ x: 2, y: 0, fx: 0, fy: 1 }]);
+	check(lit2[2 * W + 5] > 0 && lit2[2 * W + 5] < lit2[2 * W + 3], '  through a doorway the light spills into the next room, dimmer');
+	const both = bakeTorchLight(g, W, H, [{ x: 2, y: 0, fx: 0, fy: 1 }, { x: 2, y: 4, fx: 0, fy: -1 }]);
+	check(both[2 * W + 2] > lit[2 * W + 2] && both.every((v) => v <= 1), '  two torches add (as a screen: brighter, never over 1)');
+	check(litShade(0) === LIT.bakeBase && litShade(1) > 1, 'litShade: an unlit cell keeps a base shade, a lit one is brighter than its tint');
+	// on a real campaign: EVERY room and EVERY corridor has lit cells (the user saw light in one place)
+	const campaign = generateCampaign(1337, { levelCount: 5 });
+	let unlitRooms = 0, rooms = 0, corridorLit = 0, corridor = 0;
+	for (const d of campaign.floors) {
+		const torches = d.props.filter((p) => p.kind === 'torch');
+		const L = bakeTorchLight(d.grid, d.W, d.H, torches, { floor: FLOOR, wall: WALL });
+		const inRoom = new Uint8Array(d.W * d.H);
+		for (const r of d.rooms) {
+			rooms++;
+			let best = 0;
+			for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) { inRoom[y * d.W + x] = 1; best = Math.max(best, L[y * d.W + x]); }
+			if (best < 0.5) unlitRooms++;
+		}
+		for (let i = 0; i < d.grid.length; i++) if (d.grid[i] === FLOOR && !inRoom[i]) { corridor++; if (L[i] > 0.05) corridorLit++; }
+	}
+	check(unlitRooms === 0, '  seed 1337, 5 floors: every one of ' + rooms + ' rooms has a torch-lit pool (>= 0.5)');
+	check(corridorLit / corridor > 0.7, '  and ' + Math.round((100 * corridorLit) / corridor) + '% of corridor cells get torch light (> 70%)');
+	const halo = haloTexture(32);
+	const at = (/** @type {number} */ x, /** @type {number} */ y) => halo[(y * 32 + x) * 4];
+	check(halo.length === 32 * 32 * 4 && at(16, 16) > 200 && at(0, 0) === 0 && at(16, 16) > at(24, 16) && at(24, 16) > at(31, 16), 'haloTexture: bright centre, falling off, black corners (additive: nothing added)');
+	// the light budget: four real lights on 40 torches in a row
+	const row = Array.from({ length: 40 }, (_, i) => ({ x: i, z: 0 }));
+	const slots = [0, 1, 2, 3].map((t) => ({ torch: t, w: 1 }));
+	stepLightSlots(slots, row, { x: 1.5, z: 0 }, 1 / 60);
+	check(slots.every((s) => s.w === 1) && slots.map((s) => s.torch).join() === '0,1,2,3', 'stepLightSlots: the lights stay on the nearest torches at full strength');
+	stepLightSlots(slots, row, { x: 30, z: 0 }, 1 / 60);
+	check(slots.every((s) => s.torch >= 0 && s.torch <= 3 && s.w < 1 && s.w > 0), '  the viewer walks away: they FADE (no pop) before they move');
+	let frames = 0;
+	while (frames < 600 && !slots.every((s) => s.torch >= 28 && s.torch <= 32 && s.w === 1)) { stepLightSlots(slots, row, { x: 30, z: 0 }, 1 / 60); frames++; }
+	check(frames < 600 && new Set(slots.map((s) => s.torch)).size === 4, '  then fade in on the four torches nearest the viewer (' + slots.map((s) => s.torch).join(',') + ', ' + frames + ' frames)');
+	check(frames * (1 / 60) >= LIT.lightFade * 1.5, '  over a visible fade out + in (' + (frames / 60).toFixed(2) + ' s), never a jump');
+	const trace = [];
+	const s2 = [{ torch: 0, w: 1 }];
+	for (let f = 0; f < 120; f++) { stepLightSlots(s2, row, { x: 12, z: 0 }, 1 / 60); trace.push(s2[0].w); }
+	check(trace.every((w, i) => i === 0 || Math.abs(w - trace[i - 1]) <= 1 / 60 / LIT.lightFade + 1e-9), '  the weight changes by at most dt / fade per frame (smooth)');
+	const sticky = [{ torch: 5, w: 1 }];
+	stepLightSlots(sticky, row, { x: 5.6, z: 0 }, 1 / 60);
+	check(sticky[0].torch === 5 && sticky[0].w === 1, '  a held torch is sticky: a viewer between two torches does not flip the light back and forth');
+	const still = [{ torch: 7, w: 1 }];
+	stepLightSlots(still, row, null, 1 / 60);
+	check(still[0].torch === 7 && still[0].w === 1, '  no viewer (no camera yet): the lights stay where they are');
+	check(LIT.sconceOut > 0.5 && LIT.sconceOut < 0.8, 'the sconces hang OUT on the wall face (' + LIT.sconceOut + ' from the cell centre; the face is at 0.5)');
 }

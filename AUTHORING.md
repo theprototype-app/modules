@@ -494,6 +494,35 @@ What cost time in 30-visuals-mod (football, dungeon-realms, waves):
 - Measure the look, do not describe it: the centre half of a 1540x774 play frame, Rec.709 luma,
   must read >= 0.25 on the GPU backend (the before/after numbers are in the lane handover).
 
+## 8b. Round 2 (30b): games that play on a Quest
+
+What the Dungeon Kit / Dungeon Realms round-2 lane learned (user feedback from a Quest 3):
+
+- **Light a big level without lights.** A few real point lights that follow ONLY in Play left
+  the whole dungeon dark in VR's Interact mode ("a single place where I see lights"). Three
+  layers now, cheapest first: bake each torch's light into the per-instance colour AND a
+  `torchLight` instance attribute the material adds to its emissive (`onBeforeCompile`, one
+  multiply per pixel; a flood fill over floor cells, so light turns a doorway but never passes
+  a wall); an ADDITIVE halo quad on the wall behind each flame + a pool on the floor (two
+  draw calls, and they glow in VR, where there is no bloom); the capped real lights on the
+  torches nearest the VIEWER in every mode, fading out/in when they move (`stepLightSlots`).
+- **Interact is a game view.** VR's Play enters Interact (C1): gate game behaviour on
+  `api.isPlaying() || api.editorMode() === 'interact'`, never on `isPlaying()` alone.
+- **Collision comes from what core walks.** Scene-root module geometry is not a physics body.
+  The dungeon walker reads the published raster (`userData.play.grid`, dungeonPlay.walkable):
+  stamp solid props' cells non-floor there (never the generator's own grid — it feeds the
+  checksum), keep every spawn cell open, and publish `colliders` (world AABBs) and
+  `locomotion: {teleport: false, fly: false}` for a physics capsule / the mode resolver.
+- **Your coordinates are your group's LOCAL frame.** Module groups sit under core's world
+  root, which a VR Edit grab moves and scales: convert `api.playerPosition()` with the
+  group's `worldToLocal` before comparing it to your content, and `localToWorld` before
+  handing a position to `setSpawn` / `playSound` / `effects.burst`.
+- **Feature-detect every new SDK call and prove your calls in the flight.** Expose your `api`
+  on your debug hook; the flight replaces `setSpawn`, `playSound`, `music`, `effects`,
+  `hapticPattern`, `announce` with loggers and asserts exactly what the module sent (the
+  picker's hands buzz, a peer's do not; a new floor = `levelup` + `announce('Floor N')` +
+  `setSpawn(..., {teleport: true})`), on any core.
+
 ## 9. Friction log
 
 Things that cost real time while writing the modules in this repo. Add to this

@@ -19,7 +19,7 @@ import { hash32 } from './hash.js';
 export default {
 	id: 'dungeon-realms',
 	name: 'Dungeon Realms',
-	version: '2.1.0',
+	version: '2.2.0',
 	description:
 		'Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors — every rule and readout a flow node. Requires the "dungeon" (Dungeon Kit) module.',
 
@@ -103,7 +103,10 @@ export default {
 		// test/debug hook (never serialized): the flight reaches the game here too, so
 		// it can assert before any dungeon exists
 		if (typeof window !== 'undefined') {
-			/** @type {any} */ (window).__dungeonRealms = { game, nodes };
+			// 30b: + the module's own `api` object, so a flight can stand in for SDK calls an older
+			// core lacks (setSpawn, playSound, music, effects, hapticPattern, announce) and prove
+			// exactly what this module sends them
+			/** @type {any} */ (window).__dungeonRealms = { game, nodes, api };
 		}
 	}
 };

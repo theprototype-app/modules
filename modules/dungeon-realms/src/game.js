@@ -16,6 +16,7 @@ import { hash32 } from './hash.js';
 import { buildOverlay, applyGems, setPortalSealed, animateOverlay } from './overlay.js';
 import * as gui from './gui.js';
 import * as audio from './audio.js';
+import { spawnFor, footstep, feel } from './juice.js';
 
 export const GROUP_NAME = 'dungeon-realms';
 export const KIT_GROUP = 'dungeon-module';
@@ -49,7 +50,9 @@ export function createGame(api) {
 		/** a late-join state waiting for the Kit to show its seed */
 		wanted: /** @type {any} */ (null),
 		_wasSealed: /** @type {boolean | undefined} */ (undefined),
-		_menuSuppressed: false
+		_menuSuppressed: false,
+		/** 30b: the last spawn handed to core (the flight reads it) @type {any} */
+		spawn: null
 	};
 
 	// live node-config overrides (nodes.js writes these; absent nodes = defaults)
@@ -61,7 +64,14 @@ export function createGame(api) {
 	};
 
 	let guiDirty = true;
+	/** 30b: in a GAME view — Play, or Interact (VR enters Interact from Play): gems, portals,
+	 * footsteps and music run here, never in the Edit view */
 	let playingNow = false;
+	/** 30b: the footstep clock, the music we asked for, the last feel calls (the flight reads it) */
+	const stepClock = {};
+	let musicOn = false;
+	/** @type {{event: string, sound?: string, burst?: string, haptic?: string | null, announce?: string, at: number}[]} */
+	const fxLog = [];
 	let groundedSent = /** @type {boolean | null} */ (null);
 	/** @type {((event: string) => void) | null} nodes.js hooks the event node here */
 	let eventSink = null;
@@ -77,6 +87,90 @@ export function createGame(api) {
 	/** the Kit's published contract, or null when no dungeon exists */
 	const play = () => kitGroup()?.userData?.play ?? null;
 	const group = () => api.scene()?.getObjectByName(GROUP_NAME) ?? null;
+
+	// ---- 30b: the frame the game's coordinates live in ------------------------------------------
+	// Module groups sit under core's world root (C1 P5), which a VR Edit grab can move/scale; the
+	// contract's coordinates are the Kit group's LOCAL frame, the viewer and the SDK are world.
+	const _v = new THREE.Vector3();
+	/** world -> the Kit's frame @param {number[]} p */
+	function toLocal(p) {
+		const k = kitGroup();
+		_v.set(p[0], p[1], p[2]);
+		if (k) { k.updateWorldMatrix(true, false); k.worldToLocal(_v); }
+		return { x: _v.x, y: _v.y, z: _v.z };
+	}
+	/** the Kit's frame -> world @param {number} x @param {number} y @param {number} z @returns {[number, number, number]} */
+	function toWorld(x, y, z) {
+		const k = kitGroup();
+		_v.set(x, y, z);
+		if (k) { k.updateWorldMatrix(true, false); k.localToWorld(_v); }
+		return [_v.x, _v.y, _v.z];
+	}
+
+	/**
+	 * Play a game event's FEEL (juice.js feel table) through the SDK: a built-in sound (C5) — or
+	 * this module's own WebAudio voices on an app without them —, a particle burst (C6), a haptic
+	 * (C4: core mutes it in Edit), a big banner (C2) — or a toast without it. All LOCAL.
+	 * @param {string} event @param {any} ctx @param {[number, number, number] | null} [at] world position
+	 */
+	function play_(event, ctx = {}, at = null) {
+		const f = /** @type {any} */ (feel(/** @type {any} */ (event), ctx));
+		if (f.sound) {
+			if (api.music) api.playSound?.(f.sound, at ?? undefined);
+			else if (f.sound === 'coin') audio.gemChime(state.combo);
+			else if (f.sound === 'portal') audio.sealBreak();
+			else if (f.sound === 'levelup') audio.portalWhoosh();
+			else if (f.sound === 'success') audio.startThump();
+			else if (f.sound === 'cheer') audio.winFanfare();
+		}
+		if (f.burst && at) api.effects?.burst?.(at, { kind: f.burst.kind, count: f.burst.count, ...(f.burst.color != null ? { color: f.burst.color } : {}) });
+		if (f.haptic) {
+			if (typeof api.hapticPattern === 'function') api.hapticPattern(f.haptic);
+			else api.haptic?.(0.6, 60);
+		}
+		if (f.announce) {
+			if (typeof api.announce === 'function') api.announce(f.announce.text, f.announce.sub ? { sub: f.announce.sub } : {});
+			else if (event !== 'start') api.toast(f.announce.text + (f.announce.sub ? ' — ' + f.announce.sub : ''));
+		}
+		if (f.music) setMusic(true);
+		fxLog.push({ event, sound: f.sound, burst: f.burst?.kind, haptic: f.haptic ?? null, announce: f.announce?.text, at: api.now() });
+		if (fxLog.length > 40) fxLog.shift();
+	}
+
+	/** the dungeon's music on/off (C5). Core refuses it in Edit (play() returns false) and stops
+	 * it by itself on leaving the game, so "on" is re-asserted until it is really playing
+	 * (api.music.current()) @param {boolean} on */
+	function setMusic(on) {
+		if (!api.music) return;
+		if (on) {
+			if (musicOn && (typeof api.music.current === 'function' ? api.music.current() : 'dungeon') === 'dungeon') return;
+			musicOn = api.music.play?.('dungeon', { volume: 0.5 }) !== false;
+		} else if (musicOn) {
+			musicOn = false;
+			api.music.stop?.();
+		}
+	}
+
+	/** my party slot index (P1 = 0, P2 = 1; unslotted players stand with P1) */
+	function mySlot() {
+		if (state.slots.p2?.peerId === me()) return 1;
+		return 0;
+	}
+
+	/**
+	 * Tell core where this floor starts for ME (C1 api.setSpawn, feet + yaw). `teleport` also moves
+	 * me there now (only while Interact/Play is on — core's rule): a new floor, a started game.
+	 * @param {boolean} teleport
+	 */
+	function placeSpawn(teleport) {
+		if (typeof api.setSpawn !== 'function') return false;
+		const p = play();
+		const spawn = spawnFor(p, mySlot());
+		if (!spawn) return false;
+		const [x, y, z] = toWorld(spawn.position[0], spawn.position[1], spawn.position[2]);
+		state.spawn = { position: [x, y, z], yaw: spawn.yaw, floor: p.floorIndex, teleport };
+		return api.setSpawn([x, y, z], spawn.yaw, { teleport });
+	}
 
 	const gemCount = (floor = state.floorIndex) => {
 		if (floor === state.floorIndex) return (play()?.props ?? []).filter((p) => p.kind === 'gem').length;
@@ -198,12 +292,16 @@ export function createGame(api) {
 			state.onPortal = {};
 			state.myOnPortal = false;
 			state._wasSealed = undefined;
-			audio.portalWhoosh();
-			api.toast('LEVEL ' + p.floorIndex + ' / ' + p.levelCount + ' — ' + p.name);
+			// 30b: a new floor — the fanfare and a big "Floor N" banner (C2)
+			play_('floor', { floor: p.floorIndex, name: p.name });
 		}
 		state.floorIndex = p.floorIndex;
 		state.checksum = p.checksum;
 		rebuild();
+		// 30b: the floor's start for core's spawn (C1): a checkpoint for a new world; for a new floor
+		// while the game view is on, everyone MOVES there (a player who did not step on the portal
+		// must not arrive inside a wall of the next floor)
+		placeSpawn(!newWorld && playingNow);
 		guiDirty = true;
 	}
 
@@ -232,8 +330,9 @@ export function createGame(api) {
 			const wasSealed = state._wasSealed ?? true;
 			const nowSealed = sealed();
 			if (wasSealed && !nowSealed && !topFloor()) {
-				audio.sealBreak();
-				api.toast('The portal unseals!');
+				const portal = g.getObjectByName('dr-portal-up');
+				const pp = portal ? toWorld(portal.position.x, 0.6, portal.position.z) : null;
+				play_('unseal', { local: broadcast, color: play()?.theme?.gemColor }, pp);
 				setPortalSealed(g, false, play()?.theme);
 				if (broadcast) eventSink?.('unseal');
 			}
@@ -244,15 +343,20 @@ export function createGame(api) {
 			const now = api.now();
 			state.combo = now - state.lastGemAt < 4 ? state.combo + 1 : 0;
 			state.lastGemAt = now;
-			audio.gemChime(state.combo);
 			api.send({ op: 'gem', floor, index });
 			eventSink?.('gem');
+		}
+		// 30b: the pickup's feel on EVERY peer (a coin + sparkles where the gem was); the haptic
+		// only on the picker's own hands
+		if (floor === state.floorIndex) {
+			const gem = g?.userData._dr?.gemWorld?.find((/** @type {any} */ e) => e.index === index);
+			play_('gem', { local: broadcast, color: play()?.theme?.gemColor }, gem ? toWorld(gem.x, gem.y, gem.z) : null);
 		}
 		guiDirty = true;
 		// victory: enough gems on the top floor
 		if (floor === state.floorIndex && topFloor() && state.started && !state.wonAt && !sealed()) {
 			state.wonAt = api.now();
-			audio.winFanfare();
+			play_('victory', { local: broadcast }, playerAt());
 			if (broadcast) eventSink?.('victory');
 			guiDirty = true;
 		}
@@ -297,12 +401,20 @@ export function createGame(api) {
 		state.started = true;
 		state.startedAt = api.now();
 		state.wonAt = 0;
-		audio.startThump();
+		onStarted();
 		guiDirty = true;
 		if (broadcast) {
 			api.send({ op: 'start' });
 			eventSink?.('start');
 		}
+	}
+
+	/** 30b: the adventure begins (here or on a peer) — every player to the floor's start, the
+	 * banner, the music */
+	function onStarted() {
+		const p = play();
+		placeSpawn(playingNow);
+		play_('start', { floor: p?.floorIndex ?? 1, name: p?.name });
 	}
 
 	function reset(broadcast = true) {
@@ -431,6 +543,8 @@ export function createGame(api) {
 
 	/** play-mode signal: api.isPlaying() (DEVX #11), the minimap DOM on an older app */
 	function isPlaying() {
+		// 30b: Interact is a game view too (C1: VR's Play enters Interact)
+		if (api.editorMode?.() === 'interact') return true;
 		if (typeof api.isPlaying === 'function') return !!api.isPlaying();
 		const minimap = typeof document !== 'undefined' ? document.getElementById('dungeon-minimap') : null;
 		return !!minimap && !minimap.classList.contains('hidden');
@@ -438,12 +552,18 @@ export function createGame(api) {
 
 	/** where the player stands: api.playerPosition() (R3a), the pointer ray origin before it */
 	function playerXZ() {
+		// 30b: in the Kit's frame (the world root may carry a VR Edit transform)
 		if (typeof api.playerPosition === 'function') {
 			const p = api.playerPosition();
-			if (p) return { x: p[0], y: p[1], z: p[2] };
+			if (p) return toLocal(p);
 		}
 		const origin = api.pointerRay()?.ray?.origin;
-		return origin ? { x: origin.x, y: origin.y, z: origin.z } : null;
+		return origin ? toLocal([origin.x, origin.y, origin.z]) : null;
+	}
+	/** the viewer's WORLD position, or null @returns {[number, number, number] | null} */
+	function playerAt() {
+		const p = typeof api.playerPosition === 'function' ? api.playerPosition() : null;
+		return p ? [p[0], p[1], p[2]] : null;
 	}
 
 	function tick(time) {
@@ -453,8 +573,14 @@ export function createGame(api) {
 		if (playing !== playingNow) {
 			playingNow = playing;
 			if (!playing) state._menuSuppressed = false;
+			stepClock.x = stepClock.z = undefined;
+			// 30b: entering the game view mid-round: the floor's start is the checkpoint (core moves
+			// you there on entry — C1)
+			if (playing && state.started && !state.wonAt) placeSpawn(false);
 			guiDirty = true;
 		}
+		// 30b: the dungeon's music plays while the game view is on and a dungeon stands
+		setMusic(playing && state.seed != null);
 
 		// Game Rules ▸ disableFlight rides the CONTRACT (userData.play.grounded, DEVX
 		// #14) instead of swallowing Q/E at window capture; sent on change only
@@ -470,6 +596,8 @@ export function createGame(api) {
 		if (playingNow && state.started && !state.wonAt && g) {
 			const pos = playerXZ();
 			if (pos) {
+				// 30b: footsteps as you walk (LOCAL, at your feet)
+				if (footstep(stepClock, pos)) play_('step', {}, toWorld(pos.x, 0, pos.z));
 				// gem pickup by proximity (walk over it)
 				const gems = g.userData._dr?.gemWorld ?? [];
 				const set = collectedSet();
@@ -507,6 +635,7 @@ export function createGame(api) {
 		else if (data.op === 'start') {
 			state.started = true;
 			state.startedAt = api.now();
+			onStarted();
 			guiDirty = true;
 		} else if (data.op === 'reset') {
 			state.started = false;
@@ -579,6 +708,8 @@ export function createGame(api) {
 		players,
 		objective,
 		isPlaying,
+		placeSpawn,
+		fxLog,
 		markGuiDirty: () => (guiDirty = true),
 		/** @param {(event: string) => void} fn */
 		onEvent: (fn) => (eventSink = fn)
