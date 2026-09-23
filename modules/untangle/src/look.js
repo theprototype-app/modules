@@ -72,7 +72,10 @@ export function makeEdgeLayer(THREE, capacity) {
 				mid.addVectors(s.a, s.b).multiplyScalar(0.5);
 				quat.setFromUnitVectors(up, dir.divideScalar(len));
 				color.setHex(s.color);
-				matrix.compose(mid, quat, scale.set(radius, len, radius));
+				// each piece runs one radius past both ends: the open tubes of a tessellated arc
+				// overlap instead of showing a dark seam at every joint
+				const reach = len + radius * 2;
+				matrix.compose(mid, quat, scale.set(radius, reach, radius));
 				core.setMatrixAt(i, matrix);
 				core.setColorAt(i, color);
 				matrix.compose(mid, quat, scale.set(radius * 3.2, len, radius * 3.2));
@@ -281,6 +284,77 @@ export function makeBurst(THREE) {
 			startedAt = -1;
 			points.visible = false;
 			wave.visible = false;
+		}
+	};
+}
+
+/**
+ * P3 — the GLOBE the 3D mode plays on: a dark glassy sphere, a faint graticule that turns
+ * with the player's local view (so a rotation reads), and a thin atmosphere rim. The dots and
+ * arcs sit on its surface (index.js); `setWon` tints it green.
+ * @param {any} THREE @param {number} R globe radius
+ */
+export function makeGlobe(THREE, R) {
+	const group = new THREE.Group();
+	group.name = 'untangle-globe';
+	const bodyMat = new THREE.MeshStandardMaterial({
+		color: 0x0c1526,
+		roughness: 0.38,
+		metalness: 0.12,
+		emissive: 0x0a1a33,
+		emissiveIntensity: 0.6,
+		transparent: true,
+		opacity: 0.94
+	});
+	const body = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 40), bodyMat);
+	body.name = 'untangle-globe-body';
+	group.add(body);
+	// the graticule: 12 meridians + 5 parallels, a hair off the surface, in the GLOBE frame
+	const pts = [];
+	const r = R * 1.001;
+	for (let m = 0; m < 12; m++) {
+		const lon = (m / 12) * Math.PI * 2;
+		for (let k = 0; k < 48; k++) {
+			const a = (k / 48) * Math.PI - Math.PI / 2;
+			const b = ((k + 1) / 48) * Math.PI - Math.PI / 2;
+			pts.push(Math.cos(a) * Math.cos(lon) * r, Math.sin(a) * r, Math.cos(a) * Math.sin(lon) * r);
+			pts.push(Math.cos(b) * Math.cos(lon) * r, Math.sin(b) * r, Math.cos(b) * Math.sin(lon) * r);
+		}
+	}
+	for (const lat of [-60, -30, 0, 30, 60]) {
+		const a = (lat * Math.PI) / 180;
+		for (let k = 0; k < 72; k++) {
+			const l0 = (k / 72) * Math.PI * 2;
+			const l1 = ((k + 1) / 72) * Math.PI * 2;
+			pts.push(Math.cos(a) * Math.cos(l0) * r, Math.sin(a) * r, Math.cos(a) * Math.sin(l0) * r);
+			pts.push(Math.cos(a) * Math.cos(l1) * r, Math.sin(a) * r, Math.cos(a) * Math.sin(l1) * r);
+		}
+	}
+	const gratGeo = new THREE.BufferGeometry();
+	gratGeo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+	const graticule = new THREE.LineSegments(gratGeo, new THREE.LineBasicMaterial({ color: 0x2b4166, transparent: true, opacity: 0.55 }));
+	graticule.name = 'untangle-graticule';
+	group.add(graticule);
+	const rimMat = new THREE.MeshBasicMaterial({
+		color: 0x3b82f6,
+		transparent: true,
+		opacity: 0.16,
+		side: THREE.BackSide,
+		blending: THREE.AdditiveBlending,
+		depthWrite: false,
+		toneMapped: false
+	});
+	const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(R * 1.06, 48, 32), rimMat);
+	atmosphere.name = 'untangle-atmosphere';
+	group.add(atmosphere);
+	return {
+		group,
+		body,
+		graticule,
+		/** @param {boolean} won */
+		setWon(won) {
+			bodyMat.emissive.setHex(won ? 0x0b3a26 : 0x0a1a33);
+			rimMat.color.setHex(won ? GREEN : 0x3b82f6);
 		}
 	};
 }

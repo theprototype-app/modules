@@ -11,6 +11,11 @@
 // 2 open and 3 locked, a locked cell is inert, an open one changes the board; Reset progress
 // asks first, then locks level 2 again and toasts.
 //
+// Roadmap 30 P3 — THE GLOBE: A switches everyone to the 3D mode; the scramble (unit vectors)
+// is identical on B and C; a 3D drop replicates; A turning its globe is LOCAL (B's view and
+// every dot stay put); a solve on A is zero spherical crossings on B too and both advance;
+// a late joiner D gets the mode, the level and the 3D positions.
+//
 //   npm run pack -- untangle
 //   APP_URL=https://theprototype.app:5216/ node tests/untangle.test.cjs
 
@@ -25,7 +30,7 @@ const snap = (page) =>
 		return s
 			? {
 					...s,
-					positions: s.positions.map((p) => [Math.round(p[0] * 1000) / 1000, Math.round(p[1] * 1000) / 1000]),
+					positions: s.positions.map((p) => p.map((v) => Math.round(v * 1000) / 1000)), // [x, y] on the board, [x, y, z] on the globe
 					group: !!group,
 					groupY: group ? Math.round(group.position.y * 100) / 100 : null,
 					dots: group ? group.children.filter((c) => c.name.startsWith('untangle-dot-')).length : 0,
@@ -103,6 +108,42 @@ run(async () => {
 	const aAfter = await snap(A.page);
 	check(aAfter.level === 2 && JSON.stringify(aAfter.positions) === JSON.stringify(aEnd.positions), 'counterfactual: the joiner\'s untouched level-1 board did NOT overwrite A (the symmetric state exchange)');
 
+	// ---- P3: the GLOBE on three peers --------------------------------------------------------------
+	const unit = (p) => Array.isArray(p) && p.length === 3 && Math.abs(Math.hypot(...p) - 1) < 2e-3;
+	await A.page.evaluate(() => window.__untangle.select(3, '3d'));
+	const g0 = await snap(A.page);
+	check(g0.mode === '3d' && g0.level === 3 && g0.positions.every(unit), 'P3.1 A switches the board to the 3D globe, level 3: every dot a unit vector');
+	for (const [peer, name] of [[B, 'B'], [C, 'C']])
+		await eventually(() => snap(peer.page), (s) => s.mode === '3d' && s.level === 3 && JSON.stringify(s.positions) === JSON.stringify(g0.positions), 'P3.2 ' + name + ' follows: the same globe, the same scramble');
+	const target = [0.28, 0.35, 0.894];
+	check(await A.page.evaluate((t) => window.__untangle.move(0, t), target), 'P3.3 A drops dot 0 on the globe');
+	const g1 = await snap(A.page);
+	await eventually(() => snap(B.page), (s) => JSON.stringify(s.positions[0]) === JSON.stringify(g1.positions[0]) && unit(s.positions[0]), 'P3.4 B receives the 3D move (normalised, identical)');
+	const viewB = await B.page.evaluate(() => window.__untangle.globeView());
+	await A.page.evaluate(() => window.__untangle.rotate(120, -40));
+	const viewA = await A.page.evaluate(() => window.__untangle.globeView());
+	await A.page.waitForTimeout(600);
+	const viewB2 = await B.page.evaluate(() => window.__untangle.globeView());
+	check(viewA.rotations > 0 && JSON.stringify(viewA.quat) !== JSON.stringify(viewB.quat), 'P3.5 A turns ITS globe (a local view)');
+	check(JSON.stringify(viewB2) === JSON.stringify(viewB) && JSON.stringify((await snap(B.page)).positions) === JSON.stringify((await snap(A.page)).positions), 'P3.6 ...B\'s view did not turn and no dot moved (orientation is not replicated, positions are)');
+	check(await A.page.evaluate(() => window.__untangle.solve()), 'P3.7 A solves the globe (from its turned view)');
+	await eventually(() => snap(B.page), (s) => s.crossings === 0 || s.level === 4, 'P3.8 B: zero SPHERICAL crossings from the same unit vectors — solved on B too');
+	await eventually(() => snap(A.page), (s) => s.level === 4 && s.mode === '3d', 'P3.9 A advances to globe level 4', 6000);
+	await eventually(() => snap(B.page), (s) => s.level === 4 && s.mode === '3d', 'P3.10 B advanced in lockstep', 6000);
+	await A.page.evaluate(() => {
+		const p = window.__untangle.state().positions[1];
+		return window.__untangle.move(1, [p[0] + 0.01, p[1], p[2]]);
+	});
+	const g2 = await snap(A.page);
+	check(g2.crossings > 0, 'P3.11 (premise) globe level 4 is tangled after a nudge');
+	await C.ctx.close(); // four live WebGL pages starve headless Chromium; C has done its part
+	const D = await setupPage(browser, 'D');
+	await installModule(D, 'untangle');
+	await connect(D, A);
+	await eventually(() => snap(D.page), (s) => !!s && s.mode === '3d' && s.level === 4 && JSON.stringify(s.positions) === JSON.stringify(g2.positions), 'P3.12 late joiner D gets the globe: mode, level and A\'s exact 3D positions', 30000);
+	check((await A.page.evaluate(() => window.__untangle.progress()))['3d'].solved.includes(3), 'P3.13 A banked globe level 3 in the 3D progress');
+	await D.ctx.close();
+
 	// ---- P2: progress survives a reload; the grid locks; Reset progress -------------------------
 	const progA = await A.page.evaluate(() => window.__untangle.progress());
 	const progB = await B.page.evaluate(() => window.__untangle.progress());
@@ -110,7 +151,6 @@ run(async () => {
 	check(progB['2d'].unlocked === 1 && progB['2d'].solved.length === 0, 'P2.2 B never moved a dot: nothing banked (progress is per player)');
 	const key = await A.page.evaluate(() => localStorage.getItem('tp:mod:untangle:progress'));
 	check(!!key && JSON.parse(key)['2d'].unlocked === 2, 'P2.3 stored under tp:mod:untangle:progress (' + (await A.page.evaluate(() => window.__untangle.storageKind)) + ')');
-	await C.ctx.close();
 	await B.ctx.close();
 	await A.page.reload({ waitUntil: 'domcontentloaded' });
 	await A.page.waitForFunction(() => window.__stores && !!window.__stores.moduleSDK, null, { timeout: 30000 });

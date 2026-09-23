@@ -20,13 +20,16 @@
 import { generate, edgeCrossings, totalCrossings, clampToBoard, DEFAULT_BOARD } from './puzzle.js';
 import { createGesture } from './gesture.js';
 import { makeAim } from './aim.js';
-import { makeEdgeLayer, makeBackplate, makeHoverRing, makeBurst, COLORS } from './look.js';
+import { makeEdgeLayer, makeBackplate, makeHoverRing, makeBurst, makeGlobe, COLORS } from './look.js';
+import { generate3, edgeCrossings3, solvedSphere, arcPoints, arcSegments, normalize } from './sphere.js';
 import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, isUnlocked, bestOf, makeStorage } from './progress.js';
 import { makeMenuKinds } from './menu.js';
 
 const GROUP = 'untangle-module';
-/** the modes this build plays (P3 adds the globe) */
-const MODES_PLAYED = ['2d'];
+/** the modes this build plays: the flat board and (P3) the globe */
+const MODES_PLAYED = ['2d', '3d'];
+/** the globe's radius as a share of the board radius */
+const GLOBE_R = 0.92;
 const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defaults return
 
 export default {
@@ -94,8 +97,19 @@ export default {
 		}
 
 		// ---------- the board in the world ----------
-		/** board units -> the group's local frame (metres) */
-		const local = (p) => new THREE.Vector3(p[0] * board.radius, p[1] * board.radius, 0);
+		/** P3: the player's LOCAL view of the globe (never replicated — dot positions are) */
+		const globeQuat = new THREE.Quaternion();
+		const globeR = () => board.radius * GLOBE_R;
+		/** board units -> the group's local frame (metres). 2D: [x, y] on the board plane;
+		 * 3D: a unit vector in the GLOBE frame, turned by the local view onto the surface */
+		const local = (p) =>
+			mode === '3d'
+				? new THREE.Vector3(p[0], p[1], p[2]).applyQuaternion(globeQuat).multiplyScalar(globeR())
+				: new THREE.Vector3(p[0] * board.radius, p[1] * board.radius, 0);
+		/** keep a position in its mode's space (the unit square, or the unit sphere) */
+		const clampPos = (p) => (mode === '3d' ? normalize([+p[0] || 0, +p[1] || 0, +p[2] || 0]) : clampToBoard([p[0], p[1]]));
+		/** does a replicated position have this mode's shape? (an older peer sends [x, y]) */
+		const fits = (p) => Array.isArray(p) && p.length === (mode === '3d' ? 3 : 2) && p.every((v) => Number.isFinite(+v));
 		function placeGroup() {
 			if (!group) return;
 			group.position.set(board.x, board.boardY, board.z);
@@ -110,6 +124,7 @@ export default {
 		const dotR = () => board.radius * Math.max(0.105, 0.15 - Math.max(0, positions.length - 6) * 0.0045);
 		/** @type {any} */ let edgeLayer = null;
 		/** @type {any} */ let backplate = null;
+		/** @type {any} */ let globe = null;
 		/** @type {any} */ let hoverRing = null;
 		/** @type {any} */ let burst = null;
 		let hovered = -1;
@@ -139,12 +154,20 @@ export default {
 			sprite = null;
 			hovered = -1;
 			lift = 0;
-			backplate = makeBackplate(THREE, board.radius);
-			group.add(backplate.group);
-			edgeLayer = makeEdgeLayer(THREE, Math.max(1, edges.length));
-			edgeLayer.setRadius(board.radius * 0.016);
+			backplate = null;
+			globe = null;
+			if (mode === '3d') {
+				globe = makeGlobe(THREE, globeR());
+				group.add(globe.group);
+			} else {
+				backplate = makeBackplate(THREE, board.radius);
+				group.add(backplate.group);
+			}
+			// 3D arcs are tessellated: up to ~27 straight pieces per edge (a half circle)
+			edgeLayer = makeEdgeLayer(THREE, Math.max(1, edges.length * (mode === '3d' ? 28 : 1)));
+			edgeLayer.setRadius(board.radius * (mode === '3d' ? 0.012 : 0.016));
 			group.add(edgeLayer.glow, edgeLayer.core);
-			const r = dotR();
+			const r = dotR() * (mode === '3d' ? 0.8 : 1);
 			const dotGeo = new THREE.SphereGeometry(r, 32, 20);
 			positions.forEach((p, i) => {
 				const dot = new THREE.Mesh(
@@ -177,8 +200,28 @@ export default {
 		/** where dot i is DRAWN: its board point, the carried one lifted toward the player */
 		function drawn(i) {
 			const v = local(positions[i]);
-			if (i === carried) v.z += lift * dotR() * 0.9;
+			if (i === carried) {
+				if (mode === '3d') v.multiplyScalar(1 + (lift * dotR() * 0.8) / globeR());
+				else v.z += lift * dotR() * 0.9;
+			}
 			return v;
+		}
+		/** the edge segments: one per 2D edge, a tessellated great-circle arc per 3D edge */
+		function segmentsOf(counts) {
+			if (mode !== '3d') return edges.map(([a, b], k) => ({ a: drawn(a), b: drawn(b), color: counts[k] > 0 ? COLORS.RED : COLORS.GREEN }));
+			const out = [];
+			const rr = globeR() * 1.004;
+			edges.forEach(([a, b], k) => {
+				const color = counts[k] > 0 ? COLORS.RED : COLORS.GREEN;
+				const pts = arcPoints(positions[a], positions[b], arcSegments(positions[a], positions[b])).map((q) =>
+					new THREE.Vector3(q[0], q[1], q[2]).applyQuaternion(globeQuat).multiplyScalar(rr)
+				);
+				// the ends follow the carried dot's lift so the arc stays attached to it
+				if (a === carried) pts[0] = drawn(a);
+				if (b === carried) pts[pts.length - 1] = drawn(b);
+				for (let s = 0; s + 1 < pts.length; s++) out.push({ a: pts[s], b: pts[s + 1], color });
+			});
+			return out;
 		}
 		/** a dot's colour: amber while carried, brighter while hovered, else pale */
 		function paintDot(i) {
@@ -202,12 +245,10 @@ export default {
 				dot.position.copy(drawn(i));
 				dot.scale.setScalar(i === carried ? 1 + 0.18 * lift : 1);
 			});
-			if (edgeLayer) {
-				edgeLayer.set(
-					edges.map(([a, b], k) => ({ a: drawn(a), b: drawn(b), color: counts[k] > 0 ? COLORS.RED : COLORS.GREEN }))
-				);
-			}
+			if (edgeLayer) edgeLayer.set(segmentsOf(counts));
 			backplate?.setWon(crossings === 0);
+			globe?.setWon(crossings === 0);
+			if (globe) globe.graticule.quaternion.copy(globeQuat);
 		}
 		let lastCounts = /** @type {number[]} */ ([]);
 
@@ -248,7 +289,7 @@ export default {
 
 		function refresh() {
 			if (!group) return 0;
-			lastCounts = edgeCrossings(positions, edges);
+			lastCounts = mode === '3d' ? edgeCrossings3(positions, edges) : edgeCrossings(positions, edges);
 			crossings = totalCrossings(lastCounts);
 			redraw(lastCounts);
 			ensureSprite();
@@ -261,12 +302,13 @@ export default {
 		function setLevel(lvl, announce = false, md = mode) {
 			level = Math.max(1, Math.round(Number(lvl) || 1));
 			mode = MODES_PLAYED.includes(md) ? md : '2d';
-			const g = generate(level);
+			const g = mode === '3d' ? generate3(level) : generate(level);
 			edges = g.edges;
 			positions = g.positions;
 			won = false;
 			carried = -1;
 			participated = false;
+			globeQuat.identity();
 			clock.start = roundUnderway() || shellUnused() ? performance.now() : null;
 			clock.ms = null;
 			clock.newBest = false;
@@ -340,9 +382,9 @@ export default {
 		// ---------- moves ----------
 		/** apply a position; an authoritative move checks the win on EVERY peer */
 		function applyMove(i, p, authoritative, fromMe = false) {
-			if (!positions[i]) return;
+			if (!positions[i] || !fits(p)) return;
 			if (authoritative) touched = true;
-			positions[i] = clampToBoard([p[0], p[1]]);
+			positions[i] = clampPos(p);
 			const total = refresh();
 			if (authoritative && total === 0 && !won) {
 				won = true;
@@ -359,9 +401,9 @@ export default {
 				winSting();
 				burst?.start(
 					positions.map((q) => local(q)),
-					() => new THREE.Vector3(0, 0, 1),
+					(c) => (mode === '3d' ? c.clone().normalize() : new THREE.Vector3(0, 0, 1)),
 					board.radius,
-					true,
+					mode !== '3d',
 					performance.now() / 1000
 				);
 				if (fromMe) fire('solved');
@@ -376,9 +418,9 @@ export default {
 		}
 		/** the authoritative drop of dot i at board point p (apply locally + send) */
 		function dropAt(i, p) {
-			if (!positions[i]) return false;
+			if (!positions[i] || !fits(p)) return false;
 			participated = true;
-			positions[i] = clampToBoard([p[0], p[1]]);
+			positions[i] = clampPos(p);
 			api.send({ op: 'move', i, p: positions[i] });
 			applyMove(i, positions[i], true, true);
 			return true;
@@ -386,6 +428,15 @@ export default {
 		/** debug/test: put every dot on the solution circle through authoritative drops */
 		function solveNow() {
 			const n = positions.length;
+			if (mode === '3d') {
+				// the gnomonic image of the ring layout, turned to where THIS player is looking
+				const inv = globeQuat.clone().invert();
+				solvedSphere(n).forEach((q, i) => {
+					const v = new THREE.Vector3(q[0], q[1], q[2]).applyQuaternion(inv);
+					dropAt(i, [v.x, v.y, v.z]);
+				});
+				return crossings === 0;
+			}
 			for (let i = 0; i < n; i++) {
 				const angle = (i / n) * Math.PI * 2;
 				dropAt(i, [Math.cos(angle) * 0.85, Math.sin(angle) * 0.85]);
@@ -415,18 +466,48 @@ export default {
 			const reach = dotR() * 1.3 * scale;
 			let best = -1;
 			let bestMiss = reach * reach;
+			// 3D: a dot on the far side of the globe is hidden — only the front face is reachable
+			const front = mode === '3d' ? globeHit(ray, false) : null;
+			const frontAlong = front ? front.distanceTo(ray.ray.origin) : Infinity;
 			dots.forEach((dot, i) => {
 				dot.getWorldPosition(dotWorld);
 				const miss = ray.ray.distanceSqToPoint(dotWorld);
-				if (miss > bestMiss || dotWorld.sub(ray.ray.origin).dot(ray.ray.direction) <= 0) return;
+				const along = dotWorld.sub(ray.ray.origin).dot(ray.ray.direction);
+				if (miss > bestMiss || along <= 0 || along > frontAlong + reach * 1.5) return;
 				bestMiss = miss;
 				best = i;
 			});
 			return best;
 		}
 		/** move the carried dot to where `ray` meets the board plane; true when it moved */
+		const globeSphere = new THREE.Sphere();
+		const globeCentre = new THREE.Vector3();
+		/**
+		 * Where a ray meets the globe (world space), or null. `clampToRim`: a ray that misses
+		 * lands on the silhouette point nearest to it, so a drag past the edge keeps the dot on
+		 * the visible rim instead of freezing it.
+		 */
+		function globeHit(ray, clampToRim) {
+			if (!group || !ray) return null;
+			group.updateMatrixWorld();
+			group.getWorldPosition(globeCentre);
+			globeSphere.set(globeCentre, globeR() * (group.getWorldScale(localHit).x || 1));
+			const hit = ray.ray.intersectSphere(globeSphere, new THREE.Vector3());
+			if (hit || !clampToRim) return hit;
+			const nearest = ray.ray.closestPointToPoint(globeCentre, new THREE.Vector3());
+			return nearest.sub(globeCentre).setLength(globeSphere.radius).add(globeCentre);
+		}
 		function follow(ray) {
 			if (carried === -1 || !group || !ray) return false;
+			if (mode === '3d') {
+				const hit = globeHit(ray, true);
+				if (!hit) return false;
+				localHit.copy(hit);
+				group.worldToLocal(localHit);
+				localHit.applyQuaternion(globeQuat.clone().invert());
+				positions[carried] = normalize([localHit.x, localHit.y, localHit.z]);
+				return true;
+			}
 			// the board plane in WORLD space: the group's +Z through its origin
 			planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
 			dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
@@ -481,10 +562,28 @@ export default {
 						carrying: () => carried !== -1,
 						pickAt: (event) => dotUnder(aim.fromClient(event.clientX, event.clientY, event.target)),
 						pick,
-						drop
+						drop,
+						// P3: right-drag / two fingers ON the globe turn it (the local view only)
+						rotateStart: (event) => mode === '3d' && !!globeHit(aim.fromClient(event.clientX, event.clientY, event.target), false),
+						rotateBy
 					})
 				: { detach() {}, reset() {}, carryMode: () => 'none', rotating: () => false, lastUp: () => 'none' };
 		let carryHow = 'none';
+		const yawAxis = new THREE.Vector3(0, 1, 0);
+		const pitchAxis = new THREE.Vector3(1, 0, 0);
+		const turn = new THREE.Quaternion();
+		let rotations = 0;
+		/** turn the globe by a pointer delta (px): yaw about the board's up, pitch about its right.
+		 * LOCAL: the orientation never replicates — the dots' unit vectors do. */
+		function rotateBy(dx, dy) {
+			if (mode !== '3d' || !group) return;
+			turn.setFromAxisAngle(yawAxis, dx * 0.008);
+			globeQuat.premultiply(turn);
+			turn.setFromAxisAngle(pitchAxis, dy * 0.008);
+			globeQuat.premultiply(turn).normalize();
+			rotations++;
+			redraw(lastCounts);
+		}
 		/** 30-core-modes: an EDIT-mode editor never lets the board react (fork 1). A 1.16 core
 		 * has no editor mode, so everything the board is shown in reacts, as it always did. */
 		function interactive() {
@@ -531,6 +630,13 @@ export default {
 			const t = performance.now() / 1000;
 			burst?.tick(t);
 			const ray = aim.current();
+			// P3: in VR the thumbstick turns the globe while the hand points at it
+			if (mode === '3d' && api.isVR?.() && carried === -1 && globeHit(ray, false)) {
+				const axes = api.input?.()?.axes;
+				const rx = axes?.rx ?? 0;
+				const ry = axes?.ry ?? 0;
+				if (Math.abs(rx) > 0.2 || Math.abs(ry) > 0.2) rotateBy(rx * 4, ry * 4);
+			}
 			// hover: the dot under the pointer (none while carrying, none when inert)
 			const over = carried === -1 && interactive() ? dotUnder(ray) : -1;
 			if (over !== hovered) {
@@ -541,7 +647,13 @@ export default {
 			}
 			if (hoverRing) {
 				hoverRing.visible = hovered >= 0;
-				if (hovered >= 0) hoverRing.position.copy(drawn(hovered));
+				if (hovered >= 0) {
+					const at = drawn(hovered);
+					hoverRing.position.copy(at);
+					// 3D: the ring lies on the globe (tangent), facing out of it
+					if (mode === '3d') hoverRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), at.clone().normalize());
+					else hoverRing.quaternion.identity();
+				}
 			}
 			// the carried dot eases up toward the player and back down after the drop
 			const wantLift = carried === -1 ? 0 : 1;
@@ -665,8 +777,8 @@ export default {
 				remoteApplied = true;
 				touched = true;
 				setLevel(state.level ?? 1, false, state.mode ?? '2d');
-				if (Array.isArray(state.positions) && state.positions.length === positions.length) {
-					positions = state.positions.map((p) => clampToBoard([p[0], p[1]]));
+				if (Array.isArray(state.positions) && state.positions.length === positions.length && state.positions.every(fits)) {
+					positions = state.positions.map(clampPos);
 					refresh();
 				}
 			}
@@ -735,6 +847,9 @@ export default {
 			move: (i, p) => dropAt(i, p),
 			solve: () => solveNow(),
 			setLevel: (lvl) => setLevel(lvl, true),
+			/** P3: the local globe view (never replicated) */
+			globeView: () => ({ quat: globeQuat.toArray(), rotations }),
+			rotate: (dx, dy) => rotateBy(dx, dy),
 			/** P2: the selector's replicated path */
 			select: (lvl, md) => selectLevel(lvl, md ?? mode),
 			progress: () => JSON.parse(JSON.stringify(progress)),

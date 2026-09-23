@@ -13,6 +13,10 @@
 //     carrying click on a UI element drops as well and the element still gets its click
 //   4 play under a (stubbed) POINTER LOCK: the carry follows the CROSSHAIR, not the stale
 //     mouse ray — press, re-aim the camera, the dot tracks it, release drops it
+//   6 (P3) the GLOBE: a real press-drag-release carries a front dot across the sphere (a
+//     raycast onto the globe) and B lands on the same unit vector; a dot behind the globe
+//     cannot be picked through it; a right-drag turns A's view only (no dot moves, B's view
+//     stays)
 //   5 (P1) the look, measured: dots 3x the old 5.5 cm, every edge one instance of ONE
 //     InstancedMesh coloured red/green by its own crossing count, the edge THICKNESS on
 //     screen (a perpendicular pixel scan across a real edge), the hover ring under the
@@ -305,6 +309,66 @@ run(async () => {
 	await eventually(() => state(B.page), (s) => JSON.stringify(s.positions[4]) === JSON.stringify(a4.positions[4]), '4.5 B agrees');
 	await A.page.evaluate(() => Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => null }));
 	await A.page.keyboard.press('Escape');
+	await A.page.waitForTimeout(600);
+
+	// ---- 6. (P3) the GLOBE with a real mouse ----------------------------------------------------------
+	await A.page.evaluate(() => window.__untangle.select(10, '3d'));
+	await eventually(() => state(B.page), (s) => s.mode === '3d' && s.level === 10, '6.0 (premise) both peers on globe level 10');
+	await A.page.evaluate(() => {
+		let cam, controls;
+		window.__stores.globalCamera.subscribe((v) => (cam = v))();
+		window.__stores.orbitControls.subscribe((v) => (controls = v))();
+		cam.position.set(0, 1.6, 3.4);
+		controls.target.set(0, 1.6, 0);
+		controls.update();
+	});
+	await A.page.waitForTimeout(400);
+	// which dots face the camera, and which hide behind the globe (world z vs the centre)
+	const faces = await A.page.evaluate(() => window.__untangle.state().positions.map((_, i) => window.__untangle.dotWorld(i)[2]));
+	const front = faces.map((z, i) => [z, i]).sort((a, b) => b[0] - a[0]);
+	const fi = front[0][1];
+	const bi = front[front.length - 1][1];
+	// the target: a front point of the globe, as a unit vector in the globe frame (the view is unturned)
+	const T6 = [-0.3, 0.25, Math.sqrt(1 - 0.09 - 0.0625)];
+	const t6world = await A.page.evaluate((t) => {
+		let scene;
+		window.__stores.globalScene.subscribe((v) => (scene = v))();
+		const g = scene.getObjectByName('untangle-module');
+		const r = window.__untangle.state().board.radius * 0.92;
+		return g.localToWorld(new window.__stores.THREE.Vector3(t[0] * r, t[1] * r, t[2] * r)).toArray();
+	}, T6);
+	await drag(A.page, await dotPx(A.page, fi), await projectPoint(A.page, t6world));
+	const g6 = await state(A.page);
+	const ang = (p, q) => Math.acos(Math.min(1, p[0] * q[0] + p[1] * q[1] + p[2] * q[2]));
+	check(g6.carried === -1 && g6.lastDrop === 'release' && ang(g6.positions[fi], T6) < 0.05, '6.1 a real press-drag-release moves a front dot across the globe to the target (off by ' + ang(g6.positions[fi], T6).toFixed(3) + ' rad)');
+	check(Math.abs(Math.hypot(...g6.positions[fi]) - 1) < 2e-3, '6.2 the dropped dot is on the sphere (a unit vector)');
+	await eventually(() => state(B.page), (s) => JSON.stringify(s.positions[fi]) === JSON.stringify(g6.positions[fi]), '6.3 B lands on the identical unit vector');
+	// a dot on the FAR side is hidden by the globe: pressing its pixel does not pick it
+	const bp = await dotPx(A.page, bi);
+	await A.page.mouse.click(bp.x, bp.y);
+	await A.page.waitForTimeout(150);
+	const g7 = await state(A.page);
+	check(g7.carried !== bi, '6.4 a dot behind the globe cannot be picked through it (carried ' + g7.carried + ', far dot ' + bi + ')');
+	if (g7.carried !== -1) {
+		await A.page.mouse.click(bp.x, bp.y); // drop whatever front dot the tap took
+		await A.page.waitForTimeout(150);
+	}
+	// right-drag ON the globe turns A's view only
+	const before6 = await state(A.page);
+	const vb = await B.page.evaluate(() => window.__untangle.globeView());
+	const pose6 = await cameraPose(A.page);
+	const centre = await projectPoint(A.page, await A.page.evaluate(() => window.__untangle.boardWorld([0, 0, 0])));
+	await A.page.mouse.move(centre.x + 40, centre.y + 30);
+	await A.page.mouse.down({ button: 'right' });
+	await A.page.mouse.move(centre.x + 160, centre.y + 10, { steps: 8 });
+	await A.page.mouse.up({ button: 'right' });
+	await A.page.waitForTimeout(300);
+	const va = await A.page.evaluate(() => window.__untangle.globeView());
+	const after6 = await state(A.page);
+	check(va.rotations > 0 && after6.carried === -1, '6.5 a right-drag on the globe turns it (' + va.rotations + ' steps) and picks nothing');
+	check(JSON.stringify(after6.positions) === JSON.stringify(before6.positions), '6.6 turning moved no dot (the view turns, the unit vectors stay)');
+	check(JSON.stringify(await B.page.evaluate(() => window.__untangle.globeView())) === JSON.stringify(vb), '6.7 B\'s globe did not turn (the orientation is local)');
+	check(JSON.stringify(await cameraPose(A.page)) === JSON.stringify(pose6), '6.8 the camera did not pan under the right-drag (the gesture belongs to the globe)');
 
 	await finish(browser);
 });

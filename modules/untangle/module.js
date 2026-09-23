@@ -114,6 +114,14 @@ function edgeCrossings(positions, edges) {
 function totalCrossings(counts) {
   return counts.reduce((sum, c) => sum + c, 0) / 2;
 }
+function solvedPositions(n, scale = 0.85) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const angle = i / n * Math.PI * 2;
+    out.push([Math.cos(angle) * scale, Math.sin(angle) * scale]);
+  }
+  return out;
+}
 function clampToBoard(p) {
   return [Math.max(-1, Math.min(1, p[0])), Math.max(-1, Math.min(1, p[1]))];
 }
@@ -388,14 +396,15 @@ function makeEdgeLayer(THREE, capacity) {
       for (let i = 0; i < n; i++) {
         const s = segments[i];
         dir.subVectors(s.b, s.a);
-        const len = dir.length() || 1e-6;
+        const len2 = dir.length() || 1e-6;
         mid.addVectors(s.a, s.b).multiplyScalar(0.5);
-        quat.setFromUnitVectors(up, dir.divideScalar(len));
+        quat.setFromUnitVectors(up, dir.divideScalar(len2));
         color.setHex(s.color);
-        matrix.compose(mid, quat, scale.set(radius, len, radius));
+        const reach = len2 + radius * 2;
+        matrix.compose(mid, quat, scale.set(radius, reach, radius));
         core.setMatrixAt(i, matrix);
         core.setColorAt(i, color);
-        matrix.compose(mid, quat, scale.set(radius * 3.2, len, radius * 3.2));
+        matrix.compose(mid, quat, scale.set(radius * 3.2, len2, radius * 3.2));
         glow.setMatrixAt(i, matrix);
         glow.setColorAt(i, color);
       }
@@ -578,6 +587,203 @@ function makeBurst(THREE) {
       wave.visible = false;
     }
   };
+}
+function makeGlobe(THREE, R) {
+  const group = new THREE.Group();
+  group.name = "untangle-globe";
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 791846,
+    roughness: 0.38,
+    metalness: 0.12,
+    emissive: 662067,
+    emissiveIntensity: 0.6,
+    transparent: true,
+    opacity: 0.94
+  });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(R, 64, 40), bodyMat);
+  body.name = "untangle-globe-body";
+  group.add(body);
+  const pts = [];
+  const r = R * 1.001;
+  for (let m = 0; m < 12; m++) {
+    const lon = m / 12 * Math.PI * 2;
+    for (let k = 0; k < 48; k++) {
+      const a = k / 48 * Math.PI - Math.PI / 2;
+      const b = (k + 1) / 48 * Math.PI - Math.PI / 2;
+      pts.push(Math.cos(a) * Math.cos(lon) * r, Math.sin(a) * r, Math.cos(a) * Math.sin(lon) * r);
+      pts.push(Math.cos(b) * Math.cos(lon) * r, Math.sin(b) * r, Math.cos(b) * Math.sin(lon) * r);
+    }
+  }
+  for (const lat of [-60, -30, 0, 30, 60]) {
+    const a = lat * Math.PI / 180;
+    for (let k = 0; k < 72; k++) {
+      const l0 = k / 72 * Math.PI * 2;
+      const l1 = (k + 1) / 72 * Math.PI * 2;
+      pts.push(Math.cos(a) * Math.cos(l0) * r, Math.sin(a) * r, Math.cos(a) * Math.sin(l0) * r);
+      pts.push(Math.cos(a) * Math.cos(l1) * r, Math.sin(a) * r, Math.cos(a) * Math.sin(l1) * r);
+    }
+  }
+  const gratGeo = new THREE.BufferGeometry();
+  gratGeo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+  const graticule = new THREE.LineSegments(gratGeo, new THREE.LineBasicMaterial({ color: 2834790, transparent: true, opacity: 0.55 }));
+  graticule.name = "untangle-graticule";
+  group.add(graticule);
+  const rimMat = new THREE.MeshBasicMaterial({
+    color: 3900150,
+    transparent: true,
+    opacity: 0.16,
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const atmosphere = new THREE.Mesh(new THREE.SphereGeometry(R * 1.06, 48, 32), rimMat);
+  atmosphere.name = "untangle-atmosphere";
+  group.add(atmosphere);
+  return {
+    group,
+    body,
+    graticule,
+    /** @param {boolean} won */
+    setWon(won) {
+      bodyMat.emissive.setHex(won ? 735782 : 662067);
+      rimMat.color.setHex(won ? GREEN : 3900150);
+    }
+  };
+}
+
+// modules/untangle/src/sphere.js
+var dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+var cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+var len = (a) => Math.hypot(a[0], a[1], a[2]);
+function normalize(a) {
+  const l = len(a);
+  return l > 1e-12 ? [a[0] / l, a[1] / l, a[2] / l] : [0, 0, 1];
+}
+var ANTIPODAL_GEN = -0.978;
+var ANTIPODAL_PLAY = -0.998;
+function fromDisc(p, k = 1.15) {
+  return normalize([p[0] * k, p[1] * k, 1]);
+}
+function solvedSphere(n) {
+  return solvedPositions(n).map((p) => fromDisc(p));
+}
+function arcPoints(a, b, segments) {
+  const out = [];
+  const cosT = Math.max(-1, Math.min(1, dot(a, b)));
+  const theta = Math.acos(cosT);
+  const s = Math.sin(theta);
+  for (let k = 0; k <= segments; k++) {
+    const t = k / segments;
+    if (s < 1e-6) {
+      out.push(normalize([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]));
+      continue;
+    }
+    const wa = Math.sin((1 - t) * theta) / s;
+    const wb = Math.sin(t * theta) / s;
+    out.push([a[0] * wa + b[0] * wb, a[1] * wa + b[1] * wb, a[2] * wa + b[2] * wb]);
+  }
+  return out;
+}
+function arcSegments(a, b) {
+  return Math.max(2, Math.ceil(Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) / 0.12));
+}
+function strictlyOn(q, a, b, n) {
+  const eps = 1e-12 * dot(n, n);
+  return dot(cross(a, q), n) > eps && dot(cross(q, b), n) > eps;
+}
+function arcIntersections(a, b, c, d) {
+  const n1 = cross(a, b);
+  const n2 = cross(c, d);
+  const l1 = len(n1);
+  const l2 = len(n2);
+  if (l1 < 1e-12 || l2 < 1e-12) return [];
+  const L = cross(n1, n2);
+  const ll = len(L);
+  if (ll < 1e-9 * l1 * l2) return sameCircleOverlap(a, b, c, d, n1) ? "overlap" : [];
+  const p = [L[0] / ll, L[1] / ll, L[2] / ll];
+  const out = [];
+  for (const q of [p, [-p[0], -p[1], -p[2]]]) if (strictlyOn(q, a, b, n1) && strictlyOn(q, c, d, n2)) out.push(q);
+  return out;
+}
+function sameCircleOverlap(a, b, c, d, n1) {
+  const u = a;
+  const w = normalize(cross(normalize(n1), a));
+  const angle = (x) => Math.atan2(dot(x, w), dot(x, u));
+  const tb = angle(b);
+  const tc = angle(c);
+  let delta = angle(d) - tc;
+  while (delta > Math.PI) delta -= 2 * Math.PI;
+  while (delta <= -Math.PI) delta += 2 * Math.PI;
+  const lo = Math.min(tc, tc + delta);
+  const hi = Math.max(tc, tc + delta);
+  for (const k of [-2 * Math.PI, 0, 2 * Math.PI]) {
+    if (Math.min(hi + k, tb) - Math.max(lo + k, 0) > 1e-9) return true;
+  }
+  return false;
+}
+function arcsCross(a, b, c, d) {
+  const hit = arcIntersections(a, b, c, d);
+  return hit === "overlap" || hit.length > 0;
+}
+function edgeCrossings3(positions, edges) {
+  const counts = edges.map(() => 0);
+  const degenerate = edges.map(([a, b]) => dot(positions[a], positions[b]) < ANTIPODAL_PLAY);
+  degenerate.forEach((bad, i) => {
+    if (bad) counts[i] += 2;
+  });
+  for (let i = 0; i < edges.length; i++) {
+    if (degenerate[i]) continue;
+    for (let j = i + 1; j < edges.length; j++) {
+      if (degenerate[j]) continue;
+      const [a, b] = edges[i];
+      const [c, d] = edges[j];
+      if (a === c || a === d || b === c || b === d) continue;
+      if (arcsCross(positions[a], positions[b], positions[c], positions[d])) {
+        counts[i]++;
+        counts[j]++;
+      }
+    }
+  }
+  return counts;
+}
+var MIN_ANGLE = 0.36;
+function generate3(lvl) {
+  const g = generate(lvl);
+  const rand = mulberry32((1374496523 ^ lvl * 2246822519) >>> 0);
+  const need = minStartCrossings(lvl);
+  const minCos = Math.cos(MIN_ANGLE);
+  let best = null;
+  let bestCount = -1;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const positions = [];
+    for (let i = 0; i < g.n; i++) {
+      let p = null;
+      for (let tries = 0; tries < 80; tries++) {
+        const z = rand() * 2 - 1;
+        const phi = rand() * Math.PI * 2;
+        const r = Math.sqrt(Math.max(0, 1 - z * z));
+        p = [Math.cos(phi) * r, Math.sin(phi) * r, z];
+        const q = p;
+        if (positions.every((o) => dot(o, q) <= minCos)) break;
+      }
+      positions.push(
+        /** @type {number[]} */
+        p
+      );
+    }
+    if (g.edges.some(([a, b]) => dot(positions[a], positions[b]) < ANTIPODAL_GEN)) continue;
+    const count = edgeCrossings3(positions, g.edges).reduce((s, c) => s + c, 0) / 2;
+    if (count >= need) return { n: g.n, edges: g.edges, positions };
+    if (count > bestCount) {
+      bestCount = count;
+      best = positions;
+    }
+  }
+  return { n: g.n, edges: g.edges, positions: (
+    /** @type {number[][]} */
+    best ?? solvedSphere(g.n)
+  ) };
 }
 
 // modules/untangle/src/progress.js
@@ -930,7 +1136,8 @@ function makeMenuKinds(ctx) {
 
 // modules/untangle/src/index.js
 var GROUP = "untangle-module";
-var MODES_PLAYED = ["2d"];
+var MODES_PLAYED = ["2d", "3d"];
+var GLOBE_R = 0.92;
 var EXPIRE_FRAMES = 40;
 var index_default = {
   id: "untangle",
@@ -987,7 +1194,11 @@ var index_default = {
       if (clock.ms !== null) return clock.ms;
       return clock.start === null ? null : performance.now() - clock.start;
     }
-    const local = (p) => new THREE.Vector3(p[0] * board.radius, p[1] * board.radius, 0);
+    const globeQuat = new THREE.Quaternion();
+    const globeR = () => board.radius * GLOBE_R;
+    const local = (p) => mode === "3d" ? new THREE.Vector3(p[0], p[1], p[2]).applyQuaternion(globeQuat).multiplyScalar(globeR()) : new THREE.Vector3(p[0] * board.radius, p[1] * board.radius, 0);
+    const clampPos = (p) => mode === "3d" ? normalize([+p[0] || 0, +p[1] || 0, +p[2] || 0]) : clampToBoard([p[0], p[1]]);
+    const fits = (p) => Array.isArray(p) && p.length === (mode === "3d" ? 3 : 2) && p.every((v) => Number.isFinite(+v));
     function placeGroup() {
       if (!group) return;
       group.position.set(board.x, board.boardY, board.z);
@@ -997,6 +1208,7 @@ var index_default = {
     const dotR = () => board.radius * Math.max(0.105, 0.15 - Math.max(0, positions.length - 6) * 45e-4);
     let edgeLayer = null;
     let backplate = null;
+    let globe = null;
     let hoverRing = null;
     let burst = null;
     let hovered = -1;
@@ -1025,22 +1237,29 @@ var index_default = {
       sprite = null;
       hovered = -1;
       lift = 0;
-      backplate = makeBackplate(THREE, board.radius);
-      group.add(backplate.group);
-      edgeLayer = makeEdgeLayer(THREE, Math.max(1, edges.length));
-      edgeLayer.setRadius(board.radius * 0.016);
+      backplate = null;
+      globe = null;
+      if (mode === "3d") {
+        globe = makeGlobe(THREE, globeR());
+        group.add(globe.group);
+      } else {
+        backplate = makeBackplate(THREE, board.radius);
+        group.add(backplate.group);
+      }
+      edgeLayer = makeEdgeLayer(THREE, Math.max(1, edges.length * (mode === "3d" ? 28 : 1)));
+      edgeLayer.setRadius(board.radius * (mode === "3d" ? 0.012 : 0.016));
       group.add(edgeLayer.glow, edgeLayer.core);
-      const r = dotR();
+      const r = dotR() * (mode === "3d" ? 0.8 : 1);
       const dotGeo = new THREE.SphereGeometry(r, 32, 20);
       positions.forEach((p, i) => {
-        const dot = new THREE.Mesh(
+        const dot2 = new THREE.Mesh(
           dotGeo,
           new THREE.MeshStandardMaterial({ color: 15265527, emissive: 8229810, emissiveIntensity: 0.45, roughness: 0.3, metalness: 0.05 })
         );
-        dot.name = "untangle-dot-" + i;
-        dot.position.copy(local(p));
-        group.add(dot);
-        dots.push(dot);
+        dot2.name = "untangle-dot-" + i;
+        dot2.position.copy(local(p));
+        group.add(dot2);
+        dots.push(dot2);
       });
       hoverRing = makeHoverRing(THREE);
       hoverRing.scale.setScalar(r * 1.45);
@@ -1060,8 +1279,26 @@ var index_default = {
     }
     function drawn(i) {
       const v = local(positions[i]);
-      if (i === carried) v.z += lift * dotR() * 0.9;
+      if (i === carried) {
+        if (mode === "3d") v.multiplyScalar(1 + lift * dotR() * 0.8 / globeR());
+        else v.z += lift * dotR() * 0.9;
+      }
       return v;
+    }
+    function segmentsOf(counts) {
+      if (mode !== "3d") return edges.map(([a, b], k) => ({ a: drawn(a), b: drawn(b), color: counts[k] > 0 ? COLORS.RED : COLORS.GREEN }));
+      const out = [];
+      const rr = globeR() * 1.004;
+      edges.forEach(([a, b], k) => {
+        const color = counts[k] > 0 ? COLORS.RED : COLORS.GREEN;
+        const pts = arcPoints(positions[a], positions[b], arcSegments(positions[a], positions[b])).map(
+          (q) => new THREE.Vector3(q[0], q[1], q[2]).applyQuaternion(globeQuat).multiplyScalar(rr)
+        );
+        if (a === carried) pts[0] = drawn(a);
+        if (b === carried) pts[pts.length - 1] = drawn(b);
+        for (let s = 0; s + 1 < pts.length; s++) out.push({ a: pts[s], b: pts[s + 1], color });
+      });
+      return out;
     }
     function paintDot(i) {
       const m = dots[i]?.material;
@@ -1078,17 +1315,15 @@ var index_default = {
     }
     function redraw(counts) {
       positions.forEach((_, i) => {
-        const dot = dots[i];
-        if (!dot) return;
-        dot.position.copy(drawn(i));
-        dot.scale.setScalar(i === carried ? 1 + 0.18 * lift : 1);
+        const dot2 = dots[i];
+        if (!dot2) return;
+        dot2.position.copy(drawn(i));
+        dot2.scale.setScalar(i === carried ? 1 + 0.18 * lift : 1);
       });
-      if (edgeLayer) {
-        edgeLayer.set(
-          edges.map(([a, b], k) => ({ a: drawn(a), b: drawn(b), color: counts[k] > 0 ? COLORS.RED : COLORS.GREEN }))
-        );
-      }
+      if (edgeLayer) edgeLayer.set(segmentsOf(counts));
       backplate?.setWon(crossings === 0);
+      globe?.setWon(crossings === 0);
+      if (globe) globe.graticule.quaternion.copy(globeQuat);
     }
     let lastCounts = (
       /** @type {number[]} */
@@ -1129,7 +1364,7 @@ var index_default = {
     }
     function refresh() {
       if (!group) return 0;
-      lastCounts = edgeCrossings(positions, edges);
+      lastCounts = mode === "3d" ? edgeCrossings3(positions, edges) : edgeCrossings(positions, edges);
       crossings = totalCrossings(lastCounts);
       redraw(lastCounts);
       ensureSprite();
@@ -1140,12 +1375,13 @@ var index_default = {
     function setLevel(lvl, announce = false, md = mode) {
       level = Math.max(1, Math.round(Number(lvl) || 1));
       mode = MODES_PLAYED.includes(md) ? md : "2d";
-      const g = generate(level);
+      const g = mode === "3d" ? generate3(level) : generate(level);
       edges = g.edges;
       positions = g.positions;
       won = false;
       carried = -1;
       participated = false;
+      globeQuat.identity();
       clock.start = roundUnderway() || shellUnused() ? performance.now() : null;
       clock.ms = null;
       clock.newBest = false;
@@ -1210,9 +1446,9 @@ var index_default = {
       if (typeof api.fireNodeTrigger === "function") api.fireNodeTrigger("utevent", (data) => (data?.event ?? "solved") === event);
     }
     function applyMove(i, p, authoritative, fromMe = false) {
-      if (!positions[i]) return;
+      if (!positions[i] || !fits(p)) return;
       if (authoritative) touched = true;
-      positions[i] = clampToBoard([p[0], p[1]]);
+      positions[i] = clampPos(p);
       const total = refresh();
       if (authoritative && total === 0 && !won) {
         won = true;
@@ -1227,9 +1463,9 @@ var index_default = {
         winSting();
         burst?.start(
           positions.map((q) => local(q)),
-          () => new THREE.Vector3(0, 0, 1),
+          (c) => mode === "3d" ? c.clone().normalize() : new THREE.Vector3(0, 0, 1),
           board.radius,
-          true,
+          mode !== "3d",
           performance.now() / 1e3
         );
         if (fromMe) fire("solved");
@@ -1243,15 +1479,23 @@ var index_default = {
       }
     }
     function dropAt(i, p) {
-      if (!positions[i]) return false;
+      if (!positions[i] || !fits(p)) return false;
       participated = true;
-      positions[i] = clampToBoard([p[0], p[1]]);
+      positions[i] = clampPos(p);
       api.send({ op: "move", i, p: positions[i] });
       applyMove(i, positions[i], true, true);
       return true;
     }
     function solveNow() {
       const n = positions.length;
+      if (mode === "3d") {
+        const inv = globeQuat.clone().invert();
+        solvedSphere(n).forEach((q, i) => {
+          const v = new THREE.Vector3(q[0], q[1], q[2]).applyQuaternion(inv);
+          dropAt(i, [v.x, v.y, v.z]);
+        });
+        return crossings === 0;
+      }
       for (let i = 0; i < n; i++) {
         const angle = i / n * Math.PI * 2;
         dropAt(i, [Math.cos(angle) * 0.85, Math.sin(angle) * 0.85]);
@@ -1272,17 +1516,41 @@ var index_default = {
       const reach = dotR() * 1.3 * scale;
       let best = -1;
       let bestMiss = reach * reach;
-      dots.forEach((dot, i) => {
-        dot.getWorldPosition(dotWorld);
+      const front = mode === "3d" ? globeHit(ray, false) : null;
+      const frontAlong = front ? front.distanceTo(ray.ray.origin) : Infinity;
+      dots.forEach((dot2, i) => {
+        dot2.getWorldPosition(dotWorld);
         const miss = ray.ray.distanceSqToPoint(dotWorld);
-        if (miss > bestMiss || dotWorld.sub(ray.ray.origin).dot(ray.ray.direction) <= 0) return;
+        const along = dotWorld.sub(ray.ray.origin).dot(ray.ray.direction);
+        if (miss > bestMiss || along <= 0 || along > frontAlong + reach * 1.5) return;
         bestMiss = miss;
         best = i;
       });
       return best;
     }
+    const globeSphere = new THREE.Sphere();
+    const globeCentre = new THREE.Vector3();
+    function globeHit(ray, clampToRim) {
+      if (!group || !ray) return null;
+      group.updateMatrixWorld();
+      group.getWorldPosition(globeCentre);
+      globeSphere.set(globeCentre, globeR() * (group.getWorldScale(localHit).x || 1));
+      const hit = ray.ray.intersectSphere(globeSphere, new THREE.Vector3());
+      if (hit || !clampToRim) return hit;
+      const nearest = ray.ray.closestPointToPoint(globeCentre, new THREE.Vector3());
+      return nearest.sub(globeCentre).setLength(globeSphere.radius).add(globeCentre);
+    }
     function follow(ray) {
       if (carried === -1 || !group || !ray) return false;
+      if (mode === "3d") {
+        const hit = globeHit(ray, true);
+        if (!hit) return false;
+        localHit.copy(hit);
+        group.worldToLocal(localHit);
+        localHit.applyQuaternion(globeQuat.clone().invert());
+        positions[carried] = normalize([localHit.x, localHit.y, localHit.z]);
+        return true;
+      }
       planeNormal.set(0, 0, 1).applyQuaternion(group.quaternion);
       dragPlane.setFromNormalAndCoplanarPoint(planeNormal, group.position);
       if (!ray.ray.intersectPlane(dragPlane, hitPoint)) return false;
@@ -1332,11 +1600,27 @@ var index_default = {
       carrying: () => carried !== -1,
       pickAt: (event) => dotUnder(aim.fromClient(event.clientX, event.clientY, event.target)),
       pick,
-      drop
+      drop,
+      // P3: right-drag / two fingers ON the globe turn it (the local view only)
+      rotateStart: (event) => mode === "3d" && !!globeHit(aim.fromClient(event.clientX, event.clientY, event.target), false),
+      rotateBy
     }) : { detach() {
     }, reset() {
     }, carryMode: () => "none", rotating: () => false, lastUp: () => "none" };
     let carryHow = "none";
+    const yawAxis = new THREE.Vector3(0, 1, 0);
+    const pitchAxis = new THREE.Vector3(1, 0, 0);
+    const turn = new THREE.Quaternion();
+    let rotations = 0;
+    function rotateBy(dx, dy) {
+      if (mode !== "3d" || !group) return;
+      turn.setFromAxisAngle(yawAxis, dx * 8e-3);
+      globeQuat.premultiply(turn);
+      turn.setFromAxisAngle(pitchAxis, dy * 8e-3);
+      globeQuat.premultiply(turn).normalize();
+      rotations++;
+      redraw(lastCounts);
+    }
     function interactive() {
       const m = typeof api.editorMode === "function" ? api.editorMode() : null;
       return m !== "edit" || typeof api.isPlaying === "function" && api.isPlaying();
@@ -1373,6 +1657,12 @@ var index_default = {
       const t = performance.now() / 1e3;
       burst?.tick(t);
       const ray = aim.current();
+      if (mode === "3d" && api.isVR?.() && carried === -1 && globeHit(ray, false)) {
+        const axes = api.input?.()?.axes;
+        const rx = axes?.rx ?? 0;
+        const ry = axes?.ry ?? 0;
+        if (Math.abs(rx) > 0.2 || Math.abs(ry) > 0.2) rotateBy(rx * 4, ry * 4);
+      }
       const over = carried === -1 && interactive() ? dotUnder(ray) : -1;
       if (over !== hovered) {
         const was = hovered;
@@ -1382,7 +1672,12 @@ var index_default = {
       }
       if (hoverRing) {
         hoverRing.visible = hovered >= 0;
-        if (hovered >= 0) hoverRing.position.copy(drawn(hovered));
+        if (hovered >= 0) {
+          const at = drawn(hovered);
+          hoverRing.position.copy(at);
+          if (mode === "3d") hoverRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), at.clone().normalize());
+          else hoverRing.quaternion.identity();
+        }
       }
       const wantLift = carried === -1 ? 0 : 1;
       if (lift !== wantLift) {
@@ -1508,8 +1803,8 @@ var index_default = {
         remoteApplied = true;
         touched = true;
         setLevel(state.level ?? 1, false, state.mode ?? "2d");
-        if (Array.isArray(state.positions) && state.positions.length === positions.length) {
-          positions = state.positions.map((p) => clampToBoard([p[0], p[1]]));
+        if (Array.isArray(state.positions) && state.positions.length === positions.length && state.positions.every(fits)) {
+          positions = state.positions.map(clampPos);
           refresh();
         }
       }
@@ -1582,6 +1877,9 @@ var index_default = {
       move: (i, p) => dropAt(i, p),
       solve: () => solveNow(),
       setLevel: (lvl) => setLevel(lvl, true),
+      /** P3: the local globe view (never replicated) */
+      globeView: () => ({ quat: globeQuat.toArray(), rotations }),
+      rotate: (dx, dy) => rotateBy(dx, dy),
       /** P2: the selector's replicated path */
       select: (lvl, md) => selectLevel(lvl, md ?? mode),
       progress: () => JSON.parse(JSON.stringify(progress)),
