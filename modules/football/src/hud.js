@@ -63,7 +63,7 @@ export function pitchHud() {
 					input: 'game',
 					elements: [
 						...scoreboard(12),
-						{ id: 'fb-sheet-play', kind: 'list', anchor: 'top-right', x: 16, y: 14, w: 260, h: 96, z: 1, label: '', rows: [], style: { size: 12, weight: '600', color: '#e5e9f0', align: 'right', bg: 'transparent' } },
+						{ id: 'fb-sheet-play', kind: 'list', anchor: 'top-right', x: 16, y: 14, w: 380, h: 96, z: 1, label: '', rows: [], style: { size: 12, weight: '600', color: '#e5e9f0', align: 'right', bg: 'transparent' } },
 						{ id: 'play-hint', kind: 'text', anchor: 'bottom-center', x: 0, y: 12, w: 520, h: 20, z: 1, label: 'Hit the ball toward the other gate.  Press P to pause.', style: { size: 11, color: '#c8d0dc', align: 'center' } }
 					]
 				},
