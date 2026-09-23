@@ -1031,6 +1031,125 @@ function stoneTexture(kind, size = LOOK.textureSize, seed = 356371) {
   }
   return out;
 }
+var LIT = {
+  /** how far (cells) a torch's baked light reaches */
+  bakeRadius: 5,
+  /** a flood walks at most this many cells, so light turns a corner but does not wander round a room */
+  bakeSteps: 8,
+  /** floor/wall shade = base + gain * light (light 0..1) */
+  bakeBase: 0.7,
+  bakeGain: 0.45,
+  /** the baked light as EMISSIVE (render.js torchLit): albedo x torch colour x light x gain */
+  emissiveFloor: 0.55,
+  emissiveWall: 0.7,
+  /** how much of the torch colour a fully lit cell takes on */
+  bakeWarm: 0.35,
+  /** the halo on the wall behind a flame and the pool on the floor in front of it (metres) */
+  haloSize: 2.4,
+  haloY: 1.65,
+  /** a sconce's bowl + flame stand this far from the wall cell's centre (the face is at 0.5) */
+  sconceOut: 0.64,
+  haloOpacity: 0.55,
+  poolSize: 3.2,
+  poolOut: 1.1,
+  poolOpacity: 0.3,
+  haloTextureSize: 64,
+  /** seconds a real light takes to fade out of one torch or into the next */
+  lightFade: 0.35,
+  /** a torch that holds a light counts this much nearer, so two torches at almost the same
+   * distance do not trade the light back and forth every frame */
+  lightStickiness: 0.75
+};
+function bakeTorchLight(grid, W, H, torches, opts = {}) {
+  const FLOOR_V = opts.floor ?? 1;
+  const WALL_V = opts.wall ?? 2;
+  const radius = opts.radius ?? LIT.bakeRadius;
+  const steps = opts.steps ?? LIT.bakeSteps;
+  const light = new Float32Array(W * H);
+  const seen = new Int32Array(W * H).fill(-1);
+  const queue = new Int32Array(W * H);
+  torches.forEach((t, id) => {
+    const sx = t.x + (t.fx ?? 0), sy = t.y + (t.fy ?? 0);
+    if (sx < 0 || sy < 0 || sx >= W || sy >= H || grid[sy * W + sx] !== FLOOR_V) return;
+    const lx = t.x + 0.5 + (t.fx ?? 0) * 0.6, ly = t.y + 0.5 + (t.fy ?? 0) * 0.6;
+    const depth = /* @__PURE__ */ new Map();
+    let head = 0, tail = 0;
+    queue[tail++] = sy * W + sx;
+    seen[sy * W + sx] = id;
+    depth.set(sy * W + sx, 0);
+    while (head < tail) {
+      const i = queue[head++];
+      const x = i % W, y = i / W | 0;
+      const d = Math.hypot(x + 0.5 - lx, y + 0.5 - ly);
+      const w = Math.max(0, 1 - d / radius);
+      const add = w * w * (3 - 2 * w);
+      light[i] = 1 - (1 - light[i]) * (1 - add);
+      const k = depth.get(i) ?? 0;
+      if (k >= steps) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (seen[j] === id || grid[j] !== FLOOR_V) continue;
+        seen[j] = id;
+        depth.set(j, k + 1);
+        queue[tail++] = j;
+      }
+    }
+  });
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (grid[i] !== WALL_V) continue;
+      let best = 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if (grid[ny * W + nx] === FLOOR_V) best = Math.max(best, light[ny * W + nx]);
+      }
+      light[i] = best;
+    }
+  return light;
+}
+function litShade(light) {
+  return LIT.bakeBase + LIT.bakeGain * light;
+}
+function haloTexture(size = LIT.haloTextureSize) {
+  const out = new Uint8Array(size * size * 4);
+  const c = (size - 1) / 2;
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const r = Math.min(1, Math.hypot(x - c, y - c) / c);
+      const v = Math.pow(1 - r, 2.2);
+      const b = Math.round(v * 255);
+      const i = (y * size + x) * 4;
+      out[i] = out[i + 1] = out[i + 2] = b;
+      out[i + 3] = 255;
+    }
+  return out;
+}
+function stepLightSlots(slots, spots, focus, dt) {
+  if (!slots.length || !spots.length) return slots;
+  const rate = Math.max(0, dt) / LIT.lightFade;
+  let wanted;
+  if (focus) {
+    const held = new Set(slots.map((s) => s.torch));
+    wanted = spots.map((p, i) => ({ i, d: Math.hypot(p.x - focus.x, p.z - focus.z) - (held.has(i) ? LIT.lightStickiness : 0) })).sort((a, b) => a.d - b.d || a.i - b.i).slice(0, slots.length).map((e) => e.i);
+  } else wanted = slots.map((s) => s.torch).filter((t) => t >= 0);
+  const want = new Set(wanted);
+  for (const s of slots) {
+    if (s.torch >= 0 && want.has(s.torch)) s.w = Math.min(1, s.w + rate);
+    else {
+      s.w = Math.max(0, s.w - rate);
+      if (s.w === 0) s.torch = -1;
+    }
+  }
+  const holding = new Set(slots.map((s) => s.torch));
+  const free = wanted.filter((t) => !holding.has(t));
+  for (const s of slots) if (s.torch < 0 && free.length) s.torch = /** @type {number} */
+  free.shift();
+  return slots;
+}
 
 // modules/dungeon/src/render.js
 var textures = null;
@@ -1047,7 +1166,41 @@ function stoneTextures(THREE) {
     return t;
   };
   textures = { brick: make("brick"), flag: make("flag") };
+  const halo = new THREE.DataTexture(haloTexture(), LIT.haloTextureSize, LIT.haloTextureSize);
+  halo.magFilter = THREE.LinearFilter;
+  halo.minFilter = THREE.LinearFilter;
+  halo.needsUpdate = true;
+  textures.halo = halo;
   return textures;
+}
+function footShade(THREE, geometry, foot) {
+  const pos = geometry.attributes.position;
+  geometry.computeBoundingBox();
+  const { min, max } = geometry.boundingBox;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const t = (pos.getY(i) - min.y) / Math.max(1e-6, max.y - min.y);
+    const v = foot + (1 - foot) * Math.min(1, t * 1.6);
+    colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = v;
+  }
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  return geometry;
+}
+function torchLit(THREE, material, torchColor, gain) {
+  const uniform = { value: new THREE.Vector4() };
+  const c = new THREE.Color(torchColor);
+  uniform.value.set(c.r * gain, c.g * gain, c.b * gain, 1);
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uTorch = uniform;
+    shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nattribute float torchLight;\nvarying float vTorchLight;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvTorchLight = torchLight;");
+    shader.fragmentShader = shader.fragmentShader.replace("#include <common>", "#include <common>\nuniform vec4 uTorch;\nvarying float vTorchLight;").replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uTorch.rgb * (vTorchLight * uTorch.w);");
+  };
+  material.customProgramCacheKey = () => "dk-torch-lit";
+  material.userData.torch = uniform;
+  return material;
+}
+function setTorchLight(THREE, mesh, values) {
+  mesh.geometry.setAttribute("torchLight", new THREE.InstancedBufferAttribute(values, 1));
 }
 function cellNoise(x, y, seed, amp = 0.05) {
   let h = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ seed) >>> 0;
@@ -1070,6 +1223,16 @@ function buildFloorGroup(THREE, dungeon) {
       for (let x = room.x; x < room.x + room.w; x++)
         if (grid[y * W + x] === FLOOR) roomOf[y * W + x] = room.id;
   });
+  const torchProps = props.filter((p) => p.kind === "torch");
+  const baked = bakeTorchLight(grid, W, H, torchProps, { floor: FLOOR, wall: WALL });
+  const warm = new THREE.Color(theme.torchColor);
+  const white = new THREE.Color(1, 1, 1);
+  const tint = new THREE.Color();
+  const bake = (i) => {
+    const light = baked[i];
+    tint.copy(white).lerp(warm, LIT.bakeWarm * light).multiplyScalar(litShade(light));
+    color.multiply(tint);
+  };
   let floorCount = 0, wallCount = 0;
   for (let i = 0; i < grid.length; i++) {
     if (grid[i] === FLOOR) floorCount++;
@@ -1079,13 +1242,13 @@ function buildFloorGroup(THREE, dungeon) {
   const floorMesh = new THREE.InstancedMesh(
     new THREE.BoxGeometry(1, 0.2, 1),
     // matte stone: Lambert (the floor and the vault fill most of the frame — per-pixel cost)
-    new THREE.MeshLambertMaterial({ color: 16777215, map: tex.flag }),
+    torchLit(THREE, new THREE.MeshLambertMaterial({ color: 16777215, map: tex.flag }), theme.torchColor, LIT.emissiveFloor),
     floorCount
   );
   floorMesh.name = "dk-floors";
   const wallMesh = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(1, 1, 1),
-    new THREE.MeshStandardMaterial({ color: 16777215, roughness: LOOK.wallRoughness, map: tex.brick, bumpMap: tex.brick, bumpScale: 1.8 }),
+    footShade(THREE, new THREE.BoxGeometry(1, 1, 1), 0.55),
+    torchLit(THREE, new THREE.MeshStandardMaterial({ color: 16777215, roughness: LOOK.wallRoughness, map: tex.brick, bumpMap: tex.brick, bumpScale: 1.8, vertexColors: true }), theme.torchColor, LIT.emissiveWall),
     wallCount
   );
   wallMesh.name = "dk-walls";
@@ -1100,6 +1263,7 @@ function buildFloorGroup(THREE, dungeon) {
     return count;
   };
   let floorIndex = 0, wallIndex = 0;
+  const floorLight = new Float32Array(floorCount), wallLight = new Float32Array(wallCount);
   for (let y = 0; y < H; y++)
     for (let x = 0; x < W; x++) {
       const cell = grid[y * W + x];
@@ -1107,9 +1271,11 @@ function buildFloorGroup(THREE, dungeon) {
         matrix.makeTranslation(worldX(x), LOOK.floorTop - 0.1, worldZ(y));
         floorMesh.setMatrixAt(floorIndex, matrix);
         const roomId = roomOf[y * W + x];
-        const tint = stoneTint(roomId >= 0 ? theme.floorTints[roomId % theme.floorTints.length] : theme.corridorTint, LOOK.floorLift);
+        const tint2 = stoneTint(roomId >= 0 ? theme.floorTints[roomId % theme.floorTints.length] : theme.corridorTint, LOOK.floorLift);
         const ao = 1 - 0.09 * Math.min(wallsAround(x, y), 4);
-        color.setHex(tint).multiplyScalar(ao * cellNoise(x, y, dungeon.stats.seed, 0.12) * (roomId >= 0 ? 1 : 0.9));
+        color.setHex(tint2).multiplyScalar(ao * cellNoise(x, y, dungeon.stats.seed, 0.12) * (roomId >= 0 ? 1 : 0.9));
+        bake(y * W + x);
+        floorLight[floorIndex] = baked[y * W + x];
         floorMesh.setColorAt(floorIndex, color);
         floorIndex++;
       } else if (cell === WALL) {
@@ -1121,11 +1287,15 @@ function buildFloorGroup(THREE, dungeon) {
         color.setHex(stoneTint(theme.wallTint, LOOK.wallLift)).multiplyScalar(cellNoise(x, y, dungeon.stats.seed ^ 2577, 0.16));
         color.r *= cellNoise(x, y, dungeon.stats.seed ^ 3073, 0.05);
         color.b *= cellNoise(x, y, dungeon.stats.seed ^ 3074, 0.05);
+        bake(y * W + x);
+        wallLight[wallIndex] = baked[y * W + x];
         wallMesh.setColorAt(wallIndex, color);
         wallIndex++;
       }
     }
   scale.set(1, 1, 1);
+  setTorchLight(THREE, floorMesh, floorLight);
+  setTorchLight(THREE, wallMesh, wallLight);
   group.add(floorMesh, wallMesh);
   const VW = W + LOOK.vaultMargin * 2;
   const VH = H + LOOK.vaultMargin * 2;
@@ -1155,47 +1325,52 @@ function buildFloorGroup(THREE, dungeon) {
     group.add(mesh);
     return mesh;
   };
-  instanced(
+  const propLit = (mesh, list) => {
+    if (mesh && list?.length) setTorchLight(THREE, mesh, Float32Array.from(list.map((p) => baked[p.y * W + p.x])));
+    return mesh;
+  };
+  const pillars = instanced(
     "dk-pillars",
-    new THREE.CylinderGeometry(0.3, 0.38, 2.4, 8),
-    new THREE.MeshStandardMaterial({ color: stoneTint(theme.wallTint, LOOK.wallLift), roughness: 0.8, map: tex.brick }),
+    footShade(THREE, new THREE.CylinderGeometry(0.3, 0.38, 2.4, 8), 0.5),
+    torchLit(THREE, new THREE.MeshStandardMaterial({ color: stoneTint(theme.wallTint, LOOK.wallLift), roughness: 0.8, map: tex.brick, vertexColors: true }), theme.torchColor, LIT.emissiveWall),
     byKind.pillar,
     (p) => position.set(worldX(p.x), 1.2, worldZ(p.y))
   );
-  instanced(
+  if (pillars) setTorchLight(THREE, pillars, Float32Array.from(byKind.pillar.map((p) => baked[p.y * W + p.x])));
+  propLit(instanced(
     "dk-debris",
     new THREE.BoxGeometry(0.32, 0.22, 0.32),
-    new THREE.MeshStandardMaterial({ color: stoneTint(theme.corridorTint, LOOK.floorLift), roughness: 1, map: tex.brick }),
+    torchLit(THREE, new THREE.MeshStandardMaterial({ color: stoneTint(theme.corridorTint, LOOK.floorLift), roughness: 1, map: tex.brick }), theme.torchColor, LIT.emissiveWall),
     byKind.debris,
     (p) => {
       position.set(worldX(p.x), 0.1, worldZ(p.y));
       quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rot ?? 0);
       scale.setScalar(p.scale ?? 1);
     }
-  );
+  ), byKind.debris);
   quaternion.identity();
   scale.set(1, 1, 1);
-  instanced(
+  propLit(instanced(
     "dk-crates",
     new THREE.BoxGeometry(0.72, 0.72, 0.72),
-    new THREE.MeshStandardMaterial({ color: 9071165, roughness: 0.9 }),
+    torchLit(THREE, new THREE.MeshStandardMaterial({ color: 9071165, roughness: 0.9 }), theme.torchColor, LIT.emissiveWall),
     byKind.crate,
     (p) => position.set(worldX(p.x), 0.36, worldZ(p.y))
-  );
-  instanced(
+  ), byKind.crate);
+  propLit(instanced(
     "dk-braziers",
     new THREE.CylinderGeometry(0.3, 0.2, 0.55, 8),
-    new THREE.MeshStandardMaterial({ color: 2894900, roughness: 0.6, metalness: 0.4 }),
+    torchLit(THREE, new THREE.MeshStandardMaterial({ color: 2894900, roughness: 0.6, metalness: 0.4 }), theme.torchColor, LIT.emissiveWall),
     byKind.brazier,
     (p) => position.set(worldX(p.x), 0.28, worldZ(p.y))
-  );
-  instanced(
+  ), byKind.brazier);
+  propLit(instanced(
     "dk-chests",
     new THREE.BoxGeometry(0.85, 0.55, 0.6),
-    new THREE.MeshStandardMaterial({ color: 11569710, roughness: 0.5, metalness: 0.3 }),
+    torchLit(THREE, new THREE.MeshStandardMaterial({ color: 11569710, roughness: 0.5, metalness: 0.3 }), theme.torchColor, LIT.emissiveWall),
     byKind.chest,
     (p) => position.set(worldX(p.x), 0.28, worldZ(p.y))
-  );
+  ), byKind.chest);
   instanced(
     "dk-crystals",
     new THREE.OctahedronGeometry(0.42, 0),
@@ -1226,7 +1401,7 @@ function buildFloorGroup(THREE, dungeon) {
     new THREE.MeshStandardMaterial({ color: 2762016, roughness: 0.55, metalness: 0.6 }),
     torches,
     (p) => {
-      const w = onWall(p, 0.44);
+      const w = onWall(p, 0.54);
       position.set(w.x, 1.5, w.z);
     }
   );
@@ -1236,11 +1411,11 @@ function buildFloorGroup(THREE, dungeon) {
     new THREE.MeshStandardMaterial({ color: 4864552, roughness: 0.45, metalness: 0.7 }),
     torches,
     (p) => {
-      const w = onWall(p, 0.4);
+      const w = onWall(p, LIT.sconceOut);
       position.set(w.x, 1.74, w.z);
     }
   );
-  const flameSpots = torches.map((p) => ({ ...onWall(p, 0.4), y: 1.95 })).concat((byKind.brazier ?? []).map((p) => ({ x: worldX(p.x), y: 0.75, z: worldZ(p.y) })));
+  const flameSpots = torches.map((p) => ({ ...onWall(p, LIT.sconceOut), y: 1.95 })).concat((byKind.brazier ?? []).map((p) => ({ x: worldX(p.x), y: 0.75, z: worldZ(p.y) })));
   const flames = instanced(
     "dk-flames",
     new THREE.ConeGeometry(0.15, 0.46, 7),
@@ -1249,34 +1424,68 @@ function buildFloorGroup(THREE, dungeon) {
     (p) => position.set(p.x, p.y, p.z)
   );
   if (flames) flames.userData.spots = flameSpots;
+  const cores = instanced(
+    "dk-flame-cores",
+    new THREE.ConeGeometry(0.07, 0.24, 6),
+    new THREE.MeshBasicMaterial({ color: 16773576 }),
+    flameSpots,
+    (p) => position.set(p.x, p.y - 0.06, p.z)
+  );
+  if (cores) cores.userData.spots = flameSpots.map((p) => ({ ...p, y: p.y - 0.06 }));
+  const haloMat = () => new THREE.MeshBasicMaterial({ color: 16777215, map: tex.halo, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
+  const facingY = new THREE.Vector3(0, 1, 0);
+  const halos = instanced("dk-halos", new THREE.PlaneGeometry(LIT.haloSize, LIT.haloSize), haloMat(), torches, (p) => {
+    const w = onWall(p, 0.505);
+    position.set(w.x, LIT.haloY, w.z);
+    quaternion.setFromAxisAngle(facingY, Math.atan2(p.fx ?? 0, p.fy ?? 0));
+  });
+  quaternion.identity();
+  const poolSpots = torches.map((p) => ({ ...onWall(p, 0.5 + LIT.poolOut) })).concat((byKind.brazier ?? []).map((p) => ({ x: worldX(p.x), z: worldZ(p.y) })));
+  const pools = instanced("dk-pools", new THREE.PlaneGeometry(LIT.poolSize, LIT.poolSize), haloMat(), poolSpots, (p) => {
+    position.set(p.x, LOOK.floorTop + 4e-3, p.z);
+    quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+  });
+  quaternion.identity();
+  for (const [mesh, spots, opacity] of [[halos, torches.map((p) => onWall(p, LIT.sconceOut)), LIT.haloOpacity], [pools, poolSpots, LIT.poolOpacity]]) {
+    if (!mesh) continue;
+    mesh.renderOrder = 2;
+    mesh.userData.flicker = { spots, opacity };
+    spots.forEach((_, i) => mesh.setColorAt(i, color.set(theme.torchColor).multiplyScalar(opacity)));
+  }
   const entrance = rooms.find((r) => r.type === "entrance");
   const focus = entrance ? { x: entrance.x + ox + entrance.w / 2, z: entrance.y + oy + entrance.h / 2 } : null;
+  const slots = [];
   for (const i of pickLights(flameSpots, focus, LOOK.lightBudget)) {
     const spot = flameSpots[i];
     const light = new THREE.PointLight(theme.torchColor, LOOK.lightIntensity, LOOK.lightDistance, 2);
     light.name = "dk-light";
     light.position.set(spot.x, spot.y + 0.25, spot.z);
+    light.userData.slot = slots.length;
+    slots.push({ torch: i, w: 1 });
     group.add(light);
   }
-  group.userData._dk = { theme, flameSpots, assignedAt: -1 };
+  const torchUniforms = [];
+  group.traverse((o) => {
+    if (o.material?.userData?.torch) torchUniforms.push(o.material.userData.torch);
+  });
+  group.userData._dk = { theme, flameSpots, slots, lastTime: -1, baked, torchUniforms };
   return group;
 }
 function animateFloor(group, time, view = {}) {
   const dk = group.userData._dk;
-  if (view.player && dk?.flameSpots?.length && time - dk.assignedAt > LOOK.lightReassign) {
-    dk.assignedAt = time;
-    const lights = group.children.filter((c) => c.name === "dk-light");
-    const nearest = pickLights(dk.flameSpots, view.player, lights.length, lights.length);
-    nearest.forEach((i, k) => {
-      const spot = dk.flameSpots[i];
-      lights[k].position.set(spot.x, spot.y + 0.25, spot.z);
-    });
-  }
+  const dt = dk && dk.lastTime >= 0 ? Math.min(0.1, Math.max(0, time - dk.lastTime)) : 0;
+  if (dk) dk.lastTime = time;
+  if (dk?.slots?.length && dk.flameSpots?.length) stepLightSlots(dk.slots, dk.flameSpots, view.player ?? null, dt);
+  if (dk?.torchUniforms) for (const u of dk.torchUniforms) u.value.w = 1 + Math.sin(time * 7.3) * 0.04 + Math.sin(time * 17.9) * 0.03;
   group.children.forEach((child) => {
-    if (child.name === "dk-light")
-      child.intensity = LOOK.lightIntensity * (1 + Math.sin(time * 9 + child.position.x * 3.7) * 0.18 + Math.sin(time * 23 + child.position.z * 5.1) * 0.1);
-    else if (child.name === "dk-ceiling") child.visible = !!view.playing;
-    else if (child.name === "dk-flames" && child.userData.spots) {
+    if (child.name === "dk-light") {
+      const slot = dk?.slots?.[child.userData.slot];
+      const spot = slot && slot.torch >= 0 ? dk.flameSpots[slot.torch] : null;
+      if (spot) child.position.set(spot.x, spot.y + 0.25, spot.z);
+      const w = slot ? slot.w : 1;
+      child.intensity = LOOK.lightIntensity * w * (1 + Math.sin(time * 9 + child.position.x * 3.7) * 0.18 + Math.sin(time * 23 + child.position.z * 5.1) * 0.1);
+    } else if (child.name === "dk-ceiling") child.visible = !!view.playing;
+    else if ((child.name === "dk-flames" || child.name === "dk-flame-cores") && child.userData.spots) {
       const m = child.userData._m ??= child.matrix.clone();
       child.userData.spots.forEach((p, i) => {
         const k = flameFlicker(time, p.x, p.z);
@@ -1284,6 +1493,17 @@ function animateFloor(group, time, view = {}) {
         child.setMatrixAt(i, m);
       });
       child.instanceMatrix.needsUpdate = true;
+    } else if ((child.name === "dk-halos" || child.name === "dk-pools") && child.userData.flicker && child.instanceColor) {
+      const { spots, opacity } = child.userData.flicker;
+      const c = child.userData._c ??= child.material.color.clone().set(dk?.theme?.torchColor ?? 16747578);
+      const arr = child.instanceColor.array;
+      spots.forEach((p, i) => {
+        const k = opacity * (0.55 + 0.45 * flameFlicker(time, p.x, p.z));
+        arr[i * 3] = c.r * k;
+        arr[i * 3 + 1] = c.g * k;
+        arr[i * 3 + 2] = c.b * k;
+      });
+      child.instanceColor.needsUpdate = true;
     }
   });
 }
@@ -1571,11 +1791,19 @@ function createKit(api) {
     if (!generate(remote.seed, remote.params ?? {}, { broadcast: false })) return;
     if (remote.floorIndex && remote.floorIndex !== state.floorIndex) showFloor(remote.floorIndex, { broadcast: false });
   }
+  let _focus = null;
   function tick(time) {
     if (!floorGroup) return;
-    const playing = typeof api.isPlaying === "function" && !!api.isPlaying();
-    const p = playing && typeof api.playerPosition === "function" ? api.playerPosition() : null;
-    animateFloor(floorGroup, time, { playing, player: p ? { x: p[0], z: p[2] } : null });
+    const playing = typeof api.isPlaying === "function" && !!api.isPlaying() || api.editorMode?.() === "interact";
+    const p = typeof api.playerPosition === "function" ? api.playerPosition() : null;
+    let focus = null;
+    if (p && floorGroup.parent) {
+      const v = (_focus ??= new THREE.Vector3()).set(p[0], p[1], p[2]);
+      floorGroup.parent.updateWorldMatrix(true, false);
+      floorGroup.parent.worldToLocal(v);
+      focus = { x: v.x, z: v.z };
+    }
+    animateFloor(floorGroup, time, { playing, player: focus });
   }
   return { kit, state, group, handleMessage, getState, applyState, tick, ensureGroup: group };
 }
