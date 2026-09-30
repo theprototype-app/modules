@@ -92,19 +92,20 @@ function kindOf(label) {
   if (/tank/i.test(s)) return "tank";
   return "grunt";
 }
-function enemyPosition(p) {
+function enemyPosition(p, out = [0, 0, 0]) {
   const speed = clamp(p.speed, 0.01, 100, DEFAULTS.speed);
   const stagger = clamp(p.stagger, 0, 60, DEFAULTS.stagger);
   const leave = p.waveStart + stagger * p.index;
   const t = p.slows?.length ? warpedElapsed(leave, p.now, p.slows) : p.now - leave;
-  if (!(t > 0)) return p.start.slice();
   const dx = p.goal[0] - p.start[0];
   const dz = p.goal[2] - p.start[2];
   const dist = Math.hypot(dx, dz);
-  if (dist < 1e-6) return p.start.slice();
-  const along = Math.min(dist, Math.max(0, t * speed - Math.max(0, Number(p.setback) || 0)));
-  const f = along / dist;
-  return [p.start[0] + dx * f, p.start[1], p.start[2] + dz * f];
+  const along = !(t > 0) || dist < 1e-6 ? 0 : Math.min(dist, Math.max(0, t * speed - Math.max(0, Number(p.setback) || 0)));
+  const f = dist < 1e-6 ? 0 : along / dist;
+  out[0] = p.start[0] + dx * f;
+  out[1] = p.start[1];
+  out[2] = p.start[2] + dz * f;
+  return out;
 }
 var SLOW_RATE = 0.4;
 function warpedElapsed(from, to, slows, rate = SLOW_RATE) {
@@ -194,15 +195,28 @@ function createWavesEngine(api) {
   const stashed = /* @__PURE__ */ new Set();
   const roundRun = /* @__PURE__ */ new Map();
   const breached = /* @__PURE__ */ new Map();
+  let walkVersion = 0;
+  const walkPos = /* @__PURE__ */ new Map();
   const clears = /* @__PURE__ */ new Map();
   const firstSeen = /* @__PURE__ */ new Map();
   const runListeners = /* @__PURE__ */ new Set();
   let guard = () => false;
   const enemyListeners = /* @__PURE__ */ new Set();
   const now = () => api.now();
+  const objects = /* @__PURE__ */ new Map();
   function objectOf(uuid) {
     if (!uuid) return null;
-    return api.objectsGroup()?.getObjectByProperty("uuid", uuid) ?? null;
+    const root = api.objectsGroup();
+    const held = objects.get(uuid);
+    if (held && held.uuid === uuid) {
+      let p = held.parent;
+      while (p && p !== root) p = p.parent;
+      if (p === root && root) return held;
+    }
+    const found = root?.getObjectByProperty("uuid", uuid) ?? null;
+    if (found) objects.set(uuid, found);
+    else objects.delete(uuid);
+    return found;
   }
   const worldPos = (object) => object.getWorldPosition(new api.THREE.Vector3()).toArray();
   function graphView() {
@@ -371,13 +385,15 @@ function createWavesEngine(api) {
     }
   }
   const hitsOf = (e) => Math.max(e.hits, hitExpected.get(e.healthId) ?? 0);
-  function stash(object, to) {
-    object.position.fromArray(to);
+  function walkSets(s) {
+    if (s.walk?.version !== walkVersion) {
+      const kills = s.enemies.map((e) => killsOf(hitsOf(e), e.max));
+      s.walk = { version: walkVersion, used: usedIn(s.wave, s.curve), alive: new Set(aliveIn(s.wave, kills, s.curve)) };
+    }
+    return s.walk;
   }
   function moveSweep(s) {
-    const used = usedIn(s.wave, s.curve);
-    const kills = s.enemies.map((e) => killsOf(hitsOf(e), e.max));
-    const alive = new Set(aliveIn(s.wave, kills, s.curve));
+    const { used, alive } = walkSets(s);
     for (let k = 0; k < s.enemies.length; k++) {
       const e = s.enemies[k];
       const object = objectOf(e.uuid);
@@ -387,8 +403,10 @@ function createWavesEngine(api) {
       const index = used.indexOf(k);
       const walking = s.running && s.started && index >= 0 && alive.has(k) && s.goal;
       if (walking && s.waveStart !== null) {
-        const start = spawnFor(index, s.spawns, home);
+        const start = s.spawns.length ? s.spawns[index % s.spawns.length] : home;
         const kind = KINDS[e.kind] ?? KINDS.grunt;
+        let at = walkPos.get(e.uuid);
+        if (!at) walkPos.set(e.uuid, at = [0, 0, 0]);
         object.position.fromArray(
           enemyPosition({
             start,
@@ -403,9 +421,9 @@ function createWavesEngine(api) {
             stagger: s.stagger,
             setback: setbackOf(hitsOf(e), e.heals, e.max, kind.knock) + pushedBy(e.uuid, s.fx, s.waveStart, now()),
             slows: s.slows
-          })
+          }, at)
         );
-        e.pos = object.position.toArray();
+        e.pos = at;
         if (s.breach && groundDistance(
           e.pos,
           /** @type {number[]} */
@@ -416,7 +434,7 @@ function createWavesEngine(api) {
       } else if (index >= 0 && alive.has(k)) {
         object.position.fromArray(spawnFor(index, s.spawns, home));
       } else {
-        stash(object, [home[0], STASH_DEPTH, home[2]]);
+        object.position.set(home[0], STASH_DEPTH, home[2]);
         if (index < 0 && object.visible) {
           object.visible = false;
           stashed.add(e.uuid);
@@ -448,6 +466,7 @@ function createWavesEngine(api) {
     breached.set(e.uuid, life);
     for (let i = 0; i < left; i++) api.fireNodeTrigger("damage", (_d, id) => id === e.damageId, { replicate: false });
     hitExpected.set(e.healthId, hitsOf(e) + left);
+    walkVersion++;
     announcedKills.set(e.uuid, killsOf(hitsOf(e), e.max));
     const pos = object.getWorldPosition(new api.THREE.Vector3()).toArray();
     const blocked = guard();
@@ -485,6 +504,7 @@ function createWavesEngine(api) {
     if (!landed) return null;
     for (let i = 0; i < landed; i++) api.fireNodeTrigger("damage", (_d, id) => id === e.damageId);
     hitExpected.set(e.healthId, hitsOf(e) + landed);
+    walkVersion++;
     const killed = landed >= e.hp;
     const pos = objectOf(uuid)?.getWorldPosition(new api.THREE.Vector3()).toArray() ?? e.pos ?? [0, 0, 0];
     if (killed) {
@@ -577,6 +597,7 @@ function createWavesEngine(api) {
     return v && typeof v === "object" && Array.isArray(v.runs) ? v.runs : [];
   }
   function sweep() {
+    walkVersion++;
     const g = graphView();
     const live = /* @__PURE__ */ new Set();
     for (const node of g.nodes) {
@@ -645,6 +666,8 @@ function createWavesEngine(api) {
     firstSeen.clear();
     roundRun.clear();
     clears.clear();
+    objects.clear();
+    walkPos.clear();
   }
   return {
     state,
@@ -1460,7 +1483,7 @@ function createBoard(api) {
     const world = new THREE.Matrix4().compose(new THREE.Vector3(at[0], at[1], at[2]), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1));
     const parent = group.parent;
     if (parent) {
-      parent.updateMatrixWorld?.(true);
+      parent.updateWorldMatrix(true, false);
       _m.copy(parent.matrixWorld).invert().multiply(world);
     } else _m.copy(world);
     _m.decompose(_p, _q, _s);
@@ -1682,6 +1705,7 @@ function createJuice(api, root) {
   const star = new THREE.PlaneGeometry(1, 1);
   const glow = (color, opacity = 1) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
   const live = [];
+  let budget = { shards: 10, burst: 1 };
   const drawn = (
     /** @type {Record<string, number>} */
     {}
@@ -1706,7 +1730,7 @@ function createJuice(api, root) {
     live.push({ mesh, born: clock(), life: TRACER_LIFE, kind: "tracer" });
   }
   function place(mesh, from, to, width) {
-    group.updateMatrixWorld(true);
+    group.updateWorldMatrix(true, false);
     _a.set(from[0], from[1], from[2]);
     _b.set(to[0], to[1], to[2]);
     const len = Math.max(1e-3, _a.distanceTo(_b));
@@ -1745,20 +1769,23 @@ function createJuice(api, root) {
     core.position.copy(local(at));
     core.scale.setScalar(0.1);
     live.push({ mesh: core, born: clock(), life: POP_LIFE, kind: "pop" });
-    for (let i = 0; i < 10; i++) {
+    const shards = Math.max(0, Math.min(10, budget.shards));
+    for (let i = 0; i < shards; i++) {
       const shard = take("shard", () => new THREE.Mesh(unit, glow(16777215, 1)));
       shard.material.color.setHex(i % 2 ? color : 16765088);
       shard.material.opacity = 1;
       shard.position.copy(local(at));
       shard.scale.set(0.05, 0.05, 0.12);
       shard.rotation.set(Math.random() * 6, Math.random() * 6, 0);
-      const a = i / 10 * Math.PI * 2 + Math.random() * 0.4;
+      const a = i / shards * Math.PI * 2 + Math.random() * 0.4;
       const up = 2.2 + Math.random() * 2.2;
       const out = 1.8 + Math.random() * 2;
       live.push({ mesh: shard, born: clock(), life: SHARD_LIFE, kind: "shard", vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out) });
     }
-    api.effects?.burst?.(at, { kind: "sparks", color: "#" + color.toString(16).padStart(6, "0"), count: 24 });
-    api.effects?.burst?.(at, { kind: "smoke", count: 10 });
+    if (budget.burst > 0) {
+      api.effects?.burst?.(at, { kind: "sparks", color: "#" + color.toString(16).padStart(6, "0"), count: Math.round(24 * budget.burst) });
+      api.effects?.burst?.(at, { kind: "smoke", count: Math.round(10 * budget.burst) });
+    }
   }
   const beams = /* @__PURE__ */ new Map();
   function beam(hand, from, to, color, heat = 0) {
@@ -1810,7 +1837,21 @@ function createJuice(api, root) {
       }
     }
   }
-  return { group, tracer, flash, spark, pop, beam, frame, live: () => live.length, drawn: () => ({ ...drawn }) };
+  return {
+    group,
+    tracer,
+    flash,
+    spark,
+    pop,
+    beam,
+    frame,
+    live: () => live.length,
+    drawn: () => ({ ...drawn }),
+    /** 31 W2 @param {{shards: number, burst: number}} b */
+    setBudget: (b) => {
+      budget = b;
+    }
+  };
 }
 
 // modules/waves/src/guns.js
@@ -1881,7 +1922,8 @@ function abilityHand(hand) {
 var ABILITY_IDS = Object.freeze(["shield", "slowmo", "pulse"]);
 var HANDS = Object.freeze(["right", "left", "both"]);
 var MUSIC = Object.freeze(["off", "low", "high"]);
-var DEFAULT_PREFS = Object.freeze({ gun: "blaster", ability: "pulse", hand: "right", sfx: true, music: "low", haptics: true });
+var QUALITY_PICKS = Object.freeze(["auto", "high", "medium", "low"]);
+var DEFAULT_PREFS = Object.freeze({ gun: "blaster", ability: "pulse", hand: "right", sfx: true, music: "low", haptics: true, quality: "auto" });
 var KEY = "prefs";
 function normalize(raw) {
   const r = raw && typeof raw === "object" ? raw : {};
@@ -1891,7 +1933,8 @@ function normalize(raw) {
     hand: HANDS.includes(r.hand) ? r.hand : DEFAULT_PREFS.hand,
     sfx: typeof r.sfx === "boolean" ? r.sfx : DEFAULT_PREFS.sfx,
     music: MUSIC.includes(r.music) ? r.music : DEFAULT_PREFS.music,
-    haptics: typeof r.haptics === "boolean" ? r.haptics : DEFAULT_PREFS.haptics
+    haptics: typeof r.haptics === "boolean" ? r.haptics : DEFAULT_PREFS.haptics,
+    quality: QUALITY_PICKS.includes(r.quality) ? r.quality : DEFAULT_PREFS.quality
   };
 }
 function cycle(list, value) {
@@ -1978,15 +2021,21 @@ function turnToward(current, target, dt, rate = 6) {
   if (Math.abs(d) <= step) return target;
   return current + Math.sign(d) * step;
 }
-function gait(prev, a, b, dt, yaw) {
-  if (!(dt > 0)) return { speed: prev.speed, forward: true };
+function gait(prev, a, b, dt, yaw, out = { speed: 0, forward: true }) {
+  if (!(dt > 0)) {
+    out.speed = prev.speed;
+    out.forward = true;
+    return out;
+  }
   const dx = b[0] - a[0];
   const dz = b[2] - a[2];
   const raw = Math.hypot(dx, dz) / dt;
   const speed = raw > 12 ? 0 : raw;
   const forward = dx * Math.sin(yaw) + dz * Math.cos(yaw) >= -1e-4;
   const k = Math.min(1, dt * 10);
-  return { speed: prev.speed + (speed - prev.speed) * k, forward };
+  out.speed = prev.speed + (speed - prev.speed) * k;
+  out.forward = forward;
+  return out;
 }
 function walkRate(speed, clipSpeed, scale = 1) {
   if (!(speed > 0.03) || !(clipSpeed > 0)) return 0;
@@ -2168,7 +2217,7 @@ function registerWeapon(api, engine, root, juice, prefs, feel, assets = null) {
   function setWorld(object, world) {
     const parent = object.parent;
     if (parent) {
-      parent.updateMatrixWorld?.(true);
+      parent.updateWorldMatrix(true, false);
       _m.copy(parent.matrixWorld).invert().multiply(world);
     } else _m.copy(world);
     _m.decompose(_p, _q, _s);
@@ -2834,8 +2883,8 @@ function createAssets(api) {
       (gltf) => {
         gltf.scene.traverse((o) => {
           if (!o.isMesh) return;
-          o.castShadow = true;
-          o.receiveShadow = true;
+          o.castShadow = false;
+          o.receiveShadow = false;
           if (o.isSkinnedMesh) o.frustumCulled = false;
         });
         entry.gltf = gltf;
@@ -2886,8 +2935,104 @@ function createAssets(api) {
   };
 }
 
+// modules/waves/src/quality.js
+var LEVELS = Object.freeze(["high", "medium", "low"]);
+var QUALITY = Object.freeze(["auto", ...LEVELS]);
+function budgetOf(level) {
+  const l = Math.max(0, Math.min(2, Math.round(Number(level) || 0)));
+  return [
+    { level: 0, shadows: true, lodFar: 12, halfRateFrom: 16, shards: 10, burst: 1 },
+    { level: 1, shadows: false, lodFar: 6, halfRateFrom: 9, shards: 6, burst: 0.5 },
+    { level: 2, shadows: false, lodFar: 3, halfRateFrom: 3, shards: 3, burst: 0 }
+  ][l];
+}
+function fromCoreLevel(n) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  return v <= 2 ? 1 : 2;
+}
+function lodFar(distance, far, lodFar2) {
+  return far ? distance > lodFar2 - 1 : distance > lodFar2;
+}
+function stepGovernor(s, frames, budget, now, slow = 2, fast = 8) {
+  const window2 = (seconds) => {
+    const out = [];
+    let total = 0;
+    for (let i = frames.length - 1; i >= 0 && total < seconds * 1e3; i--) {
+      out.push(frames[i]);
+      total += frames[i];
+    }
+    return total >= seconds * 1e3 * 0.9 ? out : null;
+  };
+  const p90 = (l) => l.slice().sort((a, b) => a - b)[Math.floor(l.length * 0.9)];
+  const recent = window2(slow);
+  if (now - s.since >= slow && recent && p90(recent) > budget * 1.25 && s.level < 2) return { level: s.level + 1, since: now };
+  const calm = window2(fast);
+  if (now - s.since >= fast && calm && p90(calm) < budget * 1.05 && s.level > 0) return { level: s.level - 1, since: now };
+  return s;
+}
+function createQuality(api, prefs) {
+  const listeners = /* @__PURE__ */ new Set();
+  let governed = { level: 0, since: performance.now() / 1e3 };
+  const ring = new Float32Array(1024);
+  let head = 0;
+  let filled = 0;
+  let last = 0;
+  let nextStep = 0;
+  let current = -1;
+  const core = () => api.quality && typeof api.quality === "object" && "level" in api.quality ? api.quality : null;
+  function level() {
+    const pick = prefs.get().quality;
+    const i = LEVELS.indexOf(pick);
+    if (i >= 0) return i;
+    const c = core();
+    if (c) return fromCoreLevel(c.level);
+    return governed.level;
+  }
+  function publish() {
+    const l = level();
+    if (l === current) return;
+    current = l;
+    for (const fn of listeners) fn(l);
+  }
+  prefs.onChange(publish);
+  try {
+    core()?.onChange?.(publish);
+  } catch {
+  }
+  api.registerFrameTask(() => {
+    const t = performance.now();
+    if (last) {
+      ring[head] = t - last;
+      head = (head + 1) % ring.length;
+      filled = Math.min(ring.length, filled + 1);
+    }
+    last = t;
+    if (t < nextStep) return;
+    nextStep = t + 500;
+    if (!LEVELS.includes(prefs.get().quality) && !core()) {
+      const frames = [];
+      for (let i = filled; i > 0; i--) frames.push(ring[(head - i + ring.length) % ring.length]);
+      const budget = api.isVR?.() ? 1e3 / 72 : 1e3 / 60;
+      governed = stepGovernor(governed, frames, budget, t / 1e3);
+    }
+    publish();
+  });
+  return {
+    level: () => current < 0 ? level() : current,
+    budget: () => budgetOf(current < 0 ? level() : current),
+    /** where the level comes from, for the debug line @returns {string} */
+    source: () => LEVELS.includes(prefs.get().quality) ? "pick" : core() ? "core" : "auto",
+    /** @param {(level: number) => void} fn */
+    onChange(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    }
+  };
+}
+
 // modules/waves/src/avatars.js
-function registerAvatars(api, engine, root, assets) {
+function registerAvatars(api, engine, root, assets, quality = null) {
   const THREE = api.THREE;
   const group = new THREE.Group();
   group.name = "Waves figures";
@@ -2897,12 +3042,21 @@ function registerAvatars(api, engine, root, assets) {
   const standing = /* @__PURE__ */ new Set();
   let crystal = null;
   let enabled = true;
-  const stats = { made: 0, hits: 0, deaths: 0, walking: 0 };
+  let forcedLod = null;
+  const stats = { made: 0, hits: 0, deaths: 0, walking: 0, lod1: 0, halfRate: 0 };
+  let budget = budgetOf(quality?.level() ?? 0);
+  quality?.onChange((l) => {
+    budget = budgetOf(l);
+    for (const f of figures.values()) for (const m of f.near) m.castShadow = budget.shadows;
+  });
   const _m = new THREE.Matrix4();
   const _p = new THREE.Vector3();
   const _q = new THREE.Quaternion();
   const _s = new THREE.Vector3();
   const _up = new THREE.Vector3(0, 1, 0);
+  const _wp = new THREE.Vector3();
+  const byUuid = /* @__PURE__ */ new Map();
+  const seen = /* @__PURE__ */ new Set();
   const _inv = new THREE.Matrix4();
   function refreshInverse() {
     group.updateWorldMatrix(true, false);
@@ -2965,6 +3119,22 @@ function registerAvatars(api, engine, root, assets) {
     const size = box.getSize(new THREE.Vector3());
     const scale = fitScale(size.y, figureOf(kind).height);
     body.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
+    const near = [];
+    const far = [];
+    body.traverse((o) => {
+      if (!o.isMesh) return;
+      const lod1 = /_lod1$/.test(o.name ?? "");
+      (lod1 ? far : near).push(o);
+      o.castShadow = !lod1 && budget.shadows;
+      o.receiveShadow = false;
+      if (o.isSkinnedMesh) {
+        o.geometry.computeBoundingSphere();
+        o.boundingSphere = o.geometry.boundingSphere.clone();
+        o.boundingSphere.radius *= 1.6;
+        o.frustumCulled = true;
+      }
+      if (lod1) o.visible = false;
+    });
     const mixer = new THREE.AnimationMixer(body);
     const actions = {};
     for (const clip of inst.animations) {
@@ -2986,7 +3156,7 @@ function registerAvatars(api, engine, root, assets) {
     model.visible = false;
     group.add(model);
     stats.made++;
-    return { uuid, kind, model, mixer, actions, scale, yaw: 0, last: null, gait: { speed: 0, forward: true }, dyingAt: null, deathPos: null, hitUntil: 0, object: null };
+    return { uuid, kind, model, mixer, actions, scale, yaw: 0, last: null, gait: { speed: 0, forward: true }, dyingAt: null, deathPos: null, hitUntil: 0, object: null, near, far, lod: false, feet: [0, 0, 0], prev: [0, 0, 0], skip: false, acc: 0 };
   }
   const walkOf = (f) => f.actions[figureOf(f.kind).walk] ?? f.actions.walk ?? f.actions.run ?? null;
   engine.onEnemy((ev) => {
@@ -3032,10 +3202,13 @@ function registerAvatars(api, engine, root, assets) {
     hookScene();
     const objects = api.objectsGroup();
     refreshInverse();
-    const byUuid = /* @__PURE__ */ new Map();
+    byUuid.clear();
     for (const c of objects?.children ?? []) byUuid.set(c.uuid, c);
-    const seen = /* @__PURE__ */ new Set();
+    seen.clear();
     let walking = 0;
+    let lod1 = 0;
+    let halfRate = 0;
+    const eye = api.playerPosition?.() ?? null;
     for (const s of engine.all()) {
       for (const e of s.enemies) {
         const object = byUuid.get(e.uuid) ?? objects?.getObjectByProperty("uuid", e.uuid);
@@ -3052,12 +3225,15 @@ function registerAvatars(api, engine, root, assets) {
         }
         seen.add(e.uuid);
         f.object = object;
-        const wp = object.getWorldPosition(new THREE.Vector3()).toArray();
+        const wp = object.getWorldPosition(_wp);
         const drop = footDrop(f.kind);
-        const feet = [wp[0], wp[1] - drop, wp[2]];
+        const feet = f.feet;
+        feet[0] = wp.x;
+        feet[1] = wp.y - drop;
+        feet[2] = wp.z;
         if (f.dyingAt !== null && deathOver(t - f.dyingAt)) revive(f);
         const dying = f.dyingAt !== null;
-        const show = enabled && figureShown({ visible: !!object.visible, y: wp[1], dying });
+        const show = enabled && figureShown({ visible: !!object.visible, y: wp.y, dying });
         hop(object, show);
         f.model.visible = show;
         if (!show) {
@@ -3065,19 +3241,37 @@ function registerAvatars(api, engine, root, assets) {
           f.gait.speed = 0;
           continue;
         }
+        const dist = eye ? Math.hypot(feet[0] - eye[0], feet[2] - eye[2]) : 0;
+        const wantFar = f.far.length > 0 && (forcedLod === null ? lodFar(dist, f.lod, budget.lodFar) : forcedLod === 1);
+        if (wantFar !== f.lod) {
+          f.lod = wantFar;
+          for (const m of f.near) m.visible = !wantFar;
+          for (const m of f.far) m.visible = wantFar;
+        }
+        if (f.lod) lod1++;
         if (dying && f.deathPos) {
           const age = t - /** @type {number} */
           f.dyingAt;
           const d = f.deathPos;
-          placeWorld(f.model, [d[0], d[1] - sinkDepth(age), d[2]], f.yaw, f.scale);
+          feet[0] = d[0];
+          feet[1] = d[1] - sinkDepth(age);
+          feet[2] = d[2];
+          placeWorld(f.model, feet, f.yaw, f.scale);
           f.mixer.update(dt);
           continue;
         }
         const goal = s.goal;
         const target = goal ? yawTo(feet, goal) : f.yaw;
         f.yaw = f.last ? turnToward(f.yaw, target, dt, 7) : target;
-        f.gait = f.last ? gait(f.gait, f.last, feet, dt, f.yaw) : { speed: 0, forward: true };
-        f.last = feet;
+        if (f.last) gait(f.gait, f.last, feet, dt, f.yaw, f.gait);
+        else {
+          f.gait.speed = 0;
+          f.gait.forward = true;
+        }
+        f.last = f.prev;
+        f.last[0] = feet[0];
+        f.last[1] = feet[1];
+        f.last[2] = feet[2];
         placeWorld(f.model, feet, f.yaw, f.scale);
         const walk = walkOf(f);
         if (walk) {
@@ -3089,10 +3283,21 @@ function registerAvatars(api, engine, root, assets) {
           f.actions.hit.fadeOut(0.15);
           f.hitUntil = 0;
         }
-        f.mixer.update(dt);
+        if (dist > budget.halfRateFrom && !f.hitUntil) {
+          halfRate++;
+          f.skip = !f.skip;
+          if (f.skip) {
+            f.acc += dt;
+            continue;
+          }
+        }
+        f.mixer.update(dt + f.acc);
+        f.acc = 0;
       }
     }
     stats.walking = walking;
+    stats.lod1 = lod1;
+    stats.halfRate = halfRate;
     for (const [uuid, f] of figures)
       if (!seen.has(uuid)) {
         group.remove(f.model);
@@ -3186,6 +3391,10 @@ function registerAvatars(api, engine, root, assets) {
       }
     },
     enabled: () => enabled,
+    /** pin every figure to LOD0 / LOD1, or null for the distance rule (a look probe's A/B) @param {0 | 1 | null} lod */
+    forceLod(lod) {
+      forcedLod = lod === 0 || lod === 1 ? lod : null;
+    },
     /** does a figure stand in for `object` (its meshes hidden while the scene renders)? @param {any} object */
     standsIn: (object) => standing.has(object)
   };
@@ -3213,6 +3422,9 @@ var index_default = {
     const prefs = createPrefs(api);
     const feel = createFeel(api, prefs);
     const juice = createJuice(api, root);
+    const quality = createQuality(api, prefs);
+    juice.setBudget(quality.budget());
+    quality.onChange(() => juice.setBudget(quality.budget()));
     const assets = createAssets(api);
     let avatars = null;
     const fx = registerFx(api, engine, juice, feel, (uuid) => avatars?.of(uuid) ?? null);
@@ -3222,7 +3434,7 @@ var index_default = {
     api.registerSystemGroup?.(ROOT);
     const start = registerStart(api, root);
     const weapon = registerWeapon(api, engine, root, juice, prefs, feel, assets);
-    avatars = registerAvatars(api, engine, root, assets);
+    avatars = registerAvatars(api, engine, root, assets, quality);
     let preloaded = false;
     api.registerFrameTask(() => {
       if (preloaded || !engine.all().length) return;
@@ -3304,6 +3516,7 @@ var index_default = {
         menu,
         assets,
         avatars,
+        quality,
         hud: arenaHud,
         hudGraph,
         snapshot: () => engine.all().map((s) => ({

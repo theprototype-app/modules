@@ -162,21 +162,24 @@ export function kindOf(label) {
  * counter) are taken off how far it has come — never behind its start, never past the goal.
  * `slows` (30b Slow-mo) stretch the walk: inside a window it walks at SLOW_RATE.
  * @param {{start: number[], goal: number[], waveStart: number, index: number, now: number, speed: any, stagger: any, setback?: number, slows?: {at: number, until: number}[]}} p
+ * @param {number[]=} out
  * @returns {number[]}
  */
-export function enemyPosition(p) {
+export function enemyPosition(p, out = [0, 0, 0]) {
+	// 31: `out` lets the per-frame walk reuse one array per enemy (the default is a fresh one)
 	const speed = clamp(p.speed, 0.01, 100, DEFAULTS.speed);
 	const stagger = clamp(p.stagger, 0, 60, DEFAULTS.stagger);
 	const leave = p.waveStart + stagger * p.index;
 	const t = p.slows?.length ? warpedElapsed(leave, p.now, p.slows) : p.now - leave;
-	if (!(t > 0)) return p.start.slice();
 	const dx = p.goal[0] - p.start[0];
 	const dz = p.goal[2] - p.start[2];
 	const dist = Math.hypot(dx, dz);
-	if (dist < 1e-6) return p.start.slice();
-	const along = Math.min(dist, Math.max(0, t * speed - Math.max(0, Number(p.setback) || 0)));
-	const f = along / dist;
-	return [p.start[0] + dx * f, p.start[1], p.start[2] + dz * f];
+	const along = !(t > 0) || dist < 1e-6 ? 0 : Math.min(dist, Math.max(0, t * speed - Math.max(0, Number(p.setback) || 0)));
+	const f = dist < 1e-6 ? 0 : along / dist;
+	out[0] = p.start[0] + dx * f;
+	out[1] = p.start[1];
+	out[2] = p.start[2] + dz * f;
+	return out;
 }
 
 /**

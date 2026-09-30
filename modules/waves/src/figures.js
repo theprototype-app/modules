@@ -68,10 +68,16 @@ export function turnToward(current, target, dt, rate = 6) {
  * toward the way it faces (a knockback shoves it backwards — the walk then does not play
  * forwards over a slide). Speeds are smoothed so a frame hitch never flicks the clip.
  * @param {{speed: number}} prev @param {number[]} a @param {number[]} b @param {number} dt @param {number} yaw
+ * @param {{speed: number, forward: boolean}=} out
  * @returns {{speed: number, forward: boolean}}
  */
-export function gait(prev, a, b, dt, yaw) {
-	if (!(dt > 0)) return { speed: prev.speed, forward: true };
+export function gait(prev, a, b, dt, yaw, out = { speed: 0, forward: true }) {
+	// 31: `out` may be `prev` itself (the frame task reuses one object per figure)
+	if (!(dt > 0)) {
+		out.speed = prev.speed;
+		out.forward = true;
+		return out;
+	}
 	const dx = b[0] - a[0];
 	const dz = b[2] - a[2];
 	const raw = Math.hypot(dx, dz) / dt;
@@ -79,7 +85,9 @@ export function gait(prev, a, b, dt, yaw) {
 	const speed = raw > 12 ? 0 : raw;
 	const forward = dx * Math.sin(yaw) + dz * Math.cos(yaw) >= -1e-4;
 	const k = Math.min(1, dt * 10);
-	return { speed: prev.speed + (speed - prev.speed) * k, forward };
+	out.speed = prev.speed + (speed - prev.speed) * k;
+	out.forward = forward;
+	return out;
 }
 
 /** how fast the walk clip plays for a ground speed: 0 standing, the clip's own pace at its

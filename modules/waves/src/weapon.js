@@ -89,7 +89,9 @@ export function registerWeapon(api, engine, root, juice, prefs, feel, assets = n
 	function setWorld(object, world) {
 		const parent = object.parent;
 		if (parent) {
-			parent.updateMatrixWorld?.(true);
+			// 31 W2: the parent's own world matrix only (its ancestors), never its subtree — the
+			// module root holds every figure's bone tree, forced twice a frame (31-perf's finding)
+			parent.updateWorldMatrix(true, false);
 			_m.copy(parent.matrixWorld).invert().multiply(world);
 		} else _m.copy(world);
 		_m.decompose(_p, _q, _s);

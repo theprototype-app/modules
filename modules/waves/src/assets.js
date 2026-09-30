@@ -76,9 +76,11 @@ export function createAssets(api) {
 			(gltf) => {
 				gltf.scene.traverse((/** @type {any} */ o) => {
 					if (!o.isMesh) return;
-					o.castShadow = true;
-					o.receiveShadow = true;
-					// a skinned mesh's bind-pose bounds cut it off mid-stride: never cull it
+					// 31 W2: no shadows by default — the figures cast one only on a HIGH quality level
+					// (avatars.js), the guns and the crystal never; nothing of ours receives one
+					o.castShadow = false;
+					o.receiveShadow = false;
+					// a skinned mesh's bind-pose bounds cut it off mid-stride: avatars.js pads them
 					if (o.isSkinnedMesh) o.frustumCulled = false;
 				});
 				entry.gltf = gltf;

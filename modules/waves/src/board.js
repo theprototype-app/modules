@@ -92,7 +92,7 @@ export function createBoard(api) {
 		const world = new THREE.Matrix4().compose(new THREE.Vector3(at[0], at[1], at[2]), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1));
 		const parent = group.parent;
 		if (parent) {
-			parent.updateMatrixWorld?.(true);
+			parent.updateWorldMatrix(true, false); // 31: ancestors only, never the module root's subtree
 			_m.copy(parent.matrixWorld).invert().multiply(world);
 		} else _m.copy(world);
 		_m.decompose(_p, _q, _s);
