@@ -12,12 +12,14 @@
 // waves node fires no `wave`/`over` event and appends no log entry here — those moments
 // were somebody else's to witness.
 
-import { curveOf, sizeOf, killsOf, waveOf, aliveIn, usedIn, healsBefore, enemyPosition, spawnFor, runEntry, appendRun, clamp, DEFAULTS, KINDS, kindOf, setbackOf, pushedBy, appendFx, fxOf, levelOf, levelSpeed, opensLevel, killScore, groundDistance } from './curve.js';
+import { curveOf, sizeOf, killsOf, waveOf, aliveIn, usedIn, healsBefore, enemyPosition, spawnFor, runEntry, appendRun, clamp, DEFAULTS, KINDS, kindOf, setbackOf, pushedBy, appendFx, fxOf, levelOf, levelSpeed, opensLevel, killScore, groundDistance, clearedAtOf, withClear } from './curve.js';
 
 const SWEEP = 0.1;
 const LOG_PREFIX = 'waves:';
 /** 30b: the round's ability events (Slow-mo windows, Pulse shoves) — a replicated game var */
 const FX_PREFIX = 'waves:fx:';
+/** 31 W1: when each wave of the round cleared — frozen at first sight, replicated for joiners */
+const CLOCK_PREFIX = 'waves:clock:';
 /** the game shell stamps its round in session milliseconds; the trigger log and
  * api.now() are seconds of day — one conversion, here @param {number} ms */
 const toSeconds = (ms) => (ms / 1000) % 86400;
@@ -62,6 +64,9 @@ export function createWavesEngine(api) {
 	const roundRun = new Map();
 	/** 30b: enemy uuid -> the life (its kills count) it already breached in */
 	const breached = new Map();
+	/** 31 W1: waves node id -> {round, at: {n: seconds}} — the clears THIS peer froze (the
+	 * replicated clock may not have come back yet) */
+	const clears = new Map();
 	/** 30b: waves node id -> when this peer first saw it (seconds, performance clock) */
 	const firstSeen = new Map();
 	/** 30b: run listeners (start / wave / level / over / breach), LOCAL edges
@@ -191,13 +196,15 @@ export function createWavesEngine(api) {
 		let waveStart = typeof cutoff === 'number' && Number.isFinite(cutoff) ? toSeconds(cutoff) : null;
 		let clearedAt = null;
 		if (completed > 0) {
-			let last = null;
-			for (const i of usedIn(completed, curve)) {
-				const e = enemies[i];
-				if (e?.lastHit !== null && e?.lastHit !== undefined && (last === null || e.lastHit > last)) last = e.lastHit;
-			}
-			clearedAt = last;
-			if (last !== null && !done) waveStart = last + interval;
+			clearedAt = clearOf(node.id, name, completed, typeof cutoff === 'number' && Number.isFinite(cutoff) ? cutoff : null, () => {
+				let last = null;
+				for (const i of usedIn(completed, curve)) {
+					const e = enemies[i];
+					if (e?.lastHit !== null && e?.lastHit !== undefined && (last === null || e.lastHit > last)) last = e.lastHit;
+				}
+				return last;
+			});
+			if (clearedAt !== null && !done) waveStart = clearedAt + interval;
 		}
 		const started = running && waveStart !== null && now() >= waveStart;
 		if (typeof cutoff === 'number' && Number.isFinite(cutoff)) roundSeen.set(node.id, cutoff);
@@ -241,6 +248,30 @@ export function createWavesEngine(api) {
 			stagger: clamp(d.stagger, 0, 60, DEFAULTS.stagger),
 			reach: clamp(d.reach, 0.1, 100, DEFAULTS.reach)
 		};
+	}
+
+	/**
+	 * 31 W1: when wave `n` of this round cleared. The replicated clock first (every peer, a joiner
+	 * too, reads the same), then this peer's own frozen sight, else the counters' latest stamp —
+	 * true only NOW, at first sight (every enemy of the wave is dead: nothing hits it until the
+	 * next wave heals it) — frozen and written to the clock. No round (the editor, a stopped
+	 * game): the stamp, as ever.
+	 * @param {string} id @param {string} name @param {number} n @param {number | null} round @param {() => number | null} fromStamps
+	 * @returns {number | null}
+	 */
+	function clearOf(id, name, n, round, fromStamps) {
+		if (round === null) return fromStamps();
+		const key = CLOCK_PREFIX + name;
+		const held = api.game.getVar(key, null);
+		const shared = clearedAtOf(held, round, n);
+		if (shared !== null) return shared;
+		const mine = clearedAtOf(clears.get(id), round, n);
+		if (mine !== null) return mine;
+		const t = fromStamps();
+		if (t === null) return null;
+		clears.set(id, withClear(clears.get(id), round, n, t));
+		api.game.setVar(key, withClear(held, round, n, t));
+		return t;
 	}
 
 	// ---- heals into the next wave ----------------------------------------------------------
@@ -554,6 +585,7 @@ export function createWavesEngine(api) {
 				roundRun.delete(id);
 				doneSeen.delete(id);
 				runSeen.delete(id);
+				clears.delete(id);
 			}
 		// once the counter shows what we fired (or a reset took it below), forget the expectation
 		for (const s of state.values())
@@ -609,6 +641,7 @@ export function createWavesEngine(api) {
 		breached.clear();
 		firstSeen.clear();
 		roundRun.clear();
+		clears.clear();
 	}
 
 	return {

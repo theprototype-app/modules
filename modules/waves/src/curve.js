@@ -233,6 +233,30 @@ export function setbackOf(hits, heals, max, knock) {
 	return taken * Math.max(0, Number(knock) || 0);
 }
 
+/**
+ * 31 W1: THE WAVE CLOCK. When wave `n` of a round cleared (the stamp of its last kill), frozen
+ * the moment a peer first sees it clear. Reading it off the damage counters' LATEST stamp every
+ * sweep (30b) was wrong from wave 2 on: every enemy of wave n walks again in wave n+1, so the
+ * next hit on any of them — a shot, a kill, a breach — moved "the clear", and with it the running
+ * wave's start: the whole wave snapped back to its portals and stood for `interval` seconds.
+ * Kept in a round-scoped replicated game variable `{round, at: {n: seconds}}` so a late joiner
+ * (whose counters carry only the latest stamps) reads the same start.
+ * @param {any} held the variable as stored @param {number | null} round @param {number} n
+ * @returns {number | null}
+ */
+export function clearedAtOf(held, round, n) {
+	if (!held || typeof held !== 'object' || held.round !== round || !held.at || typeof held.at !== 'object') return null;
+	const t = Number(held.at[n]);
+	return Number.isFinite(t) ? t : null;
+}
+/** the clock with wave `n`'s clear written (an entry already there wins: the first sight is the
+ * truth; another round's clock is dropped) @param {any} held @param {number} round @param {number} n @param {number} t */
+export function withClear(held, round, n, t) {
+	const at = held && typeof held === 'object' && held.round === round && held.at && typeof held.at === 'object' ? held.at : {};
+	if (Number.isFinite(Number(at[n]))) return { round, at };
+	return { round, at: { ...at, [n]: t } };
+}
+
 /** distance on the ground plane @param {number[]} a @param {number[]} b */
 export function groundDistance(a, b) {
 	return Math.hypot(a[0] - b[0], a[2] - b[2]);

@@ -135,6 +135,16 @@ function setbackOf(hits, heals, max, knock) {
   const taken = Math.max(0, Math.min(max, (Number(hits) || 0) - (Number(heals) || 0)));
   return taken * Math.max(0, Number(knock) || 0);
 }
+function clearedAtOf(held, round, n) {
+  if (!held || typeof held !== "object" || held.round !== round || !held.at || typeof held.at !== "object") return null;
+  const t = Number(held.at[n]);
+  return Number.isFinite(t) ? t : null;
+}
+function withClear(held, round, n, t) {
+  const at = held && typeof held === "object" && held.round === round && held.at && typeof held.at === "object" ? held.at : {};
+  if (Number.isFinite(Number(at[n]))) return { round, at };
+  return { round, at: { ...at, [n]: t } };
+}
 function groundDistance(a, b) {
   return Math.hypot(a[0] - b[0], a[2] - b[2]);
 }
@@ -164,6 +174,7 @@ function appendRun(log, entry, cap2 = 50) {
 var SWEEP = 0.1;
 var LOG_PREFIX = "waves:";
 var FX_PREFIX = "waves:fx:";
+var CLOCK_PREFIX = "waves:clock:";
 var toSeconds = (ms) => ms / 1e3 % 86400;
 var KILLS_ROW = "kills";
 var SCORE_ROW = "score";
@@ -183,6 +194,7 @@ function createWavesEngine(api) {
   const stashed = /* @__PURE__ */ new Set();
   const roundRun = /* @__PURE__ */ new Map();
   const breached = /* @__PURE__ */ new Map();
+  const clears = /* @__PURE__ */ new Map();
   const firstSeen = /* @__PURE__ */ new Map();
   const runListeners = /* @__PURE__ */ new Set();
   let guard = () => false;
@@ -277,13 +289,15 @@ function createWavesEngine(api) {
     let waveStart = typeof cutoff === "number" && Number.isFinite(cutoff) ? toSeconds(cutoff) : null;
     let clearedAt = null;
     if (completed > 0) {
-      let last = null;
-      for (const i of usedIn(completed, curve)) {
-        const e = enemies[i];
-        if (e?.lastHit !== null && e?.lastHit !== void 0 && (last === null || e.lastHit > last)) last = e.lastHit;
-      }
-      clearedAt = last;
-      if (last !== null && !done) waveStart = last + interval;
+      clearedAt = clearOf(node.id, name, completed, typeof cutoff === "number" && Number.isFinite(cutoff) ? cutoff : null, () => {
+        let last = null;
+        for (const i of usedIn(completed, curve)) {
+          const e = enemies[i];
+          if (e?.lastHit !== null && e?.lastHit !== void 0 && (last === null || e.lastHit > last)) last = e.lastHit;
+        }
+        return last;
+      });
+      if (clearedAt !== null && !done) waveStart = clearedAt + interval;
     }
     const started = running && waveStart !== null && now() >= waveStart;
     if (typeof cutoff === "number" && Number.isFinite(cutoff)) roundSeen.set(node.id, cutoff);
@@ -325,6 +339,20 @@ function createWavesEngine(api) {
       stagger: clamp(d.stagger, 0, 60, DEFAULTS.stagger),
       reach: clamp(d.reach, 0.1, 100, DEFAULTS.reach)
     };
+  }
+  function clearOf(id, name, n, round, fromStamps) {
+    if (round === null) return fromStamps();
+    const key = CLOCK_PREFIX + name;
+    const held = api.game.getVar(key, null);
+    const shared = clearedAtOf(held, round, n);
+    if (shared !== null) return shared;
+    const mine = clearedAtOf(clears.get(id), round, n);
+    if (mine !== null) return mine;
+    const t = fromStamps();
+    if (t === null) return null;
+    clears.set(id, withClear(clears.get(id), round, n, t));
+    api.game.setVar(key, withClear(held, round, n, t));
+    return t;
   }
   function healSweep(s) {
     if (!s.started) return;
@@ -569,6 +597,7 @@ function createWavesEngine(api) {
         roundRun.delete(id);
         doneSeen.delete(id);
         runSeen.delete(id);
+        clears.delete(id);
       }
     for (const s of state.values())
       for (const e of s.enemies) {
@@ -615,6 +644,7 @@ function createWavesEngine(api) {
     breached.clear();
     firstSeen.clear();
     roundRun.clear();
+    clears.clear();
   }
   return {
     state,
