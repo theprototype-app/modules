@@ -275,6 +275,15 @@ var LEGACY_HAPTIC = {
   heartbeat: [0.5, 90]
 };
 var LOG_CAP = 80;
+function burstBudget(count, level, vr) {
+  const raw = Number.isFinite(level) ? Math.max(0, Math.floor(
+    /** @type {number} */
+    level
+  )) : 0;
+  const l = Math.max(raw, vr ? 1 : 0);
+  const k = l <= 0 ? 1 : l <= 2 ? 2 / 3 : l <= 5 ? 1 / 3 : 0;
+  return Math.round(Math.max(0, Number(count) || 0) * k);
+}
 function createFx(api) {
   const calls = [];
   const note = (kind, name, opts, native) => {
@@ -312,8 +321,12 @@ function createFx(api) {
     /** C6: a pooled particle burst at a WORLD position @param {number[]} pos @param {any} opts */
     burst(pos, opts) {
       const native = typeof api.effects?.burst === "function";
-      note("burst", opts?.kind ?? "sparkle", opts, native);
-      if (native) api.effects.burst(pos, opts);
+      const q = api.quality;
+      const level = q ? typeof q.level === "function" ? q.level() : q.level : 0;
+      const count = opts && typeof opts.count === "number" ? burstBudget(opts.count, level, !!api.isVR?.()) : void 0;
+      const sized = count === void 0 ? opts : { ...opts, count };
+      note("burst", opts?.kind ?? "sparkle", sized, native);
+      if (native && (count === void 0 || count > 0)) api.effects.burst(pos, sized);
     },
     /** C4: a named haptic preset (core makes it a no-op in Edit) @param {string} name @param {'left'|'right'} [hand] */
     haptic(name, hand) {

@@ -125,7 +125,8 @@ const DUNGEON_PATH = () => {
 	if (!p) return null;
 	const { grid, width: W, height: H, minX, minY, floorValue, rooms } = p;
 	const start = rooms[0];
-	const sx = Math.floor(start.x - minX), sy = Math.floor(start.z - minY);
+	// a published room is its top-left corner + size in world cells (contract.worldRoom)
+	const sx = Math.floor(start.x + start.w / 2 - minX), sy = Math.floor(start.y + start.h / 2 - minY);
 	const prev = new Int32Array(W * H).fill(-2);
 	const q = [sy * W + sx];
 	prev[q[0]] = -1;
@@ -201,7 +202,8 @@ async function run() {
 		console.log('TPSCENE=<path> is required');
 		process.exit(2);
 	}
-	const browser = await launch();
+	// uncapped frames: vsync would clamp every frame to the display's 16.7 ms and hide the cost
+	const browser = await launch({ args: ['--disable-gpu-vsync', '--disable-frame-rate-limit'] });
 	const A = await setupPage(browser, 'A', { context: { viewport: { width: 1280, height: 720 } } });
 	for (const id of MODULES) await installZip(A, id);
 	const loaded = await A.page.evaluate(() => window.__stores.moduleSDK.loadedModules.map((m) => m.id + '@' + m.version));

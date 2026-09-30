@@ -23,6 +23,20 @@ const LEGACY_HAPTIC = {
 
 export const LOG_CAP = 80;
 
+/**
+ * 31 (F1): how many particles a burst may spend at a quality level — pure. `level` is core's
+ * api.quality.level (31-perf: 0 = best … 9; absent = 0); a headset counts as at least 1 (the
+ * Quest budget). 0: as asked; 1-2: two thirds; 3-5: a third; 6+: none (the banner, the sound
+ * and the haptic still say GOAL).
+ * @param {number} count @param {number | null | undefined} level @param {boolean} vr
+ */
+export function burstBudget(count, level, vr) {
+	const raw = Number.isFinite(level) ? Math.max(0, Math.floor(/** @type {number} */ (level))) : 0;
+	const l = Math.max(raw, vr ? 1 : 0);
+	const k = l <= 0 ? 1 : l <= 2 ? 2 / 3 : l <= 5 ? 1 / 3 : 0;
+	return Math.round(Math.max(0, Number(count) || 0) * k);
+}
+
 /** @param {any} api */
 export function createFx(api) {
 	/** @type {{kind: string, name: string, opts?: any, native: boolean}[]} */
@@ -62,8 +76,14 @@ export function createFx(api) {
 		/** C6: a pooled particle burst at a WORLD position @param {number[]} pos @param {any} opts */
 		burst(pos, opts) {
 			const native = typeof api.effects?.burst === 'function';
-			note('burst', opts?.kind ?? 'sparkle', opts, native);
-			if (native) api.effects.burst(pos, opts);
+			// 31: the particle count follows the quality (api.quality, feature-detected) — fewer in
+			// a headset, none at the lowest levels
+			const q = api.quality;
+			const level = q ? (typeof q.level === 'function' ? q.level() : q.level) : 0;
+			const count = opts && typeof opts.count === 'number' ? burstBudget(opts.count, level, !!api.isVR?.()) : undefined;
+			const sized = count === undefined ? opts : { ...opts, count };
+			note('burst', opts?.kind ?? 'sparkle', sized, native);
+			if (native && (count === undefined || count > 0)) api.effects.burst(pos, sized);
 		},
 		/** C4: a named haptic preset (core makes it a no-op in Edit) @param {string} name @param {'left'|'right'} [hand] */
 		haptic(name, hand) {

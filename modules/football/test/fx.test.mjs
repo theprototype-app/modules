@@ -1,7 +1,7 @@
 // 30b: the presentation wrapper — the module feature-detects the Quest round's core
 // contract (announce, hapticPattern, the SFX set + music, effects) and falls back on an
 // older core. A fake api records what reached it.
-import { createFx } from '../src/fx.js';
+import { createFx, burstBudget } from '../src/fx.js';
 
 /** @param {any} extra */
 function fakeApi(extra = {}) {
@@ -19,6 +19,17 @@ function fakeApi(extra = {}) {
 
 /** @param {(ok: boolean, label: string) => void} check */
 export function run(check) {
+	// ---- 31: the burst budget follows api.quality (and a headset) ----
+	check(burstBudget(90, 0, false) === 90 && burstBudget(90, undefined, false) === 90, '31 burstBudget: the best quality (or no api.quality) spends what was asked');
+	check(burstBudget(90, 0, true) === 60 && burstBudget(90, 2, false) === 60, '  a headset / level 1-2: two thirds (60 of 90)');
+	check(burstBudget(90, 4, false) === 30 && burstBudget(90, 6, true) === 0 && burstBudget(90, 9, false) === 0, '  level 3-5: a third; 6+: none');
+	const bursts = [];
+	const lowApi = fakeApi({ effects: { burst: (p, o) => bursts.push(o) }, quality: { level: 7, onChange() {} } });
+	createFx(lowApi).burst([0, 1, 0], { kind: 'confetti', count: 90 });
+	const midApi = fakeApi({ effects: { burst: (p, o) => bursts.push(o) }, quality: { level: 1, onChange() {} }, isVR: () => true });
+	createFx(midApi).burst([0, 1, 0], { kind: 'confetti', count: 90 });
+	check(bursts.length === 1 && bursts[0].count === 60 && bursts[0].kind === 'confetti', '  fx.burst reads api.quality: level 7 sends NO burst, a headset at level 1 sends 60 (' + JSON.stringify(bursts) + ')');
+
 	// ---- the 30b core: every call goes straight through ----
 	const api = fakeApi({
 		announce: (t, o) => api.got.push(['announce', t, o]),

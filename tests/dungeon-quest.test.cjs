@@ -71,8 +71,9 @@ run(async () => {
 	const entrance = await A.page.evaluate(() => {
 		let scene;
 		window.__stores.globalScene.subscribe((v) => (scene = v))();
+		// a published room is its top-left corner + size (contract.worldRoom): the spawn cell's centre
 		const r = scene.getObjectByName('dungeon-module').userData.play.rooms[0];
-		return [r.x, r.z];
+		return [Math.floor(r.x + r.w / 2) + 0.5, Math.floor(r.y + r.h / 2) + 0.5];
 	});
 	await A.page.evaluate((e) => window.__stores.objectActions.setEditorMode('interact'), entrance);
 	await A.page.waitForTimeout(300);
@@ -174,7 +175,7 @@ run(async () => {
 			const { grid, width: W, height: H, minX, minY, floorValue } = play;
 			const cell = (x, z) => grid[Math.floor(z - minY) * W + Math.floor(x - minX)];
 			const r = play.rooms[0];
-			const from = [Math.floor(r.x) + 0.5, 0, Math.floor(r.z) + 0.5];
+			const from = [Math.floor(r.x + r.w / 2) + 0.5, 0, Math.floor(r.y + r.h / 2) + 0.5];
 			// a floor target in the same room: two cells over, all floor between
 			let inRoom = null;
 			for (const [dx, dz] of [[2, 0], [-2, 0], [0, 2], [0, -2], [1, 1], [-1, -1]]) {
