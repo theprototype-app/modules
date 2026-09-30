@@ -533,7 +533,23 @@ function createGame(api) {
     const ids = liveIds().slice().sort();
     return ids[0] === me();
   }
-  const ball = () => config.ballUuid ? api.objectsGroup()?.getObjectByProperty("uuid", config.ballUuid) ?? null : null;
+  const held = /* @__PURE__ */ new Map();
+  function byUuid(uuid) {
+    if (!uuid) return null;
+    const group = api.objectsGroup();
+    if (!group) return null;
+    const hit = held.get(uuid);
+    if (hit && hit.uuid === uuid) {
+      let root = hit;
+      while (root.parent && root !== group) root = root.parent;
+      if (root === group) return hit;
+    }
+    const found = group.getObjectByProperty("uuid", uuid) ?? null;
+    if (found) held.set(uuid, found);
+    else held.delete(uuid);
+    return found;
+  }
+  const ball = () => byUuid(config.ballUuid);
   function stamp(data) {
     const at = Number(data?.at) || now();
     if (at > state.at) state.at = at;
@@ -730,7 +746,7 @@ function createGame(api) {
     api.send(data);
   }
   function localPos(uuid) {
-    const o = uuid ? api.objectsGroup()?.getObjectByProperty("uuid", uuid) : null;
+    const o = byUuid(uuid);
     return o ? o.position.toArray() : null;
   }
   function gateLocal(team) {
@@ -798,10 +814,10 @@ function createGame(api) {
     const object = ball();
     if (!object) return;
     object.getWorldPosition(_pos);
-    const group = api.objectsGroup();
     const live = matchPhase(state, now()) === "live";
-    for (const [uuid, gate] of Object.entries(config.gates)) {
-      const sensor = group?.getObjectByProperty("uuid", uuid);
+    for (const uuid in config.gates) {
+      const gate = config.gates[uuid];
+      const sensor = byUuid(uuid);
       if (!sensor) continue;
       _box.setFromObject(sensor);
       const isIn = _box.containsPoint(_pos);
@@ -826,9 +842,9 @@ function createGame(api) {
       restPos = null;
       return;
     }
-    const p = object.position.toArray();
-    if (!restPos || Math.hypot(p[0] - restPos[0], p[1] - restPos[1], p[2] - restPos[2]) > REST_DISTANCE) {
-      restPos = p;
+    const p = object.position;
+    if (!restPos || Math.hypot(p.x - restPos[0], p.y - restPos[1], p.z - restPos[2]) > REST_DISTANCE) {
+      restPos = p.toArray();
       restSince = t;
       return;
     }
@@ -1246,14 +1262,9 @@ var LAMPS_PER_GATE = 10;
 var GLASS = {
   color: 15267583,
   opacity: 0.1,
-  physical: true,
-  transmission: 1,
-  thickness: 0.02,
-  ior: 1.45,
-  // near-zero specular: the floodlights' spot highlights on the side panes read as glow blobs
-  // floating at pitch height
-  roughness: 0.2,
-  specularIntensity: 0.06,
+  // rough enough that a floodlight's highlight spreads into a sheen instead of a glow blob
+  // floating at pitch height (round 2 kept specularIntensity near zero for the same reason)
+  roughness: 0.45,
   shadow: false,
   pick: "through"
 };

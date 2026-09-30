@@ -148,7 +148,28 @@ export function createGame(api) {
 		return ids[0] === me();
 	}
 
-	const ball = () => (config.ballUuid ? api.objectsGroup()?.getObjectByProperty('uuid', config.ballUuid) ?? null : null);
+	// 31: the objects the tick reads every frame (the ball, the two gate sensors) are looked up
+	// once and kept while they stay in the live objects group — round 2 searched the whole
+	// scene's objects by uuid 5-8 times a frame
+	/** @type {Map<string, any>} */
+	const held = new Map();
+	/** @param {string | null | undefined} uuid */
+	function byUuid(uuid) {
+		if (!uuid) return null;
+		const group = api.objectsGroup();
+		if (!group) return null;
+		const hit = held.get(uuid);
+		if (hit && hit.uuid === uuid) {
+			let root = hit;
+			while (root.parent && root !== group) root = root.parent;
+			if (root === group) return hit;
+		}
+		const found = group.getObjectByProperty('uuid', uuid) ?? null;
+		if (found) held.set(uuid, found);
+		else held.delete(uuid);
+		return found;
+	}
+	const ball = () => byUuid(config.ballUuid);
 
 	// ---- applying ops (shared by the local press and the wire) ----------------------
 
@@ -393,7 +414,7 @@ export function createGame(api) {
 
 	/** a top-level object's position in the OBJECTS GROUP's frame (the physics frame) @param {string} uuid */
 	function localPos(uuid) {
-		const o = uuid ? api.objectsGroup()?.getObjectByProperty('uuid', uuid) : null;
+		const o = byUuid(uuid);
 		return o ? o.position.toArray() : null;
 	}
 	/** the gate sensor a team defends, local frame @param {'red'|'blue'} team */
@@ -490,10 +511,10 @@ export function createGame(api) {
 		const object = ball();
 		if (!object) return;
 		object.getWorldPosition(_pos);
-		const group = api.objectsGroup();
 		const live = matchPhase(state, now()) === 'live';
-		for (const [uuid, gate] of Object.entries(config.gates)) {
-			const sensor = group?.getObjectByProperty('uuid', uuid);
+		for (const uuid in config.gates) {
+			const gate = config.gates[uuid];
+			const sensor = byUuid(uuid);
 			if (!sensor) continue;
 			_box.setFromObject(sensor);
 			const isIn = _box.containsPoint(_pos);
@@ -519,9 +540,9 @@ export function createGame(api) {
 			restPos = null;
 			return;
 		}
-		const p = object.position.toArray();
-		if (!restPos || Math.hypot(p[0] - restPos[0], p[1] - restPos[1], p[2] - restPos[2]) > REST_DISTANCE) {
-			restPos = p;
+		const p = object.position;
+		if (!restPos || Math.hypot(p.x - restPos[0], p.y - restPos[1], p.z - restPos[2]) > REST_DISTANCE) {
+			restPos = p.toArray();
 			restSince = t;
 			return;
 		}

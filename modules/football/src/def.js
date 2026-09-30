@@ -36,8 +36,10 @@ export function footballDef() {
 		tags: ['vr', 'competitive', 'colocation', 'physics'],
 		modules: [{ id: 'football', version: '1.2.0' }],
 		installModules: ['football'],
-		// 30: a floodlit stadium at dusk — a gradient sky, fog on the horizon, a low warm
-		// sun + a cool sky fill, exposure over the 0.9 floor
+		// 30: a floodlit stadium at dusk — a gradient sky, fog on the horizon, a cool sky fill,
+		// exposure over the 0.9 floor. 31: NO sun — core's env sun is a shadow-casting directional
+		// light (a shadow pass every frame + a third real-time light); the two floodlights light
+		// the pitch, a brighter sky fill the rest
 		env: {
 			preset: 'custom',
 			base: 'sunset',
@@ -45,8 +47,8 @@ export function footballDef() {
 			background: { top: '#1f3a66', bottom: '#e6a57a' },
 			fog: { color: '#b9a3a0', near: 28, far: 90 },
 			ground: { color: '#4a5462', roughness: 0.95 },
-			sun: { color: '#ffd8b0', intensity: 1.1, dir: [-0.5, 0.45, -0.6] },
-			hemi: { sky: '#a9c2ea', ground: '#5a4a3a', intensity: 1.2 }
+			sun: null,
+			hemi: { sky: '#b4c8ea', ground: '#6a5644', intensity: 1.7 }
 		},
 		physics: PITCH_PHYSICS,
 		// the standard shell's post floor: AO -> AgX -> bloom -> SMAA

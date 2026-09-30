@@ -37,19 +37,11 @@
 			"color": "#4a5462",
 			"roughness": 0.95
 		},
-		"sun": {
-			"color": "#ffd8b0",
-			"intensity": 1.1,
-			"dir": [
-				-0.5,
-				0.45,
-				-0.6
-			]
-		},
+		"sun": null,
 		"hemi": {
-			"sky": "#a9c2ea",
-			"ground": "#5a4a3a",
-			"intensity": 1.2
+			"sky": "#b4c8ea",
+			"ground": "#6a5644",
+			"intensity": 1.7
 		}
 	},
 	"physics": {
@@ -2652,12 +2644,7 @@
 			"name": "Wall left",
 			"color": 15267583,
 			"opacity": 0.1,
-			"physical": true,
-			"transmission": 1,
-			"thickness": 0.02,
-			"ior": 1.45,
-			"roughness": 0.2,
-			"specularIntensity": 0.06,
+			"roughness": 0.45,
 			"shadow": false,
 			"pick": "through",
 			"size": [
@@ -2679,12 +2666,7 @@
 			"name": "Wall right",
 			"color": 15267583,
 			"opacity": 0.1,
-			"physical": true,
-			"transmission": 1,
-			"thickness": 0.02,
-			"ior": 1.45,
-			"roughness": 0.2,
-			"specularIntensity": 0.06,
+			"roughness": 0.45,
 			"shadow": false,
 			"pick": "through",
 			"size": [
@@ -2706,12 +2688,7 @@
 			"name": "Wall red end",
 			"color": 15267583,
 			"opacity": 0.1,
-			"physical": true,
-			"transmission": 1,
-			"thickness": 0.02,
-			"ior": 1.45,
-			"roughness": 0.2,
-			"specularIntensity": 0.06,
+			"roughness": 0.45,
 			"shadow": false,
 			"pick": "through",
 			"size": [
@@ -2733,12 +2710,7 @@
 			"name": "Wall blue end",
 			"color": 15267583,
 			"opacity": 0.1,
-			"physical": true,
-			"transmission": 1,
-			"thickness": 0.02,
-			"ior": 1.45,
-			"roughness": 0.2,
-			"specularIntensity": 0.06,
+			"roughness": 0.45,
 			"shadow": false,
 			"pick": "through",
 			"size": [
@@ -2760,12 +2732,7 @@
 			"name": "Ceiling",
 			"color": 15267583,
 			"opacity": 0.1,
-			"physical": true,
-			"transmission": 1,
-			"thickness": 0.02,
-			"ior": 1.45,
-			"roughness": 0.2,
-			"specularIntensity": 0.06,
+			"roughness": 0.45,
 			"shadow": false,
 			"pick": "through",
 			"size": [
@@ -4028,18 +3995,6 @@
 					"anim": "pulse"
 				},
 				{
-					"type": "light",
-					"name": "Red gate glow",
-					"color": 14240330,
-					"intensity": 1.2,
-					"distance": 3,
-					"pos": [
-						0,
-						1.35,
-						-2.45
-					]
-				},
-				{
 					"type": "box",
 					"name": "Red scoreboard",
 					"size": [
@@ -4095,18 +4050,6 @@
 					"shadow": false,
 					"pick": "through",
 					"anim": "pulse"
-				},
-				{
-					"type": "light",
-					"name": "Blue gate glow",
-					"color": 4881881,
-					"intensity": 1.2,
-					"distance": 3,
-					"pos": [
-						0,
-						1.35,
-						2.45
-					]
 				},
 				{
 					"type": "box",
@@ -4941,11 +4884,11 @@
 					"kind": "spot",
 					"name": "Floodlight 1",
 					"color": 16773852,
-					"intensity": 70,
-					"distance": 22,
+					"intensity": 110,
+					"distance": 24,
 					"decay": 2,
-					"angle": 0.62,
-					"penumbra": 0.55,
+					"angle": 0.75,
+					"penumbra": 0.6,
 					"pos": [
 						-2.9,
 						5.2,
@@ -4956,8 +4899,7 @@
 						0,
 						0.4
 					],
-					"castShadow": true,
-					"shadowMapSize": 1024
+					"castShadow": false
 				},
 				{
 					"type": "cylinder",
@@ -5000,28 +4942,6 @@
 					"shadow": false
 				},
 				{
-					"type": "light",
-					"kind": "spot",
-					"name": "Floodlight 2",
-					"color": 16773852,
-					"intensity": 70,
-					"distance": 22,
-					"decay": 2,
-					"angle": 0.62,
-					"penumbra": 0.55,
-					"pos": [
-						2.9,
-						5.2,
-						-3.95
-					],
-					"target": [
-						-0.3,
-						0,
-						0.4
-					],
-					"castShadow": false
-				},
-				{
 					"type": "cylinder",
 					"name": "Floodlight pole 3",
 					"r": 0.06,
@@ -5060,28 +4980,6 @@
 					"emissiveIntensity": 3,
 					"roughness": 0.3,
 					"shadow": false
-				},
-				{
-					"type": "light",
-					"kind": "spot",
-					"name": "Floodlight 3",
-					"color": 16773852,
-					"intensity": 70,
-					"distance": 22,
-					"decay": 2,
-					"angle": 0.62,
-					"penumbra": 0.55,
-					"pos": [
-						-2.9,
-						5.2,
-						3.95
-					],
-					"target": [
-						0.3,
-						0,
-						-0.4
-					],
-					"castShadow": false
 				},
 				{
 					"type": "cylinder",
@@ -5128,11 +5026,11 @@
 					"kind": "spot",
 					"name": "Floodlight 4",
 					"color": 16773852,
-					"intensity": 70,
-					"distance": 22,
+					"intensity": 110,
+					"distance": 24,
 					"decay": 2,
-					"angle": 0.62,
-					"penumbra": 0.55,
+					"angle": 0.75,
+					"penumbra": 0.6,
 					"pos": [
 						2.9,
 						5.2,

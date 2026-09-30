@@ -80,8 +80,13 @@ export function run(check) {
 
 	// ---- 30: the look ---------------------------------------------------------------------
 	const shells = objects.filter((o) => /^Wall |^Ceiling$/.test(o.name));
-	check(shells.length === 5 && shells.every((o) => o.physical && o.transmission > 0.5 && o.pick === 'through' && o.shadow === false && o.opacity < 0.25),
-		'30: the five shells are clean glass (physical + transmission), select-through, cast no shadow, and keep a faint opacity for the recipe');
+	check(shells.length === 5 && shells.every((o) => o.pick === 'through' && o.shadow === false && o.opacity < 0.25),
+		'30: the five shells are glass, select-through, cast no shadow, faint opacity');
+	// 31 (F1): no transmission — three renders the opaque scene again into a transmission target
+	// every frame for a transmissive material in view (per eye in a headset), and a player stands
+	// INSIDE these panes. Plain blending only, no MeshPhysicalMaterial on the shells
+	const PHYSICAL = ['physical', 'transmission', 'thickness', 'ior', 'clearcoat', 'sheen', 'iridescence', 'specularIntensity'];
+	check(shells.every((o) => PHYSICAL.every((k) => !o[k])), '31: the shells are PLAIN transparent glass — no transmission pass, no physical material');
 	const strip = lamps.filter((l) => l.name.startsWith('Red'));
 	check(new Set(strip.map((l) => l.pos[1])).size === 1 && strip.every((l) => Math.abs(l.pos[0]) < DEFAULT_DIMS.width / 2 - 0.1),
 		'30: each gate\'s ten lamps are ONE strip inside the pitch width');
@@ -111,7 +116,10 @@ export function run(check) {
 		'  the group carries its OWN collider, a floor slab (top <= 0.02): the default box around the whole arena would swallow the ball');
 	check(kids.every((k) => !k.physics), '  none of the arena is a physics body (decoration never touches the rules)');
 	const floods = kids.filter((k) => k.type === 'light' && k.kind === 'spot');
-	check(floods.length >= 2 && floods.length <= 4 && floods.filter((k) => k.castShadow).length === 1, '  2-4 floodlights (spot), exactly ONE casts shadows (' + floods.length + ')');
+	// 31 (F1): the Quest budget — at most TWO real-time lights in the whole template, no shadow map
+	const allLights = [...objects, ...kids].filter((k) => k.type === 'light');
+	check(floods.length === 2 && allLights.length === 2 && allLights.every((k) => !k.castShadow), '31: TWO real-time lights in the template (floodlights, spot), none casts a shadow (' + allLights.map((k) => k.name + (k.castShadow ? '+shadow' : '')).join(', ') + ')');
+	check(kids.filter((k) => /^Floodlight head/.test(k.name)).length === 4 && floods.every((f) => f.intensity > 70), '  four poles still glow; the two lamps are brighter to do four\'s work');
 	const floor = kids.find((k) => k.name === 'Stadium floor');
 	const turf = kids.find((k) => k.name === 'Turf');
 	check(floor.pos[1] > 0 && turf.pos[1] > floor.pos[1] && floor.size[0] >= 40, '  a real ground ABOVE the editor grid (y 0) and the turf above it');
@@ -127,6 +135,7 @@ export function run(check) {
 	check(plays.length === 4 && viaDelayToPlay, 'arenaGraph: four Play Animation nodes (pulse + stop per net), each triggered THROUGH a Delay');
 	check(ag.edges.some((e) => e.source === 'evrnet' && ag.nodes.find((n) => n.id === 'evrnet').data.event === 'bluegoal'), '  a goal INTO the red gate (bluegoal) pulses the red net');
 	check(def.graphs.scene.nodes.some((n) => n.id === 'prnet') && def.graphs.scene.nodes.some((n) => n.type === 'fbvalue' && n.data.read === 'blue'), '  the def graph carries the pulse block and the scoreboard values');
+	check(def.env.sun === null && def.env.hemi?.intensity > 1.2, '31: no env sun (core\'s sun casts a shadow map and is a third light) — a brighter sky fill instead');
 	check(def.env.exposure >= 0.9 && def.post.effects.map((e) => e.kind).join() === 'ao,tonemapping,bloom,smaa', 'the standard shell: exposure >= 0.9, post AO -> AgX -> bloom -> SMAA');
 	check(withHud.nodes.find((n) => n.type === 'fbrecords').data.clockElement === 'fb-clock' && !g.nodes.find((n) => n.type === 'fbrecords').data.clockElement, 'Records feeds the scoreboard clock in the def graph only');
 	for (const id of ['fb-red-score', 'fb-blue-score', 'fb-clock', 'fb-ticker'])
