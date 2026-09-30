@@ -22,10 +22,12 @@ modules/untangle/
   src/menu.js      two HUD element kinds: the level grid and the time/best readout
   src/sfx.js       sounds (api.playSound or a local one-shot synth), music, haptics
   src/vrdrag.js    the PURE VR trigger state machine + ray/tip math (drag, globe hold)
-  src/vrbar.js     the VR level bar (pure layout/labels + one canvas plane)
+  src/vrbar.js     the VR level bar (pure layout/labels/pose + one canvas plane)
+  src/vrmenu.js    the VR level picker (pure layout/states + the hole in core's VR panel)
+  src/stance.js    the PURE VR spawn in front of the board + the "is it ahead" measure
   src/index.js     the module: board, modes, nodes, replication
   src/def.js       the games/untangle template def (room, HUD shell, graph)
-  test/            puzzle / progress / sphere / sfx / vrdrag / vrbar / def tests (npm run test:untangle)
+  test/            puzzle / progress / sphere / sfx / vrdrag / vrbar / vrmenu / stance / def tests (npm run test:untangle)
   module.js        the bundled, self-contained entry (committed)
 ```
 
@@ -37,8 +39,11 @@ modules/untangle/
 - **Globe (3D)**: the same graph on a sphere; edges are great-circle arcs and a crossing is a
   spherical one. Right-drag / two fingers / the VR stick (while pointing at it) turn the
   globe — your view only; the dots replicate as unit vectors.
-- **Levels**: 30 per mode, level 1 open, solving N opens N+1 for every peer who moved a dot
-  on that board. Progress (`{2d, 3d}: {unlocked, solved, best}`) lives under
+- **Levels**: 30, level 1 open, solving N opens N+1 for every peer who moved a dot on that
+  board — ONE progress for both modes (2.3.0): a level reached on the globe is open on the
+  2D board too, Continue skips a level solved on either, and switching globe <-> 2D keeps
+  the level you had open (a just-solved one moves on). Each mode keeps its own ticks and best
+  times. Progress (`{2d, 3d}: {unlocked, solved, best}`, `unlocked` equal in both) lives under
   `tp:mod:untangle:progress` — `api.storage` on a core that has it, the same key in
   localStorage on one that does not. The menu grid (a module HUD kind) shows the locks,
   Continue and Reset progress (asks first). Picking a level changes the board for everyone.
@@ -69,12 +74,35 @@ APP_URL=https://localhost:5216/ npm test -- untangle.test   # the test-flight
   with it). The OTHER hand keeps grabbing and moving dots meanwhile. The hold is yours
   alone (the dots replicate as unit vectors, the hold never), and is forgotten when you
   switch to the flat board. Left-stick walking pauses while you hold.
-- **The level bar.** Under the board, facing you, in VR only: ◀ / ▶ (the previous / next
-  unlocked level, for everyone), the level (Start, when the menu or the solved screen is up),
-  Globe / Flat, ↺ restart. Trigger on a cell. The desktop keeps the DOM grid.
+- **The level bar.** A console in front of the board's lower edge at waist height, tilted
+  up at you, in VR only: ◀ / ▶ (the previous / next unlocked level, for everyone), the level
+  (Start, when the menu or the solved screen is up), Globe / 2D (same level), ↺ restart,
+  Levels (2.3.0). Trigger on a cell. It draws over the scene (nothing of the room hides it)
+  and under core's VR panels. The desktop keeps the DOM grid.
 - **The world.** The board hangs wherever core puts module content (its world root follows
   the VR world grab); every drag works in world space, so a spun, moved or scaled world
-  keeps the dots under your hand.
+  keeps the dots under your hand. 2.3.0 publishes `userData.play.locomotion.worldGrab`
+  (and the template's play block has it): on a core with contract K1 the GRIPS move, turn
+  and scale the world DURING the game — the trigger owns the dots.
+
+## In VR, the second round (2.3.0, roadmap 31)
+
+- **You start in front of it.** The board publishes a VR-only spawn (`userData.play.spawn`)
+  1.35 m in front of its face (1.2-1.5 m with the board's size), centred, facing it, the
+  feet on the floor found under that spot — so a headset no longer lands inside the dots.
+  Desktop keeps the template's camera. The template board is 0.85 m in radius at chest
+  height 1.4 m.
+- **Levels and Globe / 2D in the headset.** Core's VR panel draws the menu screen, but not
+  the level grid (module DOM). The picker (`vrmenu.js`) is drawn exactly over that hole:
+  Board 3D globe / 2D board, the 30 cells (locks, ticks, the next level), Continue. Mid-round
+  the bar's Levels cell opens it on the board (with Close). Trigger presses, laser hover.
+- **The game shell (contract K3).** On a core with `api.game.levels` the 30 levels go to the
+  shell's pause menu (desktop and VR), `api.game.addSetting` adds "Board: Globe / 2D board",
+  `setHelp` the how-to-play lines, `onRestart` the level restart. All feature-detected.
+- **Nothing covers the bar.** The pedestal under the board is a flat medallion now; the bar
+  and the picker draw over the scene (and register with `api.vrPanel` when core has it).
+- `tests/untangle-vr2.test.cjs` proves all of it on the authored template scene (real core
+  VR panel, fake XR for the spawn). Feel, reach and legibility are OWED on a headset.
 - **Headless testing.** `window.__untangle.vrSim({left, right})` feeds fake controller poses
   (`{position, quaternion, trigger}`, world space) with `isVRMode` set on the store;
   `tests/untangle-vr.test.cjs` drives the whole VR path that way. The feel on a headset is

@@ -15,7 +15,7 @@ export function run(check) {
 	let c = byId(at(1));
 	check(!c.prev.enabled && !c.next.enabled, 'a new player on level 1: no previous level, the next is still locked');
 	check(c.level.enabled && /Level 1 .*Start/.test(c.level.label), 'the menu is up (shell, not running): the middle cell starts the round ("' + c.level.label + '")');
-	check(c.mode.label === 'Globe' && byId(at(1, '3d')).mode.label === 'Flat', 'the mode cell names the OTHER mode');
+	check(c.mode.label === 'Globe' && byId(at(1, '3d')).mode.label === '2D', 'the mode cell names the OTHER mode');
 	p = recordSolve(p, '2d', 1, 20000).progress;
 	c = byId(at(1));
 	check(c.next.enabled, 'solving level 1 unlocks the ▶ to level 2');

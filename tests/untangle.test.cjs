@@ -225,6 +225,11 @@ run(async () => {
 	check((await cell(1).getAttribute('data-state')) === 'solved' && (await cell(2).getAttribute('data-state')) === 'solved' && (await cell(4).getAttribute('data-state')) === 'locked', 'U6.11 ...1 and 2 ticked (passed on the globe), 4 locked');
 	await modeBtn('3d').click();
 	await eventually(() => snap(A.page), (s) => s.mode === '3d' && s.level === 3, 'U6.12 and back: the globe opens level 3 again');
+	// the switch keeps the OPEN level, not the Continue one: an older level 1 open on the board
+	await A.page.evaluate(() => window.__untangle.select(1, '2d'));
+	await eventually(() => snap(A.page), (s) => s.level === 1 && s.mode === '2d', 'U6.13 (premise) 2D level 1 open (Continue would be 3)');
+	await modeBtn('3d').click();
+	await eventually(() => snap(A.page), (s) => s.mode === '3d' && s.level === 1, 'U6.14 the globe opens level 1 — the level that was open, not Continue\'s 3');
 	await A.page.keyboard.press('Escape');
 
 	await finish(browser);
