@@ -17,6 +17,9 @@ const EXPIRE_FRAMES = 40; // node gone from the graph -> defaults return
 export const EVENTS = ['start', 'gem', 'unseal', 'travel', 'victory', 'reset'];
 export const READS = ['gems', 'need', 'total', 'level', 'levels', 'players', 'started', 'won', 'sealed', 'score'];
 export const ROWS = ['objective', 'players', 'level', 'gems', 'all'];
+/** 30: what a Realms Button does — the menu's actions, plus `quit` (back to the Start screen,
+ * the round reset on every peer) */
+export const BUTTON_ACTIONS = ['join-p1', 'join-p2', 'start', 'new-dungeon', 'quit'];
 
 /** @param {any} api @param {ReturnType<import('./game.js').createGame>} game */
 export function registerNodes(api, game) {
@@ -24,6 +27,8 @@ export function registerNodes(api, game) {
 	const seen = { rules: -1, menu: -1 };
 	/** @type {Record<string, number>} prop name -> last seen frame */
 	const propSeen = {};
+	/** @type {Map<string, number>} node id -> last `press` level (rising-edge detection) */
+	const pressLevel = new Map();
 
 	const MENU_OPTIONS = ['none', 'join-p1', 'join-p2', 'start', 'resume', 'new-dungeon'];
 
@@ -79,6 +84,14 @@ export function registerNodes(api, game) {
 				]
 			},
 			{
+				// 30: the menu on core HUD screens — a HUD Button (through a Delay, DEVX #22) or an
+				// On Click pulses `press`, and the action runs on the presser's peer
+				type: 'drbutton',
+				label: 'Realms Button',
+				defaults: { action: 'start', press: 0 },
+				params: [{ key: 'action', kind: 'select', options: BUTTON_ACTIONS }]
+			},
+			{
 				type: 'drevent',
 				label: 'Realms Event',
 				defaults: { event: 'start' },
@@ -131,6 +144,24 @@ export function registerNodes(api, game) {
 		}
 	});
 
+	// ---- 30: Realms Button — a rising `press` runs a menu action -------------------------
+	// the football Match Button rule: act on the rising edge, never on the level first seen (a
+	// joiner arriving inside a pulse must not press a button it never touched)
+	api.registerEffect(
+		'drbutton',
+		(object, base, data, time, ctx) => {
+			const level = Number(data.press) > 0 ? 1 : 0;
+			const key = ctx?.id ?? object.uuid;
+			const was = pressLevel.get(key);
+			pressLevel.set(key, level);
+			if (was === undefined || was === level || level !== 1) return;
+			const action = BUTTON_ACTIONS.includes(data.action) ? data.action : 'start';
+			game.menuAction(action);
+		},
+		// 'number': a Delay's pulse, an On Click, a Compare all drive it (DEVX #22)
+		{ inputs: { press: 'number' } }
+	);
+
 	// ---- the HUD half: rows into a core HUD list element, by id ------------------------
 	/** @type {Record<string, string>} node id -> last pushed rows (push on change only) */
 	const lastRows = {};
@@ -155,7 +186,8 @@ export function registerNodes(api, game) {
 		const gems = have + ' / ' + need + ' needed · ' + total + ' hidden';
 		const players = ['p1', 'p2']
 			.filter((slot) => s.slots[slot])
-			.map((slot) => slot.toUpperCase() + ' ' + s.slots[slot].name + (s.slots[slot].peerId === (api.peerId() ?? 'me') ? ' (you)' : ''));
+			// P4: "P1 — you", not "P1 you (you)" (a slot's name for your own peer is already "you")
+			.map((slot) => slot.toUpperCase() + ' — ' + (s.slots[slot].peerId === (api.peerId() ?? 'me') ? 'you' : s.slots[slot].name));
 		const props = Object.entries(game.config.props)
 			.filter(([, def]) => def.showInHud)
 			.map(([name, def]) => name + ': ' + (s.propValues[name] ?? def.initial ?? 0));

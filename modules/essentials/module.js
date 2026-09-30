@@ -13,7 +13,7 @@
 export default {
 	id: 'essentials',
 	name: 'VR Essentials',
-	version: '1.1.0',
+	version: '1.1.1',
 	description: 'Clickable starter interactables: button, lever, spawner, teleport pad, sound tile, target.',
 	/** @param {any} api */
 	register(api) {
@@ -95,6 +95,8 @@ export default {
 			if (local) api.send({ op: 'tile', uuid: target.uuid });
 		};
 
+		// Every essential is a PLAY piece — it acts in Interact and in Play, and an Edit click
+		// selects it, so a row of them can be laid out with the gizmo.
 		api.registerClickHandler((/** @type {any} */ object) => {
 			const target = rootOf(object);
 			if (!target) return false;
@@ -126,7 +128,7 @@ export default {
 				return false;
 			}
 			return true; // consume the click (no selection)
-		});
+		}, { modes: ['interact', 'play'] });
 
 		// press squash: a short deterministic tween off the stamped time
 		api.registerFrameTask((/** @type {number} */ time) => {
@@ -182,7 +184,7 @@ export default {
 					x += 1.5;
 				}
 			}
-			api.toast('Essentials spawned — click them (desktop) or point + trigger (VR)');
+			api.toast('Essentials spawned — press I (Interact) and click them, or point + trigger (VR)');
 		});
 	}
 };

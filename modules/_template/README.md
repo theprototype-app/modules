@@ -11,7 +11,10 @@ npm run pack -- my-cool-thing                  # -> my-cool-thing.zip at the rep
 
 Then in the app: **burger menu ▸ Modules ▸ User ▸ Install from zip**, pick the
 zip, and your card appears. Add a **Beacon** from the sidebar's Add menu (group
-"My Module") and click it — it pulses for you and for every connected peer.
+"My Module"). A click in the editor's **Edit** mode selects it like any object; press
+**I** for **Interact** (or press Play) and click it — it pulses for you and for every
+connected peer. Where each click handler runs is a decision the scaffold spells out:
+`{modes: ['interact', 'play']}` — see AUTHORING.md §6 "Edit, Interact, Play".
 
 Read [../../AUTHORING.md](../../AUTHORING.md) before you replicate anything: the
 replication rules are not optional, and the SDK has ready-made answers for late

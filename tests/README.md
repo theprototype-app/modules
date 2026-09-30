@@ -36,6 +36,17 @@ singletons on `window.__stores` — `moduleSDK`, `objectsGroup`, `peers`,
 `toastStore`, `commandsHandler` and the rest. That is how a flight reaches a
 module's registries without the module exporting anything.
 
+## The modes audit
+
+`modes-audit.test.cjs` is the cross-module check (roadmap 30): for EVERY module it
+installs the real zip on a fresh page, makes its content the way a user does (menu
+button, `/create`, toolbox, or its Games-tab template from `SCENES_DIR`, default
+`../scenes`), and measures six cells with real clicks — listed, selected in Edit,
+moved by a gizmo drag (or read-only for scene-root content), quiet in Edit, working in
+Interact, working in Play. `ONLY=piano,music-lab` narrows it; `AUDIT_OUT=file.json`
+writes the table. A cell that cannot apply is N-A with its reason; a new module
+belongs in its `MODULES` list.
+
 ## Two peers, always
 
 A module is only tested when two connected peers agree. Install on **both**

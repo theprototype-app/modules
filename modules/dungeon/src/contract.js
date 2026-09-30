@@ -13,10 +13,92 @@
 // (x + ox + 0.5, y + oy + 0.5) — `ox`/`oy` are the campaign's world offsets, which
 // place floor k+1's DOWN portal exactly where floor k's UP portal stands.
 
-import { FLOOR } from './gen/dungeon.js';
+import { FLOOR, WALL } from './gen/dungeon.js';
 
 export const GROUP_NAME = 'dungeon-module';
 export const CONTRACT_VERSION = 2;
+
+// ---- 30b: WALK, DON'T CLIP ----------------------------------------------------------------
+// Core walks a dungeon on the published raster (dungeonPlay.walkable: a cell that is not
+// `floorValue` stops the walker) — desktop play, the VR stick and the Interact/Play capsule.
+// Round 1 published the generator's raster as is, so the SOLID props standing on floor cells
+// (pillars, crates, chests, braziers) were walked straight through. The published grid now
+// stamps their cells BLOCKED; the generator's own grid (the renderer, the checksum) is
+// untouched. `colliders` carries the same solids as world AABBs for a physics capsule.
+
+/** the value a solid prop's cell carries in the PUBLISHED grid (not floor: the walker stops) */
+export const BLOCKED = 3;
+/** the props a walker cannot pass, and their collider half-extents / heights (metres) — the
+ * sizes render.js draws. A crystal floats over a shrine's centre (a spawn point) and debris
+ * is ankle-high rubble: both stay walkable. */
+export const SOLID = {
+	pillar: { hx: 0.38, hz: 0.38, h: 2.4 },
+	crate: { hx: 0.36, hz: 0.36, h: 0.72 },
+	chest: { hx: 0.43, hz: 0.3, h: 0.55 },
+	brazier: { hx: 0.3, hz: 0.3, h: 0.55 }
+};
+/** every wall's collider reaches this high (the renderer's tallest wall is 2.25) */
+export const WALL_HEIGHT = 2.3;
+
+/** the cell a core spawn lands on for a room (dungeonPlay.roomCenter) @param {any} room local coords */
+function spawnCell(room) {
+	return { x: Math.floor(room.x + room.w / 2), y: Math.floor(room.y + room.h / 2) };
+}
+
+/**
+ * The raster core walks: the generator's grid with every SOLID prop's cell stamped BLOCKED —
+ * except a room's spawn cell (a chest can stand at a treasure room's centre; a peer spawned
+ * there must never be walled in). @param {any} dungeon @returns {Uint8Array}
+ */
+export function walkGrid(dungeon) {
+	const { W, grid, rooms, props } = dungeon;
+	const out = Uint8Array.from(grid);
+	const keep = new Set(rooms.map((r) => { const c = spawnCell(r); return c.y * W + c.x; }));
+	for (const p of props) {
+		if (!SOLID[p.kind]) continue;
+		const i = p.y * W + p.x;
+		if (out[i] === FLOOR && !keep.has(i)) out[i] = BLOCKED;
+	}
+	return out;
+}
+
+/**
+ * The solids as world AABBs {min:[x,y,z], max:[x,y,z], kind}: wall cells merged into runs
+ * (row runs, then identical runs stacked down the rows), plus one box per solid prop.
+ * @param {any} dungeon (with ox/oy) @returns {{min: number[], max: number[], kind: string}[]}
+ */
+export function colliderBoxes(dungeon) {
+	const { W, H, grid, props, ox, oy } = dungeon;
+	/** @type {Map<string, {x0: number, x1: number, y0: number, y1: number}>} open runs by span */
+	let open = new Map();
+	const boxes = [];
+	const close = (/** @type {{x0: number, x1: number, y0: number, y1: number}} */ r) =>
+		boxes.push({ min: [r.x0 + ox, 0, r.y0 + oy], max: [r.x1 + 1 + ox, WALL_HEIGHT, r.y1 + 1 + oy], kind: 'wall' });
+	for (let y = 0; y < H; y++) {
+		const next = new Map();
+		let x = 0;
+		while (x < W) {
+			if (grid[y * W + x] !== WALL) { x++; continue; }
+			let x1 = x;
+			while (x1 + 1 < W && grid[y * W + x1 + 1] === WALL) x1++;
+			const key = x + ':' + x1;
+			const run = open.get(key);
+			if (run) { run.y1 = y; open.delete(key); next.set(key, run); }
+			else next.set(key, { x0: x, x1, y0: y, y1: y });
+			x = x1 + 1;
+		}
+		open.forEach(close);
+		open = next;
+	}
+	open.forEach(close);
+	for (const p of props) {
+		const s = SOLID[p.kind];
+		if (!s) continue;
+		const cx = p.x + ox + 0.5, cz = p.y + oy + 0.5;
+		boxes.push({ min: [cx - s.hx, 0, cz - s.hz], max: [cx + s.hx, s.h, cz + s.hz], kind: p.kind });
+	}
+	return boxes;
+}
 
 /** @param {any} room @param {number} ox @param {number} oy */
 function worldRoom(room, ox, oy) {
@@ -63,7 +145,9 @@ export function playPayload(campaign, floorIndex, extras = {}) {
 	const wz = (/** @type {number} */ y) => y + oy + 0.5;
 	const play = {
 		// ---- the core half (dungeonPlay.js shape — DO NOT CHANGE) ----------------------
-		grid: dungeon.grid,
+		// 30b: the WALK raster — solid props' cells BLOCKED (walkGrid); same shape, same values
+		// for floor / wall
+		grid: walkGrid(dungeon),
 		width: dungeon.W,
 		height: dungeon.H,
 		minX: ox,
@@ -73,6 +157,11 @@ export function playPayload(campaign, floorIndex, extras = {}) {
 		// ---- play settings (playSettings.js) --------------------------------------------
 		// a dungeon is WALKED: the fly keys are off unless a rule module says otherwise
 		grounded: extras.grounded == null ? true : !!extras.grounded,
+		// 30b (C1): no teleport, no fly in Interact/Play — a dungeon is walked (absent means false
+		// too; published so a publisher-aware resolver never inherits a scene's `true`)
+		locomotion: { teleport: false, fly: false },
+		// 30b: the solids as world AABBs for a physics capsule (the raster above is the walk)
+		colliders: colliderBoxes(dungeon),
 		// ---- the inter-module seam (a rule module reads these) --------------------------
 		contract: CONTRACT_VERSION,
 		seed: campaign.seed,

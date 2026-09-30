@@ -16,8 +16,8 @@
 export default {
 	id: 'car',
 	name: 'Drivable Car',
-	version: '1.2.0',
-	description: 'Spawn a jointed demo car; click its body to claim it, then drive with WASD in Play mode while a simulation runs.',
+	version: '1.2.1',
+	description: 'Spawn a jointed demo car; click its body in Interact mode (I) to claim it, then drive with WASD in Play mode while a simulation runs.',
 	/** @param {any} api */
 	register(api) {
 		const THREE = api.THREE;
@@ -107,7 +107,7 @@ export default {
 			});
 			// axle hinges: revolute about the BODY's local X, anchored at each wheel
 			wheelIds.forEach((uuid) => api.physics.createJoint('revolute', bodyId, uuid, 'x', { vel: 0, maxForce: FORCE }));
-			api.toast('Car spawned — click the body to claim it, then Play + a running simulation to drive');
+			api.toast('Car spawned — press I (Interact) and click the body to claim it, then Play + a running simulation to drive');
 		};
 
 		api.registerMenu('Car: spawn demo car', spawnDemoCar);
@@ -115,6 +115,9 @@ export default {
 		/** claim/release by clicking the body (walk up from the hit mesh).
 		 * The car-body KIND derives from the NAME the replicated create assigns
 		 * (deterministic on every peer — userData set locally would not be). */
+		// Claiming is PLAY-side: it runs in Interact (the editor's play-style mode — the
+		// pre-claim before Play) and in Play. An Edit click selects the body instead, so the
+		// car can be moved with the gizmo.
 		api.registerClickHandler((/** @type {any} */ object) => {
 			const group = api.objectsGroup();
 			let current = object;
@@ -131,7 +134,7 @@ export default {
 			api.send({ op: 'claim', carId: current.uuid, peerId: next });
 			api.toast(next ? 'Car claimed — press ▶ Play with a running simulation, WASD drives' : 'Car released');
 			return true;
-		});
+		}, { modes: ['interact', 'play'] });
 
 		const applyClaim = (/** @type {string} */ carId, /** @type {string} */ peerId) => {
 			if (peerId) claims[carId] = peerId;

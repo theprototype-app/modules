@@ -883,7 +883,7 @@ var index_default = {
       const chain = uuidChain(api, object);
       if (chain.length) engine.hitObjects(chain, "click", { local: false });
       return false;
-    });
+    }, { modes: ["interact", "play"] });
     api.hud.registerDebugLine(() => {
       const names = engine.names();
       if (!names.length) return null;

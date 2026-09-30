@@ -21,7 +21,7 @@
 export default {
 	id: 'tutorial-room',
 	name: 'Tutorial Room',
-	version: '1.0.0',
+	version: '1.1.0',
 	description: 'An in-scene onboarding room: signs and clickable stations.',
 
 	/** @param {any} api */
@@ -238,8 +238,15 @@ export default {
 		}
 
 		// ---- interaction --------------------------------------------------------
-		// Scene-root content is not clickable until the group is registered.
+		// Scene-root content is not clickable until the group is registered. It is also
+		// listed (read-only) in the object list's "Module content" section; the label is
+		// what a person reads there instead of the id.
 		api.registerInteractiveGroup(GROUP);
+		api.registerListedGroup?.(GROUP, { label: 'Tutorial room' });
+
+		// A plinth is the room's CHECKLIST, and the lessons it ticks are editor lessons — so
+		// it ticks in every mode, Edit included (the one module handler here that is an
+		// editor tool). An Edit click anywhere else in the room selects the room's proxy.
 
 		api.registerClickHandler((/** @type {any} */ object) => {
 			const name = object?.name ?? '';
@@ -251,7 +258,7 @@ export default {
 			const left = STATIONS.length - done.size;
 			api.toast(left === 0 ? 'All five done — you know the place now.' : left + ' station' + (left === 1 ? '' : 's') + ' to go');
 			return true; // consume: clicking a station must not select it
-		});
+		}, { modes: ['edit', 'interact', 'play'] });
 
 		api.onMessage((/** @type {any} */ data) => {
 			if (data.op === 'build') build(data.at ?? api.now());

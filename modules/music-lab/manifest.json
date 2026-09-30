@@ -1,7 +1,7 @@
 {
 	"id": "music-lab",
 	"name": "Music Lab",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"format": 1,
 	"description": "A Piano, a Speaker, a Transport, a Drum machine and Sampler pads on the engine. Cable them, paint a beat, press Play.",
 	"entry": "module.js",

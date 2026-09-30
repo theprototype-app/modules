@@ -10,6 +10,8 @@ modules/dungeon/
   src/gen/        the 9-stage PURE-DATA generator (zero THREE/DOM — node-runnable)
   src/contract.js the userData.play record (pure, node-tested)
   src/render.js   the instanced level renderer (floors, walls, decor, torches, lights)
+  src/torch.js    the props-kit WallTorch (packs `props-kit/WallTorch`, CC0, made with Meshy.ai +
+                  procedural), baked from assets/wall-torch.glb by build-torch.mjs at build time
   src/kit.js      world state {seed, params, floorIndex}, replication, the seam
   src/toolbox.js  api.registerToolbox (+ the #dungeon-panel fallback)
   src/nodes.js    the "Dungeon" node — the recipe as a node

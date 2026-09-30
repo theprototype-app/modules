@@ -10,7 +10,7 @@
 // targets the button object; Score Lamp targets one lamp. The two value nodes (Football
 // Value, Football Event) need no target at all.
 
-import { MODES, WIN_BY, SERVE, OWN_GOALS, ACTIONS, DEFAULT_RULES, teamOf } from './rules.js';
+import { MODES, WIN_BY, SERVE, OWN_GOALS, TIE, ACTIONS, DEFAULT_RULES, teamOf, matchClock } from './rules.js';
 import { RED, BLUE, LAMP_DIM } from './pitch.js';
 
 const EXPIRE_FRAMES = 40;
@@ -44,6 +44,7 @@ export function registerNodes(api, game) {
 					{ key: 'serveDelay', kind: 'range', min: 0.5, max: 5, step: 0.1 },
 					{ key: 'serveSpeed', kind: 'range', min: 0.5, max: 10, step: 0.1 },
 					{ key: 'ownGoals', kind: 'select', options: OWN_GOALS },
+					{ key: 'tie', kind: 'select', options: TIE },
 					{ key: 'apply', kind: 'toggle' }
 				]
 			},
@@ -59,8 +60,13 @@ export function registerNodes(api, game) {
 			{
 				type: 'fbbutton',
 				label: 'Match Button',
-				defaults: { action: 'start', press: 0 },
-				params: [{ key: 'action', kind: 'select', options: ACTIONS }]
+				defaults: { action: 'start', press: 0, physical: true },
+				params: [
+					{ key: 'action', kind: 'select', options: ACTIONS },
+					// 30b: off = only the wired `press` acts; a click on the target object is left to
+					// the object's own Match Button (several HUD buttons may share one target)
+					{ key: 'physical', kind: 'toggle' }
+				]
 			},
 			{
 				type: 'fbserve',
@@ -80,12 +86,14 @@ export function registerNodes(api, game) {
 			{
 				type: 'fbrecords',
 				label: 'Records',
-				defaults: { show: 'all', element: 'fb-sheet', scoreElement: 'fb-score', logElement: '' },
+				defaults: { show: 'all', element: 'fb-sheet', scoreElement: 'fb-score', logElement: '', clockElement: '', tickerElement: '' },
 				params: [
 					{ key: 'show', kind: 'select', options: ['goals', 'touches', 'owngoals', 'all'] },
 					{ key: 'element', kind: 'text', placeholder: 'HUD list id (sheet)', maxLength: 40 },
 					{ key: 'scoreElement', kind: 'text', placeholder: 'HUD list id (score)', maxLength: 40 },
-					{ key: 'logElement', kind: 'text', placeholder: 'HUD list id (match log)', maxLength: 40 }
+					{ key: 'logElement', kind: 'text', placeholder: 'HUD list id (match log)', maxLength: 40 },
+					{ key: 'clockElement', kind: 'text', placeholder: 'HUD list id (clock m:ss)', maxLength: 40 },
+					{ key: 'tickerElement', kind: 'text', placeholder: 'HUD list id (last touch)', maxLength: 40 }
 				]
 			},
 			{
@@ -123,7 +131,8 @@ export function registerNodes(api, game) {
 				serve: data.serve,
 				serveDelay: data.serveDelay,
 				serveSpeed: data.serveSpeed,
-				ownGoals: data.ownGoals
+				ownGoals: data.ownGoals,
+				tie: data.tie
 			};
 			if (JSON.stringify(game.config.rules) !== JSON.stringify(next)) game.config.rules = next;
 			// the wired Object Selector's value is the ball's uuid; an unwired node falls
@@ -149,7 +158,7 @@ export function registerNodes(api, game) {
 		'fbbutton',
 		(object, base, data, time, ctx) => {
 			const action = ACTIONS.includes(data.action) ? data.action : 'none';
-			buttons.set(object.uuid, { action, frame, id: ctx?.id ?? object.uuid });
+			if (data.physical !== false) buttons.set(object.uuid, { action, frame, id: ctx?.id ?? object.uuid });
 			// a HUD Button (perPlayer) or an On Click wired into `press` reads 1 for its
 			// pulse window; act on the rising edge, and never on the level first seen (a
 			// joiner arriving inside a pulse must not press a button it never touched)
@@ -214,7 +223,20 @@ export function registerNodes(api, game) {
 		const left = game.secondsLeft();
 		const score = [game.scoreLine(), touch, ...(left == null ? [] : [Math.ceil(left) + 's left']), ...(game.state.outcome ? [game.outcomeText()] : [])];
 		const log = game.matchLog().slice(-8).reverse().map((m) => 'RED ' + m.red + ' — ' + m.blue + ' BLUE · ' + m.winner);
-		const key = JSON.stringify([rows, score, log]);
+		// 30: the scoreboard clock, one m:ss row (pushed only when a clockElement is named)
+		const clock = data.clockElement ? [matchClock(game.rules(), game.elapsed())] : [];
+		// 30: the scoreboard's ticker — last touch (the score is the board's own numbers); 30b:
+		// who kicks off during a countdown, and the golden goal once it is on
+		const phase = game.phase();
+		const line = game.golden()
+			? 'GOLDEN GOAL — next goal wins'
+			: phase === 'countdown'
+				? (game.state.kickTeam === 'blue' ? 'Blue' : 'Red') + ' kicks off'
+				: phase === 'celebrate'
+					? 'GOAL!'
+					: touch;
+		const ticker = data.tickerElement ? [line] : [];
+		const key = JSON.stringify([rows, score, log, clock, ticker]);
 		if (key === lastRows) return;
 		lastRows = key;
 		// an element field may name SEVERAL lists (comma-separated): the menu's sheet and
@@ -225,6 +247,8 @@ export function registerNodes(api, game) {
 		each(data.element, rows);
 		each(data.scoreElement, score);
 		each(data.logElement, log);
+		if (data.clockElement) each(data.clockElement, clock);
+		if (data.tickerElement) each(data.tickerElement, ticker);
 	});
 
 	// ---- the readable half: a number a core HUD Text / Compare can consume --------------------

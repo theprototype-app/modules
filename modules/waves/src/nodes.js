@@ -12,11 +12,17 @@
 
 import { DEFAULTS } from './curve.js';
 
-export const READS = ['wave', 'left', 'size', 'waves', 'done'];
-export const EVENTS = ['wave', 'over', 'start'];
+export const READS = ['wave', 'left', 'size', 'waves', 'done', 'level'];
+export const EVENTS = ['wave', 'over', 'start', 'level', 'breach'];
+/** 30b: what THIS player's own state reads — LOCAL values (each peer shows its own) */
+export const PLAYER_READS = ['ability', 'heat', 'score', 'best'];
 
-/** @param {any} api @param {ReturnType<import('./engine.js').createWavesEngine>} engine */
-export function registerNodes(api, engine) {
+/**
+ * @param {any} api @param {ReturnType<import('./engine.js').createWavesEngine>} engine
+ * @param {Record<string, () => number>} [player] the local reads, filled in once the gun and the
+ *   ability exist (30b)
+ */
+export function registerNodes(api, engine, player = {}) {
 	api.registerNodeGroup({
 		group: 'Waves',
 		items: [
@@ -33,7 +39,11 @@ export function registerNodes(api, engine) {
 					{ key: 'speed', kind: 'range', min: 0.1, max: 20, step: 0.1 },
 					{ key: 'stagger', kind: 'range', min: 0, max: 10, step: 0.1 },
 					{ key: 'reach', kind: 'range', min: 0.5, max: 10, step: 0.5 },
-					{ key: 'spawnPrefix', kind: 'text', placeholder: 'Spawn', maxLength: 40 }
+					{ key: 'spawnPrefix', kind: 'text', placeholder: 'Spawn', maxLength: 40 },
+					// 30b: levels (every N waves; 0 = none), their speed-up, and the breach
+					{ key: 'perLevel', kind: 'range', min: 0, max: 10, step: 1 },
+					{ key: 'levelSpeed', kind: 'range', min: 0, max: 0.5, step: 0.01 },
+					{ key: 'breach', kind: 'toggle' }
 				]
 			},
 			{
@@ -44,6 +54,24 @@ export function registerNodes(api, engine) {
 					{ key: 'name', kind: 'text', placeholder: DEFAULTS.name, maxLength: 40 },
 					{ key: 'read', kind: 'select', options: READS }
 				]
+			},
+			{
+				// 30: the goal's crystal glows with a 0..1 value (fx.js) — the player's health
+				type: 'wavescore',
+				label: 'Goal Core',
+				defaults: { value: 1, floor: 0.15, spin: 0.6 },
+				params: [
+					{ key: 'floor', kind: 'range', min: 0, max: 1, step: 0.05 },
+					{ key: 'spin', kind: 'range', min: 0, max: 4, step: 0.1 }
+				]
+			},
+			{
+				// 30b: THIS player's gun and ability, for the HUD's bars (a local value: each
+				// peer shows its own charge and heat)
+				type: 'wavesplayer',
+				label: 'Waves Player',
+				defaults: { read: 'ability' },
+				params: [{ key: 'read', kind: 'select', options: PLAYER_READS }]
 			},
 			{
 				type: 'wavesevent',
@@ -76,6 +104,8 @@ export function registerNodes(api, engine) {
 					return s.curve.waves;
 				case 'done':
 					return s.done ? 1 : 0;
+				case 'level':
+					return s.level ?? 1;
 				default:
 					return s.wave;
 			}
@@ -83,4 +113,12 @@ export function registerNodes(api, engine) {
 		{ vtype: 'number' }
 	);
 	api.registerValueNode('wavesevent', () => 0, { vtype: 'event' });
+	api.registerValueNode(
+		'wavesplayer',
+		(/** @type {any} */ data) => {
+			const fn = player[String(data?.read ?? 'ability')];
+			return typeof fn === 'function' ? Number(fn()) || 0 : 0;
+		},
+		{ vtype: 'number' }
+	);
 }

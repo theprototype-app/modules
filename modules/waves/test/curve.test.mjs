@@ -50,4 +50,11 @@ export function run(check) {
 	check(log.length === 1, 'appending the same run twice keeps one (idempotent by `at`)');
 	check(appendRun(log, { ...e, at: 6 }).length === 2, 'a different run appends');
 	check(appendRun(Array.from({ length: 60 }, (_, i) => ({ at: i })), { ...e, at: 999 }).length === 50, 'capped at 50');
+	// 30: one round, two last-hit stamps (a knock on a dead enemy after the last kill) -> ONE run
+	const r1 = runEntry({ at: 10542.71, round: 777, waves: 3, reached: 3, cleared: true, rows: [] });
+	const r2 = runEntry({ at: 10542.711, round: 777, waves: 3, reached: 3, cleared: true, rows: [] });
+	const twice = appendRun(appendRun([], r1), r2);
+	check(twice.length === 1 && twice[0].at === 10542.711, 'the same ROUND logged with two stamps keeps ONE entry (the later)');
+	check(appendRun(twice, runEntry({ at: 20, round: 778, waves: 3, reached: 3, cleared: true, rows: [] })).length === 2, '  a new round appends');
+	check(!('round' in runEntry({ at: 1, waves: 1, reached: 1, cleared: true, rows: [] })), '  an entry without a round carries no round field (old logs unchanged)');
 }

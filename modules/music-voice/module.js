@@ -1171,7 +1171,7 @@ function voiceFrame(api, time) {
 export default {
 	id: 'music-voice',
 	name: 'Music Voice',
-	version: '0.1.0',
+	version: '0.1.1',
 	description: 'A Mic, a Looper, a Synth and a Theremin on the engine: sing into the graph, loop what is patched in on the bar, play chords, wave a hand.',
 	/** @param {any} api */
 	register(api) {
@@ -1192,15 +1192,20 @@ export default {
 			})
 			.catch(() => {});
 
-		api.registerClickHandler((/** @type {any} */ object) => {
-			const device = deviceRootOf(object);
-			const kind = device?.userData?.device?.kind;
-			if (!kind) return false;
-			if (kind === KINDS.mic) return clickMic(api, device, object);
-			if (kind === KINDS.looper) return clickLooper(api, device, object);
-			if (kind === KINDS.synth) return clickSynth(api, device, object);
-			return false;
-		});
+		// PLAY pieces (the mic's and looper's buttons, the synth keys): Interact and Play.
+		// In Edit a click selects the device.
+		api.registerClickHandler(
+			(/** @type {any} */ object) => {
+				const device = deviceRootOf(object);
+				const kind = device?.userData?.device?.kind;
+				if (!kind) return false;
+				if (kind === KINDS.mic) return clickMic(api, device, object);
+				if (kind === KINDS.looper) return clickLooper(api, device, object);
+				if (kind === KINDS.synth) return clickSynth(api, device, object);
+				return false;
+			},
+			{ modes: ['interact', 'play'] }
+		);
 		api.registerFrameTask((/** @type {number} */ time) => voiceFrame(api, time));
 
 		api.registerMenu('Music Voice: demo', () => {

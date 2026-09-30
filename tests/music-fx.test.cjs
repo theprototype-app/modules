@@ -509,5 +509,51 @@ h.run(async () => {
 	const heardC = await measure(C, { ms: 600 });
 	h.check(heardC.peak > SILENT * 10 && heardC.centroid < openOnB.centroid * 0.5, '11.4 C hears the chain, low-passed (peak ' + fmt(heardC.peak) + ', centroid ' + Math.round(heardC.centroid) + ' Hz)');
 
+	// ---------------------------------------------------------------- section 12
+	// 30b: the footswitch and the mute BUTTONS answer a click (so core's VR sweep, which fires
+	// a device's click, can flip them) — through the module's own registered click handler,
+	// the path a mouse click in Interact and a sweep both take.
+	console.log('\n=== 12. the footswitch and the mute buttons ===');
+	const clickPart = (page, uuid, name) =>
+		inPage(page, "const g = s.objectsGroup; let root; g.subscribe((v) => (root = v))(); const dev = root.getObjectByProperty('uuid', arg.uuid); const part = dev && dev.getObjectByName(arg.name); return part ? s.moduleSDK.runClickHandlers(part, 'interact', { source: 'sweep' }) : 'no part';", { uuid, name });
+	const partLook = (page, uuid, name) =>
+		inPage(page, "const g = s.objectsGroup; let root; g.subscribe((v) => (root = v))(); const p = root.getObjectByProperty('uuid', arg.uuid)?.getObjectByName(arg.name); return p ? { hex: p.material.color.getHex(), glow: p.material.emissiveIntensity } : null;", { uuid, name });
+	await uncable(A.page, ids);
+	await setParams(A.page, src, { wave: 'sine', freq: 220, gain: 0.25 });
+	await setParams(A.page, src2, { wave: 'sine', freq: 880, gain: 0.25 });
+	ids = await chain(A.page, [[src, 'out'], [mixer, 'in1']]);
+	ids.push(...(await chain(A.page, [[src2, 'out'], [mixer, 'in2']])));
+	ids.push(...(await chain(A.page, [[mixer, 'out'], [sink, 'in']])));
+	await wait(A.page, 300);
+	const open2 = await measure(A, { ms: 400, hz: [220, 880] });
+	h.check((await clickPart(A.page, mixer, 'mute-2')) === true, '12.1 a click on the mixer strip 2 MUTE BUTTON is handled by the module');
+	await h.eventually(() => docOn(A.page, mixer), (d) => d?.params?.mute2 === true, '12.2 it wrote mute2 = true into the replicated document');
+	await wait(A.page, 250);
+	const btn2 = await measure(A, { ms: 400, hz: [220, 880] });
+	h.check(btn2.levels[880] < open2.levels[880] - 20, '12.3 and channel 2 is silent (880 Hz down ' + fmt(open2.levels[880] - btn2.levels[880], 0) + ' dB)');
+	await h.eventually(() => partLook(B.page, mixer, 'mute-2'), (l) => l && l.hex === 0xef4444, "12.4 the button lights red on B too (it follows B's document)");
+	h.check((await clickPart(A.page, mixer, 'mute-2')) === true, '12.5 a second press is handled');
+	await h.eventually(() => docOn(A.page, mixer), (d) => d?.params?.mute2 === false, '12.6 and un-mutes it');
+	await uncable(A.page, ids);
+	await setParam(A.page, src2, 'gain', 0);
+	ids = await chain(A.page, [src, pedal.distortion, sink]);
+	await setParams(A.page, src, { wave: 'sine', freq: 220, gain: 0.25 });
+	await setParams(A.page, pedal.distortion, { drive: 40, tone: 8000, mix: 1, bypass: false });
+	await wait(A.page, 400);
+	const stompOn = await measure(A, { ms: 500, hfHz: 600 });
+	h.check(stompOn.hf > 0.02, '12.7 (premise) the distortion is on: power above 600 Hz (' + fmt(stompOn.hf, 4) + ')');
+	h.check((await clickPart(A.page, pedal.distortion, 'footswitch')) === true, '12.8 a click on the distortion FOOTSWITCH is handled');
+	await h.eventually(() => docOn(B.page, pedal.distortion), (d) => d?.params?.bypass === true, "12.9 bypass = true reaches B's document");
+	await wait(A.page, 300);
+	const stompOff = await measure(A, { ms: 500, hfHz: 600 });
+	h.check(stompOff.hf < stompOn.hf * 0.2 && stompOff.peak > SILENT * 10, '12.10 stomped off, the sine comes through CLEAN (share ' + fmt(stompOn.hf, 4) + ' -> ' + fmt(stompOff.hf, 5) + ')');
+	h.check((await docOn(A.page, pedal.distortion))?.params?.mix === 1, '12.11 the Mix knob kept its value under the bypass');
+	await h.eventually(() => partLook(A.page, pedal.distortion, 'led'), (l) => l && l.glow < 0.2, '12.12 the LED goes dark');
+	h.check((await clickPart(A.page, pedal.distortion, 'footswitch')) === true, '12.13 a second stomp is handled');
+	await wait(A.page, 400);
+	const stompBack = await measure(A, { ms: 500, hfHz: 600 });
+	h.check(stompBack.hf > stompOn.hf * 0.5, '12.14 and the distortion is back (share ' + fmt(stompBack.hf, 4) + ')');
+	await uncable(A.page, ids);
+
 	await h.finish(browser);
 });

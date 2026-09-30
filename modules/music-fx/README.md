@@ -29,6 +29,14 @@ are for, and every peer watches them move.
 `in → dry → out` and `in → effect → wet → out`. `mix` 0 is a bypass, `mix` 1 is fully
 wet. The filter defaults to fully wet; the others to a blend.
 
+## Stomp it, mute it (0.2.0)
+
+Every pedal has a `bypass` toggle: a click on its footswitch (or the LED) stomps it, fully
+dry whatever Mix says, and the LED goes dark. Each mixer strip has a mute button at the
+front edge. Both write the device's own params, so a stomp replicates, saves and undoes
+like any knob — and in VR a held-trigger SWEEP across the footswitches or the mute buttons
+flips each one it passes.
+
 ## A knob is a param write, never a rebuild
 
 Every `onParam` glides an `AudioParam` on the running graph (`setTargetAtTime`, ~15 ms).

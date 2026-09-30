@@ -20,7 +20,7 @@ import { GROUP_NAME } from './contract.js';
 export default {
 	id: 'dungeon',
 	name: 'Dungeon Kit',
-	version: '2.0.0',
+	version: '2.2.1',
 	description:
 		'Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) with a toolbox, a Dungeon node and the userData.play contract the app walks in play mode. The playable game is Dungeon Realms.',
 
@@ -31,6 +31,8 @@ export default {
 		const toolbox = registerToolbox(api, core);
 
 		api.registerSystemGroup(GROUP_NAME); // visible under the System filter
+		api.registerInteractiveGroup(GROUP_NAME); // 30: an Edit click on it selects its proxy
+		api.registerListedGroup?.(GROUP_NAME, { label: 'Dungeon' }); // 30: its object-list row
 		core.ensureGroup(); // the persistent group exists from the first frame
 
 		api.onMessage((data) => core.handleMessage(data));

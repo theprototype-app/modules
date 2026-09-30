@@ -55,6 +55,15 @@ function hash32(seed, ...parts) {
 }
 
 // modules/dungeon-realms/src/overlay.js
+var GEM_GLOW = 2.4;
+var PORTAL_GLOW = 2.2;
+function paintRing(ring, hex, glow) {
+  ring.material.color.setHex(hex);
+  if (ring.material.emissive) {
+    ring.material.emissive.setHex(hex);
+    ring.material.emissiveIntensity = glow;
+  }
+}
 function buildOverlay(THREE, play, collected) {
   const group = new THREE.Group();
   const theme = play.theme ?? {};
@@ -63,7 +72,7 @@ function buildOverlay(THREE, play, collected) {
   const gemWorld = gems.map((p) => ({ x: p.wx, y: 0.55, z: p.wz, index: p.index }));
   const gemMesh = new THREE.InstancedMesh(
     new THREE.OctahedronGeometry(0.17, 0),
-    new THREE.MeshBasicMaterial({ color: gemColor }),
+    new THREE.MeshStandardMaterial({ color: gemColor, emissive: gemColor, emissiveIntensity: GEM_GLOW, roughness: 0.25, metalness: 0.1 }),
     Math.max(1, gemWorld.length)
   );
   gemMesh.name = "dr-gems";
@@ -73,7 +82,10 @@ function buildOverlay(THREE, play, collected) {
     const portalGroup = new THREE.Group();
     portalGroup.name = "dr-portal-" + portal.kind;
     portalGroup.position.set(portal.wx, 0, portal.wz);
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.1, 10, 36), new THREE.MeshBasicMaterial({ color: 5593702 }));
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.05, 0.1, 10, 36),
+      new THREE.MeshStandardMaterial({ color: 5593702, emissive: 5593702, emissiveIntensity: 0.3, roughness: 0.4, metalness: 0.3 })
+    );
     ring.name = "dr-portal-ring";
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.1;
@@ -84,7 +96,14 @@ function buildOverlay(THREE, play, collected) {
     disc.name = "dr-portal-disc";
     disc.rotation.x = -Math.PI / 2;
     disc.position.y = 0.08;
-    portalGroup.add(ring, disc);
+    const column = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 0.9, 2.6, 28, 1, true),
+      new THREE.MeshBasicMaterial({ color: 3793151, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending })
+    );
+    column.name = "dr-portal-column";
+    column.position.y = 1.35;
+    column.visible = false;
+    portalGroup.add(ring, disc, column);
     portalGroup.userData.portal = { kind: portal.kind, gated: portal.gated };
     group.add(portalGroup);
   }
@@ -109,7 +128,12 @@ function setPortalSealed(group, sealed, theme) {
   if (portal) {
     const ring = portal.getObjectByName("dr-portal-ring");
     const disc = portal.getObjectByName("dr-portal-disc");
-    if (ring) ring.material.color.setHex(sealed ? 5593702 : 3793151);
+    if (ring) paintRing(ring, sealed ? 5593702 : 3793151, sealed ? 0.3 : PORTAL_GLOW);
+    const column = portal.getObjectByName("dr-portal-column");
+    if (column) {
+      column.visible = !sealed;
+      column.material.color.setHex(theme?.gemColor ?? 3793151);
+    }
     if (disc) {
       disc.material.color.setHex(sealed ? 3752016 : theme?.gemColor ?? 3793088);
       disc.material.opacity = sealed ? 0.35 : 0.75;
@@ -118,7 +142,8 @@ function setPortalSealed(group, sealed, theme) {
   }
   const down = group.getObjectByName("dr-portal-down");
   if (down) {
-    down.getObjectByName("dr-portal-ring")?.material.color.setHex(3776767);
+    const downRing = down.getObjectByName("dr-portal-ring");
+    if (downRing) paintRing(downRing, 3776767, PORTAL_GLOW * 0.6);
     down.userData.portal.sealed = false;
   }
 }
@@ -143,8 +168,16 @@ function animateOverlay(THREE, group, collected, time) {
   }
   group.children.forEach((child) => {
     if (child.name === "dr-portal-up" || child.name === "dr-portal-down") {
+      const open = child.userData.portal?.sealed === false;
       const ring = child.getObjectByName("dr-portal-ring");
-      if (ring && child.userData.portal?.sealed === false) ring.rotation.z = time * 0.8;
+      if (ring && open) ring.rotation.z = time * 0.8;
+      const disc = child.getObjectByName("dr-portal-disc");
+      if (disc && open) disc.material.opacity = 0.6 + Math.sin(time * 2.4) * 0.15;
+      const column = child.getObjectByName("dr-portal-column");
+      if (column?.visible) {
+        column.material.opacity = 0.16 + Math.sin(time * 3.1) * 0.06;
+        column.rotation.y = time * 0.5;
+      }
     }
   });
 }
@@ -303,6 +336,107 @@ function winFanfare() {
   tone(1568, 0.9, "sine", 0.64, 0.2);
 }
 
+// modules/dungeon-realms/src/juice.js
+function standable(play, x, z, r = 0.3) {
+  const { grid, width, height, minX, minY, floorValue } = play;
+  for (const [ox, oz] of [[-r, -r], [r, -r], [-r, r], [r, r]]) {
+    const cx = Math.floor(x + ox - minX);
+    const cz = Math.floor(z + oz - minY);
+    if (cx < 0 || cz < 0 || cx >= width || cz >= height) return false;
+    if (grid[cz * width + cx] !== floorValue) return false;
+  }
+  return true;
+}
+function yawFacing(dx, dz) {
+  return Math.atan2(-dx, -dz);
+}
+function clearDistance(play, x, z, dx, dz, max = 12) {
+  let d = 0;
+  while (d < max && standable(play, x + dx * (d + 0.25), z + dz * (d + 0.25))) d += 0.25;
+  return d;
+}
+function bestFacing(play, x, z) {
+  let best = { dx: 0, dz: -1, dist: -1 };
+  for (let i = 0; i < 16; i++) {
+    const a = i / 16 * Math.PI * 2;
+    const dx = Math.round(Math.sin(a) * 1e9) / 1e9, dz = Math.round(-Math.cos(a) * 1e9) / 1e9;
+    const dist = clearDistance(play, x, z, dx, dz);
+    if (dist > best.dist) best = { dx, dz, dist };
+  }
+  return best;
+}
+function spawnFor(play, slot = 0) {
+  if (!play?.grid || !play.rooms?.length) return null;
+  const down = (play.portals ?? []).find((p) => p.kind === "down");
+  const entrance = play.rooms[0];
+  let x = down ? down.wx : entrance.cx, z = down ? down.wz : entrance.cz;
+  let face = bestFacing(play, x, z);
+  if (down) {
+    let best = null;
+    for (let i = 0; i < 8; i++) {
+      const a = i / 8 * Math.PI * 2;
+      const cx = down.wx + Math.sin(a) * 1.6, cz = down.wz - Math.cos(a) * 1.6;
+      if (!standable(play, cx, cz)) continue;
+      const f = bestFacing(play, cx, cz);
+      if (!best || f.dist > best.f.dist) best = { x: cx, z: cz, f };
+    }
+    if (best) ({ x, z, f: face } = best);
+  }
+  if (slot > 0) {
+    const side = slot % 2 === 1 ? 1 : -1;
+    const k = Math.ceil(slot / 2) * 0.8;
+    const sx = x - face.dz * side * k, sz = z + face.dx * side * k;
+    if (standable(play, sx, sz)) {
+      x = sx;
+      z = sz;
+    } else if (standable(play, x + face.dz * side * k, z - face.dx * side * k)) {
+      x += face.dz * side * k;
+      z -= face.dx * side * k;
+    }
+  }
+  return { position: [x, 0, z], yaw: yawFacing(face.dx, face.dz) };
+}
+var STRIDE = 0.75;
+function footstep(s, pos) {
+  if (s.x == null || s.z == null) {
+    s.x = pos.x;
+    s.z = pos.z;
+    s.walked = 0;
+    return false;
+  }
+  const d = Math.hypot(pos.x - s.x, pos.z - s.z);
+  s.x = pos.x;
+  s.z = pos.z;
+  if (d > 3) {
+    s.walked = 0;
+    return false;
+  }
+  s.walked = (s.walked ?? 0) + d;
+  if (s.walked >= STRIDE) {
+    s.walked -= STRIDE;
+    return true;
+  }
+  return false;
+}
+function feel(event, ctx2 = {}) {
+  switch (event) {
+    case "gem":
+      return { sound: "coin", burst: { kind: "sparkle", color: ctx2.color, count: 24 }, haptic: ctx2.local ? "success" : null };
+    case "unseal":
+      return { sound: "portal", burst: { kind: "sparks", color: ctx2.color, count: 40 }, haptic: ctx2.local ? "bump" : null, announce: { text: "The portal unseals!", sub: "Step onto it together" } };
+    case "floor":
+      return { sound: "levelup", announce: { text: "Floor " + ctx2.floor, sub: ctx2.name } };
+    case "start":
+      return { sound: "success", music: "dungeon", announce: { text: "Floor " + (ctx2.floor ?? 1), sub: ctx2.name } };
+    case "victory":
+      return { sound: "cheer", burst: { kind: "confetti", count: 80 }, haptic: ctx2.local ? "success" : null, announce: { text: "The hoard is yours!", sub: "Every floor cleared" } };
+    case "step":
+      return { sound: "step" };
+    default:
+      return {};
+  }
+}
+
 // modules/dungeon-realms/src/game.js
 var GROUP_NAME = "dungeon-realms";
 var KIT_GROUP = "dungeon-module";
@@ -341,7 +475,9 @@ function createGame(api) {
       /** @type {boolean | undefined} */
       void 0
     ),
-    _menuSuppressed: false
+    _menuSuppressed: false,
+    /** 30b: the last spawn handed to core (the flight reads it) @type {any} */
+    spawn: null
   };
   const config = {
     rules: { ...DEFAULT_RULES },
@@ -351,6 +487,9 @@ function createGame(api) {
   };
   let guiDirty = true;
   let playingNow = false;
+  const stepClock = {};
+  let musicOn = false;
+  const fxLog = [];
   let groundedSent = (
     /** @type {boolean | null} */
     null
@@ -363,6 +502,78 @@ function createGame(api) {
   const kit = () => kitGroup()?.userData?.kit ?? null;
   const play = () => kitGroup()?.userData?.play ?? null;
   const group = () => api.scene()?.getObjectByName(GROUP_NAME) ?? null;
+  const _v = new THREE.Vector3();
+  function toLocal(p) {
+    const k = kitGroup();
+    _v.set(p[0], p[1], p[2]);
+    if (k) {
+      k.updateWorldMatrix(true, false);
+      k.worldToLocal(_v);
+    }
+    return { x: _v.x, y: _v.y, z: _v.z };
+  }
+  function toWorld(x, y, z) {
+    const k = kitGroup();
+    _v.set(x, y, z);
+    if (k) {
+      k.updateWorldMatrix(true, false);
+      k.localToWorld(_v);
+    }
+    return [_v.x, _v.y, _v.z];
+  }
+  function play_(event, ctx2 = {}, at = null) {
+    const f = (
+      /** @type {any} */
+      feel(
+        /** @type {any} */
+        event,
+        ctx2
+      )
+    );
+    if (f.sound) {
+      if (api.music) api.playSound?.(f.sound, at ?? void 0);
+      else if (f.sound === "coin") gemChime(state.combo);
+      else if (f.sound === "portal") sealBreak();
+      else if (f.sound === "levelup") portalWhoosh();
+      else if (f.sound === "success") startThump();
+      else if (f.sound === "cheer") winFanfare();
+    }
+    if (f.burst && at) api.effects?.burst?.(at, { kind: f.burst.kind, count: f.burst.count, ...f.burst.color != null ? { color: f.burst.color } : {} });
+    if (f.haptic) {
+      if (typeof api.hapticPattern === "function") api.hapticPattern(f.haptic);
+      else api.haptic?.(0.6, 60);
+    }
+    if (f.announce) {
+      if (typeof api.announce === "function") api.announce(f.announce.text, f.announce.sub ? { sub: f.announce.sub } : {});
+      else if (event !== "start") api.toast(f.announce.text + (f.announce.sub ? " \u2014 " + f.announce.sub : ""));
+    }
+    if (f.music) setMusic(true);
+    fxLog.push({ event, sound: f.sound, burst: f.burst?.kind, haptic: f.haptic ?? null, announce: f.announce?.text, at: api.now() });
+    if (fxLog.length > 40) fxLog.shift();
+  }
+  function setMusic(on) {
+    if (!api.music) return;
+    if (on) {
+      if (musicOn && (typeof api.music.current === "function" ? api.music.current() : "dungeon") === "dungeon") return;
+      musicOn = api.music.play?.("dungeon", { volume: 0.5 }) !== false;
+    } else if (musicOn) {
+      musicOn = false;
+      api.music.stop?.();
+    }
+  }
+  function mySlot() {
+    if (state.slots.p2?.peerId === me()) return 1;
+    return 0;
+  }
+  function placeSpawn(teleport) {
+    if (typeof api.setSpawn !== "function") return false;
+    const p = play();
+    const spawn = spawnFor(p, mySlot());
+    if (!spawn) return false;
+    const [x, y, z] = toWorld(spawn.position[0], spawn.position[1], spawn.position[2]);
+    state.spawn = { position: [x, y, z], yaw: spawn.yaw, floor: p.floorIndex, teleport };
+    return api.setSpawn([x, y, z], spawn.yaw, { teleport });
+  }
   const gemCount = (floor = state.floorIndex) => {
     if (floor === state.floorIndex) return (play()?.props ?? []).filter((p) => p.kind === "gem").length;
     const dungeon = kit()?.campaign?.()?.floors[floor - 1];
@@ -467,12 +678,12 @@ function createGame(api) {
       state.onPortal = {};
       state.myOnPortal = false;
       state._wasSealed = void 0;
-      portalWhoosh();
-      api.toast("LEVEL " + p.floorIndex + " / " + p.levelCount + " \u2014 " + p.name);
+      play_("floor", { floor: p.floorIndex, name: p.name });
     }
     state.floorIndex = p.floorIndex;
     state.checksum = p.checksum;
     rebuild();
+    placeSpawn(!newWorld && playingNow);
     guiDirty = true;
   }
   function newDungeon(seed) {
@@ -495,8 +706,9 @@ function createGame(api) {
       const wasSealed = state._wasSealed ?? true;
       const nowSealed = sealed();
       if (wasSealed && !nowSealed && !topFloor()) {
-        sealBreak();
-        api.toast("The portal unseals!");
+        const portal = g.getObjectByName("dr-portal-up");
+        const pp = portal ? toWorld(portal.position.x, 0.6, portal.position.z) : null;
+        play_("unseal", { local: broadcast, color: play()?.theme?.gemColor }, pp);
         setPortalSealed(g, false, play()?.theme);
         if (broadcast) eventSink?.("unseal");
       }
@@ -507,14 +719,17 @@ function createGame(api) {
       const now = api.now();
       state.combo = now - state.lastGemAt < 4 ? state.combo + 1 : 0;
       state.lastGemAt = now;
-      gemChime(state.combo);
       api.send({ op: "gem", floor, index });
       eventSink?.("gem");
+    }
+    if (floor === state.floorIndex) {
+      const gem = g?.userData._dr?.gemWorld?.find((e) => e.index === index);
+      play_("gem", { local: broadcast, color: play()?.theme?.gemColor }, gem ? toWorld(gem.x, gem.y, gem.z) : null);
     }
     guiDirty = true;
     if (floor === state.floorIndex && topFloor() && state.started && !state.wonAt && !sealed()) {
       state.wonAt = api.now();
-      winFanfare();
+      play_("victory", { local: broadcast }, playerAt());
       if (broadcast) eventSink?.("victory");
       guiDirty = true;
     }
@@ -544,15 +759,24 @@ function createGame(api) {
   }
   function start(broadcast = true) {
     if (state.seed == null || state.started) return;
+    if (broadcast && !Object.values(state.slots).some((s) => s?.peerId === me())) {
+      const free = ["p1", "p2"].find((slot) => !state.slots[slot]);
+      if (free) claimSlot(free);
+    }
     state.started = true;
     state.startedAt = api.now();
     state.wonAt = 0;
-    startThump();
+    onStarted();
     guiDirty = true;
     if (broadcast) {
       api.send({ op: "start" });
       eventSink?.("start");
     }
+  }
+  function onStarted() {
+    const p = play();
+    placeSpawn(playingNow);
+    play_("start", { floor: p?.floorIndex ?? 1, name: p?.name });
   }
   function reset(broadcast = true) {
     state.started = false;
@@ -579,7 +803,12 @@ function createGame(api) {
     if (id === "join-p1") claimSlot("p1");
     else if (id === "join-p2") claimSlot("p2");
     else if (id === "start") start();
-    else if (id === "resume") {
+    else if (id === "quit") {
+      if (state.started || state.wonAt) {
+        reset();
+        eventSink?.("reset");
+      }
+    } else if (id === "resume") {
       state._menuSuppressed = true;
       guiDirty = true;
     } else if (id === "new-dungeon" || id === "play-again" || id === "generate") {
@@ -655,6 +884,7 @@ function createGame(api) {
     } else hideMenu();
   }
   function isPlaying() {
+    if (api.editorMode?.() === "interact") return true;
     if (typeof api.isPlaying === "function") return !!api.isPlaying();
     const minimap = typeof document !== "undefined" ? document.getElementById("dungeon-minimap") : null;
     return !!minimap && !minimap.classList.contains("hidden");
@@ -662,10 +892,14 @@ function createGame(api) {
   function playerXZ() {
     if (typeof api.playerPosition === "function") {
       const p = api.playerPosition();
-      if (p) return { x: p[0], y: p[1], z: p[2] };
+      if (p) return toLocal(p);
     }
     const origin = api.pointerRay()?.ray?.origin;
-    return origin ? { x: origin.x, y: origin.y, z: origin.z } : null;
+    return origin ? toLocal([origin.x, origin.y, origin.z]) : null;
+  }
+  function playerAt() {
+    const p = typeof api.playerPosition === "function" ? api.playerPosition() : null;
+    return p ? [p[0], p[1], p[2]] : null;
   }
   function tick(time) {
     observe();
@@ -673,8 +907,11 @@ function createGame(api) {
     if (playing !== playingNow) {
       playingNow = playing;
       if (!playing) state._menuSuppressed = false;
+      stepClock.x = stepClock.z = void 0;
+      if (playing && state.started && !state.wonAt) placeSpawn(false);
       guiDirty = true;
     }
+    setMusic(playing && state.seed != null);
     const grounded = !!config.rules.disableFlight;
     if (grounded !== groundedSent && kit()) {
       kit().setGrounded?.(grounded);
@@ -685,6 +922,7 @@ function createGame(api) {
     if (playingNow && state.started && !state.wonAt && g) {
       const pos = playerXZ();
       if (pos) {
+        if (footstep(stepClock, pos)) play_("step", {}, toWorld(pos.x, 0, pos.z));
         const gems = g.userData._dr?.gemWorld ?? [];
         const set = collectedSet();
         const r2 = config.rules.pickupRadius * config.rules.pickupRadius;
@@ -716,6 +954,7 @@ function createGame(api) {
     else if (data.op === "start") {
       state.started = true;
       state.startedAt = api.now();
+      onStarted();
       guiDirty = true;
     } else if (data.op === "reset") {
       state.started = false;
@@ -784,6 +1023,8 @@ function createGame(api) {
     players,
     objective,
     isPlaying,
+    placeSpawn,
+    fxLog,
     markGuiDirty: () => guiDirty = true,
     /** @param {(event: string) => void} fn */
     onEvent: (fn) => eventSink = fn
@@ -795,10 +1036,12 @@ var EXPIRE_FRAMES = 40;
 var EVENTS = ["start", "gem", "unseal", "travel", "victory", "reset"];
 var READS = ["gems", "need", "total", "level", "levels", "players", "started", "won", "sealed", "score"];
 var ROWS = ["objective", "players", "level", "gems", "all"];
+var BUTTON_ACTIONS = ["join-p1", "join-p2", "start", "new-dungeon", "quit"];
 function registerNodes(api, game) {
   let frame = 0;
   const seen = { rules: -1, menu: -1 };
   const propSeen = {};
+  const pressLevel = /* @__PURE__ */ new Map();
   const MENU_OPTIONS = ["none", "join-p1", "join-p2", "start", "resume", "new-dungeon"];
   api.registerNodeGroup({
     group: "Dungeon Realms",
@@ -852,6 +1095,14 @@ function registerNodes(api, game) {
         ]
       },
       {
+        // 30: the menu on core HUD screens — a HUD Button (through a Delay, DEVX #22) or an
+        // On Click pulses `press`, and the action runs on the presser's peer
+        type: "drbutton",
+        label: "Realms Button",
+        defaults: { action: "start", press: 0 },
+        params: [{ key: "action", kind: "select", options: BUTTON_ACTIONS }]
+      },
+      {
         type: "drevent",
         label: "Realms Event",
         defaults: { event: "start" },
@@ -898,6 +1149,20 @@ function registerNodes(api, game) {
       game.markGuiDirty();
     }
   });
+  api.registerEffect(
+    "drbutton",
+    (object, base, data, time, ctx2) => {
+      const level = Number(data.press) > 0 ? 1 : 0;
+      const key = ctx2?.id ?? object.uuid;
+      const was = pressLevel.get(key);
+      pressLevel.set(key, level);
+      if (was === void 0 || was === level || level !== 1) return;
+      const action = BUTTON_ACTIONS.includes(data.action) ? data.action : "start";
+      game.menuAction(action);
+    },
+    // 'number': a Delay's pulse, an On Click, a Compare all drive it (DEVX #22)
+    { inputs: { press: "number" } }
+  );
   const lastRows = {};
   api.registerEffect("drrows", (object, base, data, time, ctx2) => {
     if (!api.hud?.rows) return;
@@ -916,7 +1181,7 @@ function registerNodes(api, game) {
     const { total, need, have } = game.gemTotals();
     const level = p ? "LEVEL " + s.floorIndex + " / " + s.levelCount + " \xB7 " + p.name : "no dungeon";
     const gems = have + " / " + need + " needed \xB7 " + total + " hidden";
-    const players = ["p1", "p2"].filter((slot) => s.slots[slot]).map((slot) => slot.toUpperCase() + " " + s.slots[slot].name + (s.slots[slot].peerId === (api.peerId() ?? "me") ? " (you)" : ""));
+    const players = ["p1", "p2"].filter((slot) => s.slots[slot]).map((slot) => slot.toUpperCase() + " \u2014 " + (s.slots[slot].peerId === (api.peerId() ?? "me") ? "you" : s.slots[slot].name));
     const props = Object.entries(game.config.props).filter(([, def]) => def.showInHud).map(([name, def]) => name + ": " + (s.propValues[name] ?? def.initial ?? 0));
     if (show === "objective") return p ? [game.objective()] : [];
     if (show === "players") return players;
@@ -984,7 +1249,7 @@ function registerNodes(api, game) {
 var index_default = {
   id: "dungeon-realms",
   name: "Dungeon Realms",
-  version: "2.0.0",
+  version: "2.2.0",
   description: 'Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors \u2014 every rule and readout a flow node. Requires the "dungeon" (Dungeon Kit) module.',
   /** @param {any} api the module SDK surface */
   register(api) {
@@ -992,6 +1257,7 @@ var index_default = {
     const nodes = registerNodes(api, game);
     api.registerSystemGroup(GROUP_NAME);
     api.registerInteractiveGroup(GROUP_NAME);
+    api.registerListedGroup?.(GROUP_NAME, { label: "Dungeon Realms" });
     api.registerMenu("Generate dungeon", () => {
       const seed = hash32(api.now() * 1e3 | 0, "menu") % 1e5;
       if (game.newDungeon(seed)) api.toast("Dungeon Realms seed " + seed + " \u2014 press the red Play button to start");
@@ -1027,7 +1293,7 @@ var index_default = {
         api.toast("Sealed \u2014 collect " + (need - have) + " more gem" + (need - have === 1 ? "" : "s"));
       } else game.travel(game.state.floorIndex + 1);
       return true;
-    });
+    }, { modes: ["interact", "play"] });
     api.onMessage((data) => game.handleMessage(data));
     api.registerStateSync({
       getState: () => game.getState(),
@@ -1050,7 +1316,7 @@ var index_default = {
       { label: "Menu \u2014 confirm", keys: "Enter" }
     ]);
     if (typeof window !== "undefined") {
-      window.__dungeonRealms = { game, nodes };
+      window.__dungeonRealms = { game, nodes, api };
     }
   }
 };

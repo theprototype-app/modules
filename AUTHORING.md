@@ -115,7 +115,7 @@ file automatically, but **URL installs only fetch what `files` names**.
 | Field | Contract |
 |---|---|
 | `id` | **required**, must equal the folder name and the `id` in your entry file, and be unique across every module a user might install — it routes your messages |
-| `name`, `version` | **required**; `version` is what peers compare (see §6) |
+| `name`, `version` | **required**; `version` is what peers compare (see §7) |
 | `format` | the manifest format this module targets. The app supports `1`; a **higher** number makes the app ask the user to confirm before installing. Absent = 0 = installs silently |
 | `entry` | defaults to `module.js` |
 | `description` | shown on the card |
@@ -250,8 +250,8 @@ Full signatures live in the docs site; this is the map.
 
 | Group | Calls |
 |---|---|
-| Scene | `scene()`, `objectsGroup()`, `registerPrimitive(name, builder, entry?)`, `registerInteractiveGroup(name)`, `registerSystemGroup(name)`, `onSceneClear(fn)` |
-| Interaction | `registerClickHandler(fn)` (desktop click **and** VR trigger), `pointerRay()`, `registerFrameTask(time => …)` |
+| Scene | `scene()`, `objectsGroup()`, `registerPrimitive(name, builder, entry?)`, `registerInteractiveGroup(name)`, `registerSystemGroup(name)`, `registerListedGroup(name, {label})` (§6), `onSceneClear(fn)` |
+| Interaction | `registerClickHandler(fn, {modes})` (desktop click **and** VR trigger; which editor modes — §6), `pointerRay()` (the crosshair ray in play under a pointer lock), `registerFrameTask(time => …)` |
 | Flow | `registerNodeGroup(group, components?)`, `registerEffect(type, fn)`, `registerNodeDefs(defs)` |
 | Netcode | `send(payload)`, `onMessage(fn)`, `registerStateSync({getState, applyState})`, `peerId()` |
 | Input | `registerBindings(list)`, `input()`, `onInput(fn)`, `claimInput(scope)`, `releaseInput(scope)` |
@@ -268,6 +268,12 @@ Three that are easy to miss:
 - **`registerClickHandler` covers VR too.** You do not write a second input
   path for the headset; the trigger dispatches through the same handler with the
   exact mesh that was hit. Return `true` to consume the click (no selection).
+  On desktop it runs only in the modes you name (§6) — by default Interact and Play,
+  never the editor's select click.
+  It fires on the trigger's `select` — the RELEASE. For a DRAG in VR (press, carry while
+  held, release) poll `api.vrHand(hand)` in a frame task instead (both hands' world poses +
+  trigger), consume core's trailing select in the handler, and pass `{sweep: false}` so a
+  held trigger sweeping across your pieces does not click them — untangle's `vrdrag.js`.
 - **`claimInput('keys' | 'locomotion')` pauses the editor's own consumers** so
   your WASD does not also fly the camera. Always release it when your mode ends,
   including on error paths.
@@ -277,7 +283,69 @@ Three that are easy to miss:
 
 ---
 
-## 6. Versioning and compatibility
+## 6. Edit, Interact, Play
+
+The app has three places a click can come from, and your module decides where
+each of its handlers runs. (Core 1.17, roadmap 30: before it, every module click
+handler heard every EDITOR click, so a piano or a puzzle piece swallowed the select
+and could never be moved.)
+
+| Mode | What a click does | Who hears it |
+|---|---|---|
+| **Edit** (default) | SELECTS; the gizmo moves the selection | only handlers registered with `'edit'` — editor TOOLS |
+| **Interact** (key `I`, the Controls bar toggle) | the play-style click with the cursor: nothing is selected, the scene reacts | handlers with `'interact'`, On Click nodes |
+| **Play** | the crosshair tap, the VR trigger | handlers with `'play'`, On Click nodes |
+
+```js
+api.registerClickHandler(fn, { modes: ['interact', 'play'] }); // a game piece: the default
+api.registerClickHandler(fn, { modes: ['edit'] });             // an editor tool
+```
+
+Leaving `modes` out means `['interact', 'play']`. Say it anyway — a reader then sees
+it was decided, and an older app simply ignores the option. VR's trigger has no editor
+mode yet and still offers every handler.
+
+### What you decide, per module
+
+1. **Is each click handler a game piece or an editor tool?** A key that sounds, a
+   button that presses, a gem that collects, a portal, a claim: a game piece,
+   `['interact', 'play']`. A toolbox's "pick an object", a kit's pick-to-place: an
+   editor tool, `['edit']` — it runs BEFORE the selection, so returning `true` still
+   consumes the click. The one module here that runs in all three is
+   `tutorial-room`: its plinths are a checklist of EDITOR lessons.
+2. **Where does your content live?** Things a user moves, saves and shares go in
+   `objectsGroup()` (a `/create` primitive): they are listed in the scene tree,
+   selected by a click and moved by the gizmo with no work from you — your job is
+   only to keep your handler out of Edit. Derived content you rebuild from module
+   state goes at the scene root (§4.6) and is READ-ONLY to the user.
+3. **Name your scene-root group for a person.** Every group passed to
+   `registerInteractiveGroup` / `registerSystemGroup` is listed in the object list's
+   **Module content** section; `api.registerListedGroup?.(name, {label})` gives the
+   row a readable label ("Piano (module)", "Dungeon") instead of the id. Name the
+   children you want listed (`mesh.name = 'Key C4'`) — unnamed meshes are not rows.
+4. **Should an Edit click on it select it?** Only groups registered with
+   `registerInteractiveGroup` are picked in the viewport: an Edit click on one
+   selects a PROXY that frames it (the gizmo never attaches; the module owns it). A
+   `registerSystemGroup`-only group is listed and framed from the list, not picked.
+
+The scaffold (`modules/_template`, what `npm run new` copies) shows all of it: the
+beacon's handler with `modes` spelled out and the three modes explained, and the
+scene-root recipe with `registerListedGroup`.
+
+### Content that is listed but never click-selectable
+
+| Module | What | Why |
+|---|---|---|
+| `sabers` | the blades | a desk blade lies ALONG the pointer ray, so a click on it would be every click; listed (`Sabers`) and framed from the list |
+| `avatar`, `flow-toolkit` | — | no scene content of their own (possession acts on your object; node definitions only) |
+
+`tests/modes-audit.test.cjs` measures every module against this: listed, selected by
+a real click in Edit, moved by a real gizmo drag (or read-only for scene-root
+content), quiet in Edit, working in Interact and in Play.
+
+---
+
+## 7. Versioning and compatibility
 
 - Bump `version` in `manifest.json` **and** in the entry file's export — the
   entry's value is what peers compare. Keeping them equal is on you.
@@ -292,7 +360,7 @@ Three that are easy to miss:
 
 ---
 
-## 7. Testing your module
+## 8. Testing your module
 
 ### Live reload while you build
 
@@ -356,10 +424,106 @@ recipe and the `window.__stores` debug hook the checks read.
 - [ ] `api.onSceneClear` removes your scene-root content and resets state.
 - [ ] `npm run pack` succeeds (no top-level imports, manifest matches folder).
 - [ ] Works with a mouse **and** with the VR trigger, if it is clickable.
+- [ ] Every click handler names its `modes` (§6), and an Edit click still selects
+      (or, for scene-root content, lists and frames) everything you made.
 
 ---
 
-## 8. Friction log
+## 8a. A game template that looks finished (roadmap 30)
+
+A module that ships a Games-tab template (football, dungeon-realms, waves, untangle) owns a
+`<id>.def.json` the core author script builds (`npm run build:<id>` emits it; core's
+`scripts/author-templates.cjs` has THE DEF SCHEMA comment block with every field). Since
+core's 30 author kit a def can say, all additive (absent = the old behaviour):
+
+| Area | Fields |
+|---|---|
+| Primitives | `box` + `bevel` (rounded) · `sphere` · `cylinder` · `cone` · `torus` · `capsule` (r, h) · `plane` (faces +Z) · `ring` (r, inner) · `icosahedron` / `dodecahedron` · `group` / `empty` with `children` · `camera` (lookAt, fov) |
+| Lights | `light` kind `point` / `spot` (angle, penumbra, target, castShadow, shadowMapSize) / `directional` (shadow frustum FITTED to the built meshes; `fit: false`) / `hemisphere` |
+| Materials | color, roughness, metalness, emissive + emissiveIntensity, opacity, flatShading, side, `toon`, `physical` (or any of clearcoat, clearcoatRoughness, transmission, thickness, ior, sheen, iridescence, specularIntensity) |
+| Flags | `physics`, `shadow: false`, `pick: 'through'` (select-through shells), `origin` (a door's hinge), `anim: '<preset>'` (door, drawer, elevator, turntable, pulse, fade — an AUTHORED clip, run it with a Play Animation node), `particles: '<preset>' \| {preset, ...overrides}` (sparkles, fire, smoke, dust, confetti, sparks) |
+| Sky | `env: {preset: 'custom', base, exposure, background: {top, bottom}, fog, ground, sun: {color, intensity, dir}, hemi}` |
+| Card | `view {pos, target}` (the editor camera the file opens on) and `thumb.camera` (a camera object's name — the card renders through it with the scene's own look) |
+
+**The standard shell** every Games-tab game meets: a Start screen with a mouse-clickable Start
+(Enter / gamepad A too), a HUD, Pause on P (Resume / Restart / Quit), an over screen with a
+restart, `view` + `thumb.camera`, shells `pick: 'through'`, a real ground, exposure >= 0.9,
+post AO -> AgX -> bloom -> SMAA, one of the kit's animation/particle presets where it reads.
+
+What cost time in 30-visuals-mod (football, dungeon-realms, waves):
+
+- **The editor grid draws at y = 0.** A floor whose TOP is exactly 0 z-fights it (the grid
+  showed through the football pitch in play). Put a floor's top a hair above (0.01-0.02 m) and
+  give the game a ground plane of its own: the custom sky's `ground` disc sits at -0.01, UNDER
+  the grid, so it does not hide it in the editor.
+- **Desktop play spawns at a fixed `[0, 2, 3]`** outside a dungeon (core's Player), whatever
+  the def's `view` says — keep that line of sight clear (football's lamp strip moved onto the
+  crossbar for it). No api moves the play-mode player (DEVX #23).
+- **Put the decoration in ONE top-level group** (`Arena`). A game's suite counts top-level
+  objects; one group moves that count by exactly one, and a resize ("Fit pitch") moves or
+  stretches the whole look in one `api.moveObject`. Nothing in it should be a body or carry a
+  name another rule reads (waves reads every top-level `Spawn…` object as a spawn point).
+- **A `group` with `physics` is ONE body** whose collider fits the group's box (the collider
+  spec measures children). That is how a waves enemy is a capsule figure with a glowing visor
+  and still one dynamic body for the health/knock contract.
+- **Glass**: `physical` + `transmission`, `shadow: false` (a ceiling that casts shadows puts the
+  whole pitch in the floodlights' shade) and `pick: 'through'`; keep a low `opacity` too if a
+  toolbox recipe rebuilds the object (a recipe only knows colour/opacity).
+- **A menu on core HUD screens beats module DOM.** A screen with `input: 'menu'` frees the
+  pointer in play (clicks land), and core's HUD ring gives arrows/Enter/gamepad A for free.
+  Drive module rules from its buttons through HUD Button (perPlayer) -> Delay -> your module
+  node's number input (DEVX #22). Dungeon Realms moved its Start/victory menu there and its
+  `drmenu` node's `show: 'never'` stands the old DOM card down.
+- **HUD text ignored `align` unless it wrapped before core 1.17** (DEVX #28, fixed there: `.hud-text` was a flex box). Lay a menu
+  out left-aligned to its button column (or, on 1.17+, give a centred title a wide box).
+- **Late knocks move last-hit stamps.** A knock on a dead, hidden enemy still pulses its damage
+  counter, so an identity built from "the last hit" drifts by a millisecond between peers —
+  key a run on the round (`api.game.roundCutoff()`, remembered while it runs), not on a hit.
+- **An empty HUD list with `bg: 'transparent'` draws nothing** — the way to hide a leaderboard
+  until it has rows (there is no per-element visibility node).
+- **Play Animation acts on its trigger's VALUE edge.** A module EVENT output (`fbevent`) is a
+  stamp: bridge it with a zero-second Delay, exactly like a HUD Button.
+- **Particle emitters are capped (8 per scene).** Put presets on a few objects that read —
+  portals, a lantern — never one per torch; a torch flame glows (emissive > 1 + bloom) instead.
+- **A ceiling the editor never sees**: one single-sided plane facing DOWN is culled from above
+  (the editor, a card) and closes the sky from inside; show it only while playing. The Dungeon
+  Kit's vault does this, and its capped point lights move to the torches nearest the player
+  (the COUNT never changes, so nothing recompiles) — a few lights light every torch you pass.
+- **The default AO radius (1.5) smears over big flat planes** (colour blotches on a stadium
+  floor, a dungeon's tiles): 0.6-0.8 with intensity ~1.5 reads clean.
+- Measure the look, do not describe it: the centre half of a 1540x774 play frame, Rec.709 luma,
+  must read >= 0.25 on the GPU backend (the before/after numbers are in the lane handover).
+
+## 8b. Round 2 (30b): games that play on a Quest
+
+What the Dungeon Kit / Dungeon Realms round-2 lane learned (user feedback from a Quest 3):
+
+- **Light a big level without lights.** A few real point lights that follow ONLY in Play left
+  the whole dungeon dark in VR's Interact mode ("a single place where I see lights"). Three
+  layers now, cheapest first: bake each torch's light into the per-instance colour AND a
+  `torchLight` instance attribute the material adds to its emissive (`onBeforeCompile`, one
+  multiply per pixel; a flood fill over floor cells, so light turns a doorway but never passes
+  a wall); an ADDITIVE halo quad on the wall behind each flame + a pool on the floor (two
+  draw calls, and they glow in VR, where there is no bloom); the capped real lights on the
+  torches nearest the VIEWER in every mode, fading out/in when they move (`stepLightSlots`).
+- **Interact is a game view.** VR's Play enters Interact (C1): gate game behaviour on
+  `api.isPlaying() || api.editorMode() === 'interact'`, never on `isPlaying()` alone.
+- **Collision comes from what core walks.** Scene-root module geometry is not a physics body.
+  The dungeon walker reads the published raster (`userData.play.grid`, dungeonPlay.walkable):
+  stamp solid props' cells non-floor there (never the generator's own grid — it feeds the
+  checksum), keep every spawn cell open, and publish `colliders` (world AABBs) and
+  `locomotion: {teleport: false, fly: false}` for a physics capsule / the mode resolver.
+- **Your coordinates are your group's LOCAL frame.** Module groups sit under core's world
+  root, which a VR Edit grab moves and scales: convert `api.playerPosition()` with the
+  group's `worldToLocal` before comparing it to your content, and `localToWorld` before
+  handing a position to `setSpawn` / `playSound` / `effects.burst`.
+- **Feature-detect every new SDK call and prove your calls in the flight.** Expose your `api`
+  on your debug hook; the flight replaces `setSpawn`, `playSound`, `music`, `effects`,
+  `hapticPattern`, `announce` with loggers and asserts exactly what the module sent (the
+  picker's hands buzz, a peer's do not; a new floor = `levelup` + `announce('Floor N')` +
+  `setSpawn(..., {teleport: true})`), on any core.
+
+## 9. Friction log
 
 Things that cost real time while writing the modules in this repo. Add to this
 list when something bites you.
@@ -378,13 +542,19 @@ list when something bites you.
   `objectsGroup()` without telling anyone — a module cannot broadcast a plain
   object move; replicate the pose through your own `api.send` op, or drive the
   object with `api.possess`.
-- **The click handler never fires.** Your content is at the scene root and you
-  did not `registerInteractiveGroup(name)` — only `objectsGroup` is clickable by
-  default. Also check you are walking up from the *hit mesh* to your root
+- **The click handler never fires.** You are in the editor's Edit mode: a game
+  piece hears clicks in Interact (key `I`) and Play, not Edit (§6). Or your content
+  is at the scene root and you did not `registerInteractiveGroup(name)` — only
+  `objectsGroup` is clickable by default. Also check you are walking up from the *hit mesh* to your root
   object; handlers receive the exact mesh, not the group.
 - **The animation drifts between peers.** Accumulation, `Date.now()`, or a
   frame-rate-dependent step. Recompute from `(base, api.now())` every frame.
 - **Selection steals your interaction.** Return `true` from the click handler.
+- **A drag never reaches your click handler.** Core dispatches a module click on a short,
+  STATIONARY pointerup, and until then OrbitControls orbits under your finger. A module that
+  needs press-drag-release owns the gesture itself: listen on `window` in the CAPTURE phase,
+  stop propagation only for a press on YOUR target, and aim with the crosshair under a
+  pointer lock (`untangle`'s `gesture.js` + `aim.js`; DEVX #29, #31).
 - **`api.onInput` missed the first seconds of keys.** Fixed in the app: the
   subscription is synchronous now, so a listener registered in `register()` is
   live from the first keypress. On an older build it went through an async
@@ -425,6 +595,19 @@ list when something bites you.
   expectation) or derive from the last sweep's numbers (`health`'s kill credit).
 - **A second `installModule` on one peer needs the `/^User/` tab locator** — after an
   install the tab reads "User (1)" and an exact match hangs (fixed in `helpers.cjs`).
+- **A game that only starts from a DOM menu never starts in a headset.** The HUD's screens do
+  not draw in VR on a 1.17 core, so football's goals — which count only in a started match —
+  never counted on a Quest ("the ball reaches the gate and nothing changes"). Give every game a
+  start a player can reach with their hands: football kicks a match off on the first touch of
+  the ball and seats an unseated player on the smaller team (30b).
+- **A solo session's own hits carry `by: ''`.** With no peer id the knock stamps nobody, so a
+  module that keys a touch on `hit.by` drops every touch of a player alone; take `hit.local` as
+  "me" (football 30b).
+- **There is no api to place a dynamic body** (DEVX #39). Writing its pose with
+  `api.moveObject` while the sim runs holds it where you put it (core's external-hold rule) and
+  lets go, at rest, 250 ms after the last write — football parks the ball in the net and on the
+  centre spot this way. An impulse given in the same frame as the write is eaten by the hold:
+  nudge after it lets go.
 - **Capping `dt` turns a slow frame rate into slow motion.** `Math.min(dt, 0.1)`
   is the right way to stop a physics step tunnelling, but at 7fps (headless
   Chromium, a background tab) it means sim time advances at 0.7x — a jump that
