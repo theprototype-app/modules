@@ -20,6 +20,23 @@
 
 const { launch, setupPage, installModule, check, eventually, finish, run } = require('./helpers.cjs');
 
+/** eventually() that RETURNS the value it settled on (the helper returns nothing) */
+async function settle(fn, predicate, label, timeout = 10000) {
+	const start = Date.now();
+	let last;
+	while (Date.now() - start < timeout) {
+		last = await fn();
+		if (predicate(last)) {
+			check(true, label);
+			return last;
+		}
+		await new Promise((r) => setTimeout(r, 300));
+	}
+	console.log('  last: ' + JSON.stringify(last));
+	check(false, label);
+	return last;
+}
+
 /** what the Kit draws now, and where the viewer is (the Kit's frame = world at 1:1) */
 const drawn = (page) =>
 	page.evaluate(() => {
@@ -78,7 +95,7 @@ run(async () => {
 	await A.page.evaluate((e) => window.__stores.objectActions.setEditorMode('interact'), entrance);
 	await A.page.waitForTimeout(300);
 	await A.page.evaluate((e) => window.__stores.objectActions.flyTo([e[0], 1.6, e[1]], [e[0] + 1, 1.5, e[1]], 1), entrance);
-	const near = await eventually(() => drawn(A.page), (d) => d.mode === 'interact' && Math.hypot(d.eye[0] - entrance[0], d.eye[1] - entrance[1]) < 1.5 && d.solid < d.torches, '2 in INTERACT (a game view) the Kit draws only the torches near the viewer', 8000);
+	const near = await settle(() => drawn(A.page), (d) => d.mode === 'interact' && Math.hypot(d.eye[0] - entrance[0], d.eye[1] - entrance[1]) < 1.5 && d.solid < d.torches, '2 in INTERACT (a game view) the Kit draws only the torches near the viewer', 8000);
 	check(near.solid > 0 && near.maxSolidDist <= near.quality.solidRadius + 1e-6, '  every drawn torch within the tier\'s ' + near.quality.solidRadius + ' m (' + near.solid + '/' + near.torches + ', farthest ' + near.maxSolidDist.toFixed(1) + ' m)');
 	check(near.flames < edit.flames && near.halos < edit.halos, '  flames and halos culled too (' + near.flames + '/' + edit.flames + ', ' + near.halos + '/' + edit.halos + ')');
 	check(near.torchTris < 60000 && edit.torchTris > 100000, '  torch triangles ' + Math.round(edit.torchTris / 1000) + 'k -> ' + Math.round(near.torchTris / 1000) + 'k (the Quest budget is 300k for the whole frame)');
@@ -96,7 +113,7 @@ run(async () => {
 		return { x: best.x, z: best.z, d };
 	}, entrance);
 	await A.page.evaluate((f) => window.__stores.objectActions.flyTo([f.x, 1.6, f.z], [f.x + 1, 1.5, f.z], 1), far);
-	const moved = await eventually(
+	const moved = await settle(
 		() => drawn(A.page),
 		(d) => Math.hypot(d.eye[0] - far.x, d.eye[1] - far.z) < 1.5 && d.solid > 0 && d.maxSolidDist <= d.quality.solidRadius + 1e-6,
 		'3 the viewer flies ' + far.d.toFixed(0) + ' m across the floor: the drawn set FOLLOWS (every drawn torch near the new spot)',
@@ -106,7 +123,7 @@ run(async () => {
 
 	// ---- 4. a headset, a lower quality -----------------------------------------------------------
 	await A.page.evaluate(() => window.__stores.isVRMode.set(true));
-	const vr = await eventually(() => drawn(A.page), (d) => d.quality.tier >= 1, '4 a HEADSET: the Kit drops to tier 1');
+	const vr = await settle(() => drawn(A.page), (d) => d.quality.tier >= 1, '4 a HEADSET: the Kit drops to tier 1');
 	check(vr.lights === 4 && vr.lightsOn === 2, '  two real lights on (the Quest budget: <= 2), the other two hidden, never removed (' + vr.lightsOn + '/' + vr.lights + ')');
 	check(vr.maxSolidDist <= vr.quality.solidRadius + 1e-6 && vr.quality.solidRadius < near.quality.solidRadius, '  a tighter torch radius (' + vr.quality.solidRadius + ' m)');
 	await A.page.evaluate(() => window.__stores.isVRMode.set(false));
@@ -116,7 +133,7 @@ run(async () => {
 		const listeners = [];
 		window.__dungeonKit.api.quality = { level: 6, max: 9, onChange: (fn) => listeners.push(fn) };
 	});
-	const low = await eventually(() => drawn(A.page), (d) => d.quality.tier === 3, '  api.quality.level 6 (feature-detected): tier 3');
+	const low = await settle(() => drawn(A.page), (d) => d.quality.tier === 3, '  api.quality.level 6 (feature-detected): tier 3');
 	check(low.lightsOn === 1 && !low.halosVisible && low.maxSolidDist <= low.quality.solidRadius + 1e-6, '  one light, no halos/pools, torches within ' + low.quality.solidRadius + ' m (' + low.lightsOn + ' light, halos ' + (low.halosVisible ? 'on' : 'off') + ')');
 	await A.page.evaluate(() => delete window.__dungeonKit.api.quality);
 	await eventually(() => drawn(A.page), (d) => d.quality.tier === 0 && d.lightsOn === 4 && d.halosVisible, '  without api.quality: the full look again');
@@ -152,7 +169,7 @@ run(async () => {
 			window.__dungeonKit.api.locomotion = Object.freeze({ boundedTeleport: true });
 			window.__dungeonKit.kit.generate(1337, { roomCount: 20 });
 		});
-		const on = await eventually(
+		const on = await settle(
 			() => A.page.evaluate(() => { let s; window.__stores.globalScene.subscribe((v) => (s = v))(); return s.getObjectByName('dungeon-module').userData.play.locomotion.teleport; }),
 			(v) => v === true,
 			'  with api.locomotion.boundedTeleport stood in, the published contract turns teleport ON'

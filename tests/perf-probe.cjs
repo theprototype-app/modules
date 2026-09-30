@@ -319,7 +319,17 @@ async function run() {
 	};
 	console.log(JSON.stringify(result, null, 1));
 	if (OUT) fs.writeFileSync(OUT, JSON.stringify(result, null, 1));
-	if (SHOT) await A.page.screenshot({ path: SHOT });
+	if (SHOT) {
+		// SHOT_D=<metres>: freeze the dungeon walk that far along its path first, so a before and
+		// an after shot look from the same spot
+		if (walked && process.env.SHOT_D) {
+			await A.page.evaluate((d) => { window.__walk.d = d; }, Number(process.env.SHOT_D));
+			await A.page.waitForTimeout(150);
+			await A.page.evaluate(() => (window.__walk.on = false));
+			await A.page.waitForTimeout(1200);
+		}
+		await A.page.screenshot({ path: SHOT });
+	}
 	check(frames.length > 20, 'frames measured (' + frames.length + ')');
 	await finish(browser);
 }
