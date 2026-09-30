@@ -81,12 +81,29 @@ export function createGame(api) {
 	const collectedSet = (floor = state.floorIndex) => (state.collected[floor] ??= new Set());
 
 	// ---- the Kit, through the scene -------------------------------------------------
-	const kitGroup = () => api.scene()?.getObjectByName(KIT_GROUP) ?? null;
+	// 31: the two scene-root groups are looked up ONCE and kept while they stay in the current
+	// scene — round 2 searched the whole scene graph (every panel, helper and object) by name
+	// several times a frame
+	/** @type {Record<string, any>} */
+	const refs = {};
+	/** @param {string} name */
+	function byName(name) {
+		const scene = api.scene();
+		if (!scene) return null;
+		const hit = refs[name];
+		if (hit && hit.name === name) {
+			let root = hit;
+			while (root.parent) root = root.parent;
+			if (root === scene) return hit;
+		}
+		return (refs[name] = scene.getObjectByName(name) ?? null);
+	}
+	const kitGroup = () => byName(KIT_GROUP);
 	/** the Kit's function seam, or null when the Kit is not installed */
 	const kit = () => kitGroup()?.userData?.kit ?? null;
 	/** the Kit's published contract, or null when no dungeon exists */
 	const play = () => kitGroup()?.userData?.play ?? null;
-	const group = () => api.scene()?.getObjectByName(GROUP_NAME) ?? null;
+	const group = () => byName(GROUP_NAME);
 
 	// ---- 30b: the frame the game's coordinates live in ------------------------------------------
 	// Module groups sit under core's world root (C1 P5), which a VR Edit grab can move/scale; the
@@ -172,8 +189,14 @@ export function createGame(api) {
 		return api.setSpawn([x, y, z], spawn.yaw, { teleport });
 	}
 
+	/** 31: the current floor's gem count, counted once per published contract (read every frame) */
+	let gemsOf = { play: /** @type {any} */ (null), n: 0 };
 	const gemCount = (floor = state.floorIndex) => {
-		if (floor === state.floorIndex) return (play()?.props ?? []).filter((p) => p.kind === 'gem').length;
+		if (floor === state.floorIndex) {
+			const p = play();
+			if (p !== gemsOf.play) gemsOf = { play: p, n: (p?.props ?? []).filter((/** @type {any} */ q) => q.kind === 'gem').length };
+			return gemsOf.n;
+		}
 		const dungeon = kit()?.campaign?.()?.floors[floor - 1];
 		return dungeon ? dungeon.props.filter((p) => p.kind === 'gem').length : 0;
 	};
@@ -550,15 +573,24 @@ export function createGame(api) {
 		return !!minimap && !minimap.classList.contains('hidden');
 	}
 
+	/** 31: playerXZ's result, reused every frame */
+	const _here = { x: 0, y: 0, z: 0 };
 	/** where the player stands: api.playerPosition() (R3a), the pointer ray origin before it */
 	function playerXZ() {
 		// 30b: in the Kit's frame (the world root may carry a VR Edit transform)
-		if (typeof api.playerPosition === 'function') {
-			const p = api.playerPosition();
-			if (p) return toLocal(p);
+		let p = typeof api.playerPosition === 'function' ? api.playerPosition() : null;
+		if (!p) {
+			const origin = api.pointerRay()?.ray?.origin;
+			if (!origin) return null;
+			p = [origin.x, origin.y, origin.z];
 		}
-		const origin = api.pointerRay()?.ray?.origin;
-		return origin ? toLocal([origin.x, origin.y, origin.z]) : null;
+		const k = kitGroup();
+		_v.set(p[0], p[1], p[2]);
+		if (k) { k.updateWorldMatrix(true, false); k.worldToLocal(_v); }
+		_here.x = _v.x;
+		_here.y = _v.y;
+		_here.z = _v.z;
+		return _here;
 	}
 	/** the viewer's WORLD position, or null @returns {[number, number, number] | null} */
 	function playerAt() {
@@ -609,7 +641,7 @@ export function createGame(api) {
 					if (dx * dx + dz * dz < r2 && Math.abs(pos.y - gem.y) < 2.6) collectGem(state.floorIndex, gem.index);
 				}
 				// portal travel: stand on the unsealed UP portal (together, by default)
-				const portal = g.getObjectByName('dr-portal-up');
+				const portal = g.userData._dr?.portalUp ?? null;
 				if (portal && !sealed()) {
 					const dx = pos.x - portal.position.x;
 					const dz = pos.z - portal.position.z;

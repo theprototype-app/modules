@@ -48,7 +48,9 @@ export default {
 
 		// test/debug hook (never serialized): the flights read the toolbox host
 		if (typeof window !== 'undefined') {
-			/** @type {any} */ (window).__dungeonKit = { kit: core.kit, toolbox, groupName: GROUP_NAME };
+			// 31: + the module's own `api`, so a flight can stand in for an SDK surface a core lacks
+			// (api.quality before 31-perf) and prove what the Kit does with it
+			/** @type {any} */ (window).__dungeonKit = { kit: core.kit, toolbox, groupName: GROUP_NAME, api };
 		}
 	}
 };

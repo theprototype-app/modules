@@ -1131,24 +1131,78 @@ function haloTexture(size = LIT.haloTextureSize) {
 function stepLightSlots(slots, spots, focus, dt) {
   if (!slots.length || !spots.length) return slots;
   const rate = Math.max(0, dt) / LIT.lightFade;
-  let wanted;
+  const n = slots.length;
+  let wantN = 0;
   if (focus) {
-    const held = new Set(slots.map((s) => s.torch));
-    wanted = spots.map((p, i) => ({ i, d: Math.hypot(p.x - focus.x, p.z - focus.z) - (held.has(i) ? LIT.lightStickiness : 0) })).sort((a, b) => a.d - b.d || a.i - b.i).slice(0, slots.length).map((e) => e.i);
-  } else wanted = slots.map((s) => s.torch).filter((t) => t >= 0);
-  const want = new Set(wanted);
-  for (const s of slots) {
-    if (s.torch >= 0 && want.has(s.torch)) s.w = Math.min(1, s.w + rate);
+    for (let i = 0; i < spots.length; i++) {
+      let held = false;
+      for (let k = 0; k < n; k++) if (slots[k].torch === i) held = true;
+      const dx = spots[i].x - focus.x, dz = spots[i].z - focus.z;
+      const d = Math.sqrt(dx * dx + dz * dz) - (held ? LIT.lightStickiness : 0);
+      if (wantN === n && !(d < _wantD[n - 1])) continue;
+      let at = wantN < n ? wantN++ : n - 1;
+      while (at > 0 && d < _wantD[at - 1]) {
+        _wantD[at] = _wantD[at - 1];
+        _want[at] = _want[at - 1];
+        at--;
+      }
+      _wantD[at] = d;
+      _want[at] = i;
+    }
+  } else for (let k = 0; k < n; k++) if (slots[k].torch >= 0) _want[wantN++] = slots[k].torch;
+  for (let k = 0; k < n; k++) {
+    const s = slots[k];
+    if (s.torch >= 0 && isWanted(s.torch, wantN)) s.w = Math.min(1, s.w + rate);
     else {
       s.w = Math.max(0, s.w - rate);
       if (s.w === 0) s.torch = -1;
     }
   }
-  const holding = new Set(slots.map((s) => s.torch));
-  const free = wanted.filter((t) => !holding.has(t));
-  for (const s of slots) if (s.torch < 0 && free.length) s.torch = /** @type {number} */
-  free.shift();
+  let next = 0;
+  for (let k = 0; k < n; k++) {
+    if (slots[k].torch >= 0) continue;
+    while (next < wantN && isHeld(slots, _want[next])) next++;
+    if (next >= wantN) break;
+    slots[k].torch = _want[next++];
+  }
   return slots;
+}
+var _want = new Int32Array(16);
+var _wantD = new Float64Array(16);
+function isWanted(t, count) {
+  for (let k = 0; k < count; k++) if (_want[k] === t) return true;
+  return false;
+}
+function isHeld(slots, t) {
+  for (let k = 0; k < slots.length; k++) if (slots[k].torch === t) return true;
+  return false;
+}
+function kitQuality(level, vr) {
+  const raw = Number.isFinite(level) ? Math.max(0, Math.floor(
+    /** @type {number} */
+    level
+  )) : 0;
+  const tier = Math.max(raw <= 0 ? 0 : raw <= 2 ? 1 : raw <= 5 ? 2 : 3, vr ? 1 : 0);
+  if (tier === 0) return { tier, lights: LOOK.lightBudget, solidRadius: 18, glowRadius: 26, glowFade: 6, halos: true };
+  if (tier === 1) return { tier, lights: 2, solidRadius: 14, glowRadius: 22, glowFade: 6, halos: true };
+  if (tier === 2) return { tier, lights: 2, solidRadius: 10, glowRadius: 16, glowFade: 5, halos: true };
+  return { tier, lights: 1, solidRadius: 8, glowRadius: 12, glowFade: 4, halos: false };
+}
+function nearSpots(spots, focus, radius, out) {
+  let n = 0;
+  const r2 = radius * radius;
+  for (let i = 0; i < spots.length; i++) {
+    if (focus) {
+      const dx = spots[i].x - focus.x, dz = spots[i].z - focus.z;
+      if (dx * dx + dz * dz > r2) continue;
+    }
+    out[n++] = i;
+  }
+  return n;
+}
+function glowFadeAt(d, radius, fade) {
+  if (!(fade > 0)) return d <= radius ? 1 : 0;
+  return Math.max(0, Math.min(1, (radius - d) / fade));
 }
 
 // modules/dungeon/src/torch/torch.gen.js
@@ -1506,45 +1560,146 @@ function buildFloorGroup(THREE, dungeon) {
   group.traverse((o) => {
     if (o.material?.userData?.torch) torchUniforms.push(o.material.userData.torch);
   });
-  group.userData._dk = { theme, flameSpots, slots, lastTime: -1, baked, torchUniforms };
+  const T = torches.length;
+  const culled = [];
+  for (const o of group.children) {
+    const solid = o.name.startsWith("dk-torch-");
+    const glow = o.name === "dk-flames" || o.name === "dk-flame-cores" || o.name === "dk-halos" || o.name === "dk-pools";
+    if (!o.isInstancedMesh || !solid && !glow) continue;
+    o.computeBoundingSphere();
+    o.userData.cull = { space: solid || o.name === "dk-halos" ? "torch" : "flame", all: o.instanceMatrix.array.slice(), shown: -1 };
+    culled.push(o);
+  }
+  const torchSpots = flameSpots.slice(0, T);
+  group.userData._dk = {
+    theme,
+    flameSpots,
+    torchSpots,
+    slots,
+    lastTime: -1,
+    baked,
+    torchUniforms,
+    culled,
+    // what is drawn now: indices into the torch / flame spot lists (all of them until a game view)
+    vis: { torch: new Int32Array(T), torchN: -1, flame: new Int32Array(flameSpots.length), flameN: -1, at: null, tier: -1, cull: null },
+    quality: kitQuality(0, false),
+    activeSlots: slots
+  };
   return group;
+}
+var RECULL_STEP = 1;
+function recull(dk, focus, cull) {
+  const v = dk.vis;
+  const q = dk.quality;
+  const at = cull ? focus : null;
+  if (v.torchN >= 0 && v.cull === cull && v.tier === q.tier) {
+    if (!at && !v.at) return false;
+    if (at && v.at && Math.hypot(at.x - v.at.x, at.z - v.at.z) < RECULL_STEP) return false;
+  }
+  v.at = at ? { x: at.x, z: at.z } : null;
+  v.cull = cull;
+  v.tier = q.tier;
+  v.torchN = nearSpots(dk.torchSpots, at, q.solidRadius, v.torch);
+  v.flameN = nearSpots(dk.flameSpots, at, q.glowRadius, v.flame);
+  for (const mesh of dk.culled) {
+    const c = mesh.userData.cull;
+    const halos = mesh.name === "dk-halos";
+    const list = c.space === "torch" && !halos ? v.torch : v.flame;
+    let n = c.space === "torch" && !halos ? v.torchN : v.flameN;
+    const arr = mesh.instanceMatrix.array;
+    let k = 0;
+    for (let j = 0; j < n; j++) {
+      const i = list[j];
+      if (halos && i >= dk.torchSpots.length) continue;
+      for (let e = 0; e < 16; e++) arr[k * 16 + e] = c.all[i * 16 + e];
+      k++;
+    }
+    c.shown = k;
+    mesh.count = k;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.name === "dk-halos" || mesh.name === "dk-pools") mesh.visible = q.halos;
+  }
+  return true;
 }
 function animateFloor(group, time, view = {}) {
   const dk = group.userData._dk;
-  const dt = dk && dk.lastTime >= 0 ? Math.min(0.1, Math.max(0, time - dk.lastTime)) : 0;
-  if (dk) dk.lastTime = time;
-  if (dk?.slots?.length && dk.flameSpots?.length) stepLightSlots(dk.slots, dk.flameSpots, view.player ?? null, dt);
-  if (dk?.torchUniforms) for (const u of dk.torchUniforms) u.value.w = 1 + Math.sin(time * 7.3) * 0.04 + Math.sin(time * 17.9) * 0.03;
-  group.children.forEach((child) => {
-    if (child.name === "dk-light") {
-      const slot = dk?.slots?.[child.userData.slot];
+  if (!dk) return;
+  const dt = dk.lastTime >= 0 ? Math.min(0.1, Math.max(0, time - dk.lastTime)) : 0;
+  dk.lastTime = time;
+  const focus = view.player ?? null;
+  const quality = view.quality ?? dk.quality;
+  if (quality.tier !== dk.quality.tier) {
+    dk.quality = quality;
+    dk.activeSlots = dk.slots.slice(0, Math.max(0, Math.min(dk.slots.length, quality.lights)));
+  }
+  recull(dk, focus, !!view.playing);
+  if (dk.activeSlots.length && dk.flameSpots.length) stepLightSlots(dk.activeSlots, dk.flameSpots, focus, dt);
+  const breath = 1 + Math.sin(time * 7.3) * 0.04 + Math.sin(time * 17.9) * 0.03;
+  for (let u = 0; u < dk.torchUniforms.length; u++) dk.torchUniforms[u].value.w = breath;
+  const v = dk.vis;
+  const children = group.children;
+  for (let c = 0; c < children.length; c++) {
+    const child = children[c];
+    const name = child.name;
+    if (name === "dk-light") {
+      const index = child.userData.slot;
+      const on = index < dk.activeSlots.length;
+      if (child.visible !== on) child.visible = on;
+      if (!on) continue;
+      const slot = dk.slots[index];
       const spot = slot && slot.torch >= 0 ? dk.flameSpots[slot.torch] : null;
       if (spot) child.position.set(spot.x, spot.y + 0.25, spot.z);
       const w = slot ? slot.w : 1;
       child.intensity = LOOK.lightIntensity * w * (1 + Math.sin(time * 9 + child.position.x * 3.7) * 0.18 + Math.sin(time * 23 + child.position.z * 5.1) * 0.1);
-    } else if (child.name === "dk-ceiling") child.visible = !!view.playing;
-    else if ((child.name === "dk-flames" || child.name === "dk-flame-cores") && child.userData.spots) {
-      const m = child.userData._m ??= child.matrix.clone();
-      child.userData.spots.forEach((p, i) => {
+    } else if (name === "dk-ceiling") child.visible = !!view.playing;
+    else if ((name === "dk-flames" || name === "dk-flame-cores") && child.userData.spots) {
+      const spots = child.userData.spots;
+      const arr = child.instanceMatrix.array;
+      for (let j = 0; j < v.flameN; j++) {
+        const p = spots[v.flame[j]];
         const k = flameFlicker(time, p.x, p.z);
         const sc = p.sc ?? 1;
-        m.makeScale(sc / Math.sqrt(k), sc * k, sc / Math.sqrt(k)).setPosition(p.x, p.by ?? p.y, p.z);
-        child.setMatrixAt(i, m);
-      });
+        const side = sc / Math.sqrt(k);
+        const o = j * 16;
+        arr[o] = side;
+        arr[o + 1] = 0;
+        arr[o + 2] = 0;
+        arr[o + 3] = 0;
+        arr[o + 4] = 0;
+        arr[o + 5] = sc * k;
+        arr[o + 6] = 0;
+        arr[o + 7] = 0;
+        arr[o + 8] = 0;
+        arr[o + 9] = 0;
+        arr[o + 10] = side;
+        arr[o + 11] = 0;
+        arr[o + 12] = p.x;
+        arr[o + 13] = p.by ?? p.y;
+        arr[o + 14] = p.z;
+        arr[o + 15] = 1;
+      }
       child.instanceMatrix.needsUpdate = true;
-    } else if ((child.name === "dk-halos" || child.name === "dk-pools") && child.userData.flicker && child.instanceColor) {
+    } else if ((name === "dk-halos" || name === "dk-pools") && child.userData.flicker && child.instanceColor && child.visible) {
       const { spots, opacity } = child.userData.flicker;
-      const c = child.userData._c ??= child.material.color.clone().set(dk?.theme?.torchColor ?? 16747578);
+      const c3 = child.userData._c ??= child.material.color.clone().set(dk.theme?.torchColor ?? 16747578);
       const arr = child.instanceColor.array;
-      spots.forEach((p, i) => {
-        const k = opacity * (0.55 + 0.45 * flameFlicker(time, p.x, p.z));
-        arr[i * 3] = c.r * k;
-        arr[i * 3 + 1] = c.g * k;
-        arr[i * 3 + 2] = c.b * k;
-      });
+      const halos = name === "dk-halos";
+      let k = 0;
+      for (let j = 0; j < v.flameN; j++) {
+        const i = v.flame[j];
+        if (halos && i >= dk.torchSpots.length) continue;
+        const p = spots[i];
+        const dx = v.at ? p.x - v.at.x : 0, dz = v.at ? p.z - v.at.z : 0;
+        const fade = v.cull && v.at ? glowFadeAt(Math.sqrt(dx * dx + dz * dz), dk.quality.glowRadius, dk.quality.glowFade) : 1;
+        const b = opacity * (0.55 + 0.45 * flameFlicker(time, p.x, p.z)) * fade;
+        arr[k * 3] = c3.r * b;
+        arr[k * 3 + 1] = c3.g * b;
+        arr[k * 3 + 2] = c3.b * b;
+        k++;
+      }
       child.instanceColor.needsUpdate = true;
     }
-  });
+  }
 }
 
 // modules/dungeon/src/contract.js
@@ -1603,11 +1758,12 @@ function colliderBoxes(dungeon) {
     open = next;
   }
   open.forEach(close);
+  const raster = walkGrid(dungeon);
   for (const p of props) {
     const s = SOLID[p.kind];
-    if (!s) continue;
-    const cx = p.x + ox + 0.5, cz = p.y + oy + 0.5;
-    boxes.push({ min: [cx - s.hx, 0, cz - s.hz], max: [cx + s.hx, s.h, cz + s.hz], kind: p.kind });
+    if (!s || raster[p.y * W + p.x] !== BLOCKED) continue;
+    const x0 = p.x + ox, z0 = p.y + oy;
+    boxes.push({ min: [x0, 0, z0], max: [x0 + 1, s.h, z0 + 1], kind: p.kind });
   }
   return boxes;
 }
@@ -1631,6 +1787,21 @@ function spawnOrderedRooms(dungeon) {
     return ka - kb || a.id - b.id;
   }).map((room) => worldRoom(room, dungeon.ox, dungeon.oy));
 }
+var TELEPORT_Y = { min: -0.5, max: 0.4 };
+function teleportBounds(dungeon) {
+  const { W, H, grid, ox, oy } = dungeon;
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      if (grid[y * W + x] !== FLOOR) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  if (x0 === Infinity) return null;
+  return { min: [x0 + ox, TELEPORT_Y.min, y0 + oy], max: [x1 + 1 + ox, TELEPORT_Y.max, y1 + 1 + oy] };
+}
 function playPayload(campaign, floorIndex, extras = {}) {
   const dungeon = campaign.floors[floorIndex - 1];
   if (!dungeon) return null;
@@ -1651,9 +1822,11 @@ function playPayload(campaign, floorIndex, extras = {}) {
     // ---- play settings (playSettings.js) --------------------------------------------
     // a dungeon is WALKED: the fly keys are off unless a rule module says otherwise
     grounded: extras.grounded == null ? true : !!extras.grounded,
-    // 30b (C1): no teleport, no fly in Interact/Play — a dungeon is walked (absent means false
-    // too; published so a publisher-aware resolver never inherits a scene's `true`)
-    locomotion: { teleport: false, fly: false },
+    // 30b (C1): no fly in Interact/Play — a dungeon is walked (published so a publisher-aware
+    // resolver never inherits a scene's `true`). 31 (D2): teleport ON where core bounds it to
+    // `bounds` + `colliders` (K1) — never on a core whose teleport would leave the walls
+    locomotion: { teleport: extras.teleport === true, fly: false },
+    bounds: teleportBounds(dungeon),
     // 30b: the solids as world AABBs for a physics capsule (the raster above is the walk)
     colliders: colliderBoxes(dungeon),
     // ---- the inter-module seam (a rule module reads these) --------------------------
@@ -1720,6 +1893,7 @@ function createKit(api) {
   let grounded = null;
   let floorGroup = null;
   const listeners = [];
+  const boundedTeleport = () => api.locomotion?.boundedTeleport === true;
   const currentFloor = () => state.campaign?.floors[state.floorIndex - 1] ?? null;
   function group() {
     const scene = api.scene();
@@ -1753,7 +1927,7 @@ function createKit(api) {
   function publish() {
     const g = group();
     if (!g) return;
-    const play = state.campaign ? playPayload(state.campaign, state.floorIndex, { grounded, markers: mergeMarkers(markersByOwner) }) : null;
+    const play = state.campaign ? playPayload(state.campaign, state.floorIndex, { grounded, markers: mergeMarkers(markersByOwner), teleport: boundedTeleport() }) : null;
     if (play) {
       const dungeon = currentFloor();
       g.userData.play = play;
@@ -1899,6 +2073,23 @@ function createKit(api) {
     if (remote.floorIndex && remote.floorIndex !== state.floorIndex) showFloor(remote.floorIndex, { broadcast: false });
   }
   let _focus = null;
+  const focusXZ = { x: 0, z: 0 };
+  let quality = kitQuality(0, false);
+  let qualityKey = "";
+  function currentQuality() {
+    const q = api.quality;
+    const raw = q ? typeof q.level === "function" ? q.level() : q.level : 0;
+    const level = Number.isFinite(raw) ? raw : 0;
+    const vr = typeof api.isVR === "function" && !!api.isVR();
+    const key = level + (vr ? "v" : "d");
+    if (key !== qualityKey) {
+      qualityKey = key;
+      quality = kitQuality(level, vr);
+    }
+    return quality;
+  }
+  if (typeof api.quality?.onChange === "function") api.quality.onChange(() => qualityKey = "");
+  const view = { playing: false, player: null, quality };
   function tick(time) {
     if (!floorGroup) return;
     const playing = typeof api.isPlaying === "function" && !!api.isPlaying() || api.editorMode?.() === "interact";
@@ -1908,9 +2099,14 @@ function createKit(api) {
       const v = (_focus ??= new THREE.Vector3()).set(p[0], p[1], p[2]);
       floorGroup.parent.updateWorldMatrix(true, false);
       floorGroup.parent.worldToLocal(v);
-      focus = { x: v.x, z: v.z };
+      focusXZ.x = v.x;
+      focusXZ.z = v.z;
+      focus = focusXZ;
     }
-    animateFloor(floorGroup, time, { playing, player: focus });
+    view.playing = playing;
+    view.player = focus;
+    view.quality = currentQuality();
+    animateFloor(floorGroup, time, view);
   }
   return { kit, state, group, handleMessage, getState, applyState, tick, ensureGroup: group };
 }
@@ -2125,7 +2321,7 @@ var index_default = {
     });
     api.registerFrameTask((time) => core.tick(time));
     if (typeof window !== "undefined") {
-      window.__dungeonKit = { kit: core.kit, toolbox, groupName: GROUP_NAME };
+      window.__dungeonKit = { kit: core.kit, toolbox, groupName: GROUP_NAME, api };
     }
   }
 };

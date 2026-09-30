@@ -12,6 +12,7 @@
 
 import { generateCampaign } from './gen/campaign.js';
 import { buildFloorGroup, animateFloor } from './render.js';
+import { kitQuality } from './look.js';
 import { GROUP_NAME, playPayload, mergeMarkers, normalizeParams } from './contract.js';
 
 /** @param {any} api the module SDK surface */
@@ -32,6 +33,10 @@ export function createKit(api) {
 	let floorGroup = null;
 	/** @type {(() => void)[]} toolbox/UI refresh hooks */
 	const listeners = [];
+
+	/** 31 (D2): teleport is published ON only where core BOUNDS it (K1, 31-vr-core's
+	 * `api.locomotion.boundedTeleport`) — an older core's free teleport would leave the walls */
+	const boundedTeleport = () => api.locomotion?.boundedTeleport === true;
 
 	const currentFloor = () => state.campaign?.floors[state.floorIndex - 1] ?? null;
 
@@ -74,7 +79,7 @@ export function createKit(api) {
 		const g = group();
 		if (!g) return;
 		const play = state.campaign
-			? playPayload(state.campaign, state.floorIndex, { grounded, markers: mergeMarkers(markersByOwner) })
+			? playPayload(state.campaign, state.floorIndex, { grounded, markers: mergeMarkers(markersByOwner), teleport: boundedTeleport() })
 			: null;
 		if (play) {
 			const dungeon = currentFloor();
@@ -256,6 +261,28 @@ export function createKit(api) {
 	}
 
 	/** @type {any} */ let _focus = null;
+	/** 31: the viewer in the Kit's frame, reused every frame (no per-frame garbage) */
+	const focusXZ = { x: 0, z: 0 };
+	/** 31: the draw budget — core's api.quality (31-perf, feature-detected: absent = the best)
+	 * and a headset; the record is rebuilt only when either changes */
+	let quality = kitQuality(0, false);
+	let qualityKey = '';
+	function currentQuality() {
+		const q = api.quality;
+		const raw = q ? (typeof q.level === 'function' ? q.level() : q.level) : 0;
+		const level = Number.isFinite(raw) ? raw : 0;
+		const vr = typeof api.isVR === 'function' && !!api.isVR();
+		const key = level + (vr ? 'v' : 'd');
+		if (key !== qualityKey) {
+			qualityKey = key;
+			quality = kitQuality(level, vr);
+		}
+		return quality;
+	}
+	// a governor step lands on the next frame (the poll above catches a core without onChange)
+	if (typeof api.quality?.onChange === 'function') api.quality.onChange(() => (qualityKey = ''));
+	/** the view record animateFloor reads, reused @type {{playing: boolean, player: {x: number, z: number} | null, quality: any}} */
+	const view = { playing: false, player: null, quality };
 	/** @param {number} time */
 	function tick(time) {
 		if (!floorGroup) return;
@@ -272,9 +299,14 @@ export function createKit(api) {
 			const v = (_focus ??= new THREE.Vector3()).set(p[0], p[1], p[2]);
 			floorGroup.parent.updateWorldMatrix(true, false);
 			floorGroup.parent.worldToLocal(v);
-			focus = { x: v.x, z: v.z };
+			focusXZ.x = v.x;
+			focusXZ.z = v.z;
+			focus = focusXZ;
 		}
-		animateFloor(floorGroup, time, { playing, player: focus });
+		view.playing = playing;
+		view.player = focus;
+		view.quality = currentQuality();
+		animateFloor(floorGroup, time, view);
 	}
 
 	return { kit, state, group, handleMessage, getState, applyState, tick, ensureGroup: group };
