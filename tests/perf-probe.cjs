@@ -28,6 +28,7 @@ const SHOT = process.env.SHOT || '';
 const SETTLE_MS = Number(process.env.SETTLE_MS || 10000);
 const MEASURE_MS = Number(process.env.MEASURE_MS || 8000);
 const THROTTLE = Number(process.env.THROTTLE || 4);
+const PROFILE = process.env.PROFILE || '';
 const MODULES = GAME === 'dungeon' ? ['dungeon', 'dungeon-realms'] : [GAME];
 
 async function installZip(peer, id) {
@@ -222,10 +223,11 @@ async function run() {
 	await A.page.waitForTimeout(1500);
 	let walked = 0;
 	if (GAME === 'dungeon') {
-		await A.page.evaluate(() => window.__dungeonRealms?.game?.start?.());
+		// NOSTART=1: walk without starting the game (no footsteps, no pickups) — isolates the Kit
+		if (!process.env.NOSTART) await A.page.evaluate(() => window.__dungeonRealms?.game?.start?.());
 		const pts = await A.page.evaluate(DUNGEON_PATH);
 		check(!!pts && pts.length > 10, 'a walk path through floor 1 (' + (pts?.length ?? 0) + ' cells)');
-		walked = await A.page.evaluate(WALK, { pts, speed: 2.2 });
+		walked = await A.page.evaluate(WALK, { pts, speed: Number(process.env.WALK_SPEED ?? 2.2) });
 	} else if (GAME === 'football') {
 		// a first touch starts the match (the module's auto-start), then the ball flies
 		await A.page.evaluate(() => {
@@ -244,10 +246,31 @@ async function run() {
 	await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });
 	await cdp.send('HeapProfiler.enable');
 	await cdp.send('HeapProfiler.startSampling', { samplingInterval: 1024 });
+	if (PROFILE) {
+		await cdp.send('Profiler.enable');
+		await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
+		await cdp.send('Profiler.start');
+	}
 	await A.page.evaluate(() => (window.__probe.on = true));
 	await A.page.waitForTimeout(MEASURE_MS);
 	await A.page.evaluate(() => (window.__probe.on = false));
 	const { profile } = await cdp.send('HeapProfiler.stopSampling');
+	let cpuTop = undefined;
+	if (PROFILE) {
+		const { profile: cpu } = await cdp.send('Profiler.stop');
+		fs.writeFileSync(PROFILE, JSON.stringify(cpu));
+		// self time per function (+ its file), the top 25
+		const byId = new Map(cpu.nodes.map((n) => [n.id, n]));
+		const self = new Map();
+		for (let i = 0; i < cpu.samples.length; i++) {
+			const n = byId.get(cpu.samples[i]);
+			const f = n.callFrame;
+			const k = (f.functionName || '(anon)') + ' ' + (f.url || '').split('/').pop().split('?')[0] + ':' + f.lineNumber;
+			self.set(k, (self.get(k) || 0) + (cpu.timeDeltas[i] || 0));
+		}
+		const total = [...self.values()].reduce((a, b) => a + b, 0);
+		cpuTop = [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, v]) => k + ' ' + ((100 * v) / total).toFixed(1) + '%');
+	}
 	await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
 
 	// module allocations: every sampled node whose frame is in a module bundle (blob:/data: urls
@@ -290,7 +313,9 @@ async function run() {
 		moduleAllocKBps: Math.round(moduleBytes / 1024 / (MEASURE_MS / 1000)),
 		allAllocKBps: Math.round(allBytes / 1024 / (MEASURE_MS / 1000)),
 		topModuleAlloc: Object.entries(byFn).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => k + ' ' + Math.round(v / 1024) + 'KB'),
-		walkedPath: walked ? Math.round(walked) : undefined
+		walkedPath: walked ? Math.round(walked) : undefined,
+		longFrames: ms.filter((m) => m > 50).map((m) => Math.round(m)),
+		cpuTop
 	};
 	console.log(JSON.stringify(result, null, 1));
 	if (OUT) fs.writeFileSync(OUT, JSON.stringify(result, null, 1));

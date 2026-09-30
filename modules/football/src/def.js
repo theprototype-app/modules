@@ -34,7 +34,7 @@ export function footballDef() {
 		license: 'CC0-1.0',
 		author: 'theprototype',
 		tags: ['vr', 'competitive', 'colocation', 'physics'],
-		modules: [{ id: 'football', version: '1.2.0' }],
+		modules: [{ id: 'football', version: '1.3.0' }],
 		installModules: ['football'],
 		// 30: a floodlit stadium at dusk — a gradient sky, fog on the horizon, a cool sky fill,
 		// exposure over the 0.9 floor. 31: NO sun — core's env sun is a shadow-casting directional

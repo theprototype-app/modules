@@ -2273,7 +2273,7 @@ function createKicker(api, game) {
 var index_default = {
   id: "football",
   name: "Football",
-  version: "1.2.0",
+  version: "1.3.0",
   description: "VR football on the knock: floating ball, two team gates, last-touch attribution, modes, per-player records and a saved match log \u2014 every rule a flow node.",
   /** @param {any} api the module SDK surface */
   register(api) {

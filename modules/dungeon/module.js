@@ -2302,7 +2302,7 @@ function registerToolbox(api, core) {
 var index_default = {
   id: "dungeon",
   name: "Dungeon Kit",
-  version: "2.2.1",
+  version: "2.3.0",
   description: "Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) with a toolbox, a Dungeon node and the userData.play contract the app walks in play mode. The playable game is Dungeon Realms.",
   /** @param {any} api the module SDK surface */
   register(api) {
