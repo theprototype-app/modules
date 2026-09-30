@@ -48,7 +48,7 @@ export function footballDef() {
 			fog: { color: '#b9a3a0', near: 28, far: 90 },
 			ground: { color: '#4a5462', roughness: 0.95 },
 			sun: null,
-			hemi: { sky: '#b4c8ea', ground: '#6a5644', intensity: 1.7 }
+			hemi: { sky: '#b4c8ea', ground: '#5a4a3a', intensity: 1.45 }
 		},
 		physics: PITCH_PHYSICS,
 		// the standard shell's post floor: AO -> AgX -> bloom -> SMAA

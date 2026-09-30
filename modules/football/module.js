@@ -1273,8 +1273,10 @@ var BLUE = 4881881;
 var LAMP_DIM = 2237998;
 var LAMPS_PER_GATE = 10;
 var GLASS = {
-  color: 15267583,
-  opacity: 0.1,
+  // a cool, faint tint: a lit pane adds its colour over everything behind it (no transmission
+  // to clear it), so it stays light enough not to veil the stadium
+  color: 13953279,
+  opacity: 0.06,
   // rough enough that a floodlight's highlight spreads into a sheen instead of a glow blob
   // floating at pitch height (round 2 kept specularIntensity near zero for the same reason)
   roughness: 0.45,

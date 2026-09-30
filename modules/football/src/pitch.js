@@ -19,8 +19,10 @@ export const LAMPS_PER_GATE = 10;
  * a headset: per eye), for five panes a player stands INSIDE of, so every pixel looked through
  * one. A faint tint + a soft sheen reads as glass for the price of one blended layer. */
 export const GLASS = {
-	color: 0xe8f6ff,
-	opacity: 0.1,
+	// a cool, faint tint: a lit pane adds its colour over everything behind it (no transmission
+	// to clear it), so it stays light enough not to veil the stadium
+	color: 0xd4e8ff,
+	opacity: 0.06,
 	// rough enough that a floodlight's highlight spreads into a sheen instead of a glow blob
 	// floating at pitch height (round 2 kept specularIntensity near zero for the same reason)
 	roughness: 0.45,

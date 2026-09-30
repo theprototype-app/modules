@@ -40,8 +40,8 @@
 		"sun": null,
 		"hemi": {
 			"sky": "#b4c8ea",
-			"ground": "#6a5644",
-			"intensity": 1.7
+			"ground": "#5a4a3a",
+			"intensity": 1.45
 		}
 	},
 	"physics": {
@@ -2642,8 +2642,8 @@
 		{
 			"type": "box",
 			"name": "Wall left",
-			"color": 15267583,
-			"opacity": 0.1,
+			"color": 13953279,
+			"opacity": 0.06,
 			"roughness": 0.45,
 			"shadow": false,
 			"pick": "through",
@@ -2664,8 +2664,8 @@
 		{
 			"type": "box",
 			"name": "Wall right",
-			"color": 15267583,
-			"opacity": 0.1,
+			"color": 13953279,
+			"opacity": 0.06,
 			"roughness": 0.45,
 			"shadow": false,
 			"pick": "through",
@@ -2686,8 +2686,8 @@
 		{
 			"type": "box",
 			"name": "Wall red end",
-			"color": 15267583,
-			"opacity": 0.1,
+			"color": 13953279,
+			"opacity": 0.06,
 			"roughness": 0.45,
 			"shadow": false,
 			"pick": "through",
@@ -2708,8 +2708,8 @@
 		{
 			"type": "box",
 			"name": "Wall blue end",
-			"color": 15267583,
-			"opacity": 0.1,
+			"color": 13953279,
+			"opacity": 0.06,
 			"roughness": 0.45,
 			"shadow": false,
 			"pick": "through",
@@ -2730,8 +2730,8 @@
 		{
 			"type": "box",
 			"name": "Ceiling",
-			"color": 15267583,
-			"opacity": 0.1,
+			"color": 13953279,
+			"opacity": 0.06,
 			"roughness": 0.45,
 			"shadow": false,
 			"pick": "through",
