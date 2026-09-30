@@ -22,7 +22,7 @@ import { createGesture } from './gesture.js';
 import { makeAim } from './aim.js';
 import { makeEdgeLayer, makeBackplate, makeHoverRing, makeBurst, makeGlobe, COLORS } from './look.js';
 import { generate3, edgeCrossings3, solvedSphere, arcPoints, arcSegments, normalize } from './sphere.js';
-import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, isUnlocked, bestOf, makeStorage } from './progress.js';
+import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, switchLevel, isUnlocked, bestOf, makeStorage } from './progress.js';
 import { makeMenuKinds } from './menu.js';
 import { makeSfx } from './sfx.js';
 import { createVRDrag, pickDot, followPoint, handRay, raySphere, tipOf, TIP_RADIUS } from './vrdrag.js';
@@ -354,6 +354,11 @@ export default {
 			build();
 			menus?.refreshAll();
 			if (announce) fire('level');
+		}
+		/** U6: globe <-> board keeps the level you had open (one progress — progress.js) */
+		function switchMode(md) {
+			if (!MODES_PLAYED.includes(md) || md === mode) return;
+			selectLevel(switchLevel(progress, level, won), md);
 		}
 		/** the SELECTOR's path: change the board for everyone (level + mode), like Restart */
 		function selectLevel(lvl, md = mode) {
@@ -768,10 +773,8 @@ export default {
 			if (!cell?.enabled) return;
 			if (id === 'prev') selectLevel(level - 1, mode);
 			else if (id === 'next') selectLevel(level + 1, mode);
-			else if (id === 'mode') {
-				const other = mode === '3d' ? '2d' : '3d';
-				selectLevel(continueLevel(progress, other), other);
-			} else if (id === 'restart') restartLevel();
+			else if (id === 'mode') switchMode(mode === '3d' ? '2d' : '3d');
+			else if (id === 'restart') restartLevel();
 			else if (id === 'level') fire('start'); // the template: Untangle Event (start) -> playing
 			lastBar = id;
 			sfx.play('click', worldOf(new THREE.Vector3(0, 0, 0)));
@@ -1056,7 +1059,7 @@ export default {
 			pickLevel: (l) => {
 				if (isUnlocked(progress, mode, l)) selectLevel(l, mode);
 			},
-			pickMode: (m) => selectLevel(continueLevel(progress, m), m),
+			pickMode: (m) => switchMode(m),
 			continueGame: () => {
 				selectLevel(continueLevel(progress, mode), mode);
 				fire('start'); // the template wires Untangle Event (start) -> Set Game State (playing)

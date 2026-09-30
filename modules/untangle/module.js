@@ -823,6 +823,8 @@ function normalizeProgress(raw) {
     }
     out[m] = { unlocked: Math.max(unlocked, fromSolved), solved, best };
   }
+  const shared = Math.max(...MODES.map((m) => out[m].unlocked));
+  for (const m of MODES) out[m].unlocked = shared;
   return out;
 }
 function isUnlocked(progress, mode, level) {
@@ -832,10 +834,18 @@ function isUnlocked(progress, mode, level) {
 function isSolved(progress, mode, level) {
   return !!progress?.[mode]?.solved?.includes(level);
 }
-function continueLevel(progress, mode) {
+function isSolvedAny(progress, level) {
+  return MODES.some((m) => isSolved(progress, m, level));
+}
+function continueLevel(progress, mode = MODES[0]) {
   const p = progress?.[mode] ?? freshMode();
-  for (let l = 1; l <= p.unlocked; l++) if (!p.solved.includes(l)) return l;
+  for (let l = 1; l <= p.unlocked; l++) if (!isSolvedAny(progress, l)) return l;
   return Math.min(MAX_LEVEL, p.unlocked);
+}
+function switchLevel(progress, level, won = false) {
+  const lvl = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(level) || 1)));
+  if (won && lvl < MAX_LEVEL && isUnlocked(progress, MODES[0], lvl + 1)) return lvl + 1;
+  return lvl;
 }
 function recordSolve(progress, mode, level, ms) {
   const next = normalizeProgress(progress);
@@ -845,7 +855,7 @@ function recordSolve(progress, mode, level, ms) {
   if (!p.solved.includes(lvl)) p.solved = [...p.solved, lvl].sort((a, b) => a - b);
   const opened = Math.min(MAX_LEVEL, lvl + 1);
   const unlockedNew = opened > p.unlocked;
-  if (unlockedNew) p.unlocked = opened;
+  if (unlockedNew) for (const m of MODES) next[m].unlocked = opened;
   let newBest = false;
   if (typeof ms === "number" && Number.isFinite(ms) && ms > 0) {
     const prior = p.best[String(lvl)];
@@ -999,7 +1009,7 @@ function makeMenuKinds(ctx) {
       const next = continueLevel(v.progress, v.mode);
       for (let lvl = 1; lvl <= MAX_LEVEL; lvl++) {
         const open = isUnlocked(v.progress, v.mode, lvl);
-        const solved = isSolved(v.progress, v.mode, lvl);
+        const solved = isSolvedAny(v.progress, lvl);
         const current = lvl === v.level;
         const isNext = open && lvl === next;
         const cell = document.createElement("button");
@@ -1820,6 +1830,10 @@ var index_default = {
       menus?.refreshAll();
       if (announce) fire("level");
     }
+    function switchMode(md) {
+      if (!MODES_PLAYED.includes(md) || md === mode) return;
+      selectLevel(switchLevel(progress, level, won), md);
+    }
     function selectLevel(lvl, md = mode) {
       touched = true;
       const l = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(lvl) || 1)));
@@ -2163,10 +2177,8 @@ var index_default = {
       if (!cell?.enabled) return;
       if (id === "prev") selectLevel(level - 1, mode);
       else if (id === "next") selectLevel(level + 1, mode);
-      else if (id === "mode") {
-        const other = mode === "3d" ? "2d" : "3d";
-        selectLevel(continueLevel(progress, other), other);
-      } else if (id === "restart") restartLevel();
+      else if (id === "mode") switchMode(mode === "3d" ? "2d" : "3d");
+      else if (id === "restart") restartLevel();
       else if (id === "level") fire("start");
       lastBar = id;
       sfx.play("click", worldOf(new THREE.Vector3(0, 0, 0)));
@@ -2416,7 +2428,7 @@ var index_default = {
       pickLevel: (l) => {
         if (isUnlocked(progress, mode, l)) selectLevel(l, mode);
       },
-      pickMode: (m) => selectLevel(continueLevel(progress, m), m),
+      pickMode: (m) => switchMode(m),
       continueGame: () => {
         selectLevel(continueLevel(progress, mode), mode);
         fire("start");

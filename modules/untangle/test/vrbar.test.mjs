@@ -19,7 +19,7 @@ export function run(check) {
 	p = recordSolve(p, '2d', 1, 20000).progress;
 	c = byId(at(1));
 	check(c.next.enabled, 'solving level 1 unlocks the ▶ to level 2');
-	check(!byId(at(1, '3d')).next.enabled, 'progress is per mode: the globe\'s level 2 is still locked');
+	check(byId(at(1, '3d')).next.enabled, 'one progress (U6): the globe\'s ▶ to level 2 is live too');
 	c = byId(at(2, '2d', { running: true }));
 	check(c.prev.enabled && !c.level.enabled && c.level.label === 'Level 2', 'mid-round: ◀ works, the middle cell is just the level');
 	check(!byId(at(2, '2d', { shell: false })).level.enabled, 'no game shell (the fallback board): nothing to start');

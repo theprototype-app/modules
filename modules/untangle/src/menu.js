@@ -10,7 +10,7 @@
 // every render, so the element always shows the module's current state; index.js calls the
 // returned `refreshAll()` when progress, the level or the mode change.
 
-import { MAX_LEVEL, isUnlocked, isSolved, continueLevel, bestOf, formatTime } from './progress.js';
+import { MAX_LEVEL, isUnlocked, isSolvedAny, continueLevel, bestOf, formatTime } from './progress.js';
 
 const AMBER = '#fbbf24';
 const GREEN = '#3ee08f';
@@ -88,7 +88,7 @@ export function makeMenuKinds(ctx) {
 			const next = continueLevel(v.progress, v.mode);
 			for (let lvl = 1; lvl <= MAX_LEVEL; lvl++) {
 				const open = isUnlocked(v.progress, v.mode, lvl);
-				const solved = isSolved(v.progress, v.mode, lvl);
+				const solved = isSolvedAny(v.progress, lvl); // U6: one progress — done on either board
 				const current = lvl === v.level;
 				const isNext = open && lvl === next;
 				const cell = document.createElement('button');
