@@ -201,9 +201,10 @@ VR emulated, 10 s of Play and the full wave, CDP CPU ×4). The frame time on cor
 refresh — fixed in core by 31-perf. The module's own share, cut in 2.2.0:
 
 - **Models** (`optimize-assets.mjs`, 0 credits, from the 30c files in git): each robot 7.2k →
-  4000 tris plus a second skinned mesh `…_lod1` (1200 tris) on the SAME skin — one skeleton, one
+  4000 tris (the tank 5640: LOD0 keeps its UV seams — collapsing them smeared the texture) plus a
+  second skinned mesh `…_lod1` (1200 tris, seams collapsed) on the SAME skin — one skeleton, one
   mixer; robot and crystal textures 512², the guns keep a 1024² base colour (at the eye), 512²
-  for the rest. Assets 6.6 → 3.6 MB.
+  for the rest. Assets 6.6 → 3.9 MB (zip 5.8 → 3.1 MB).
 - **Quality level** (`src/quality.js`): the player's pick (`prefs.quality`), else core's
   `api.quality` (0 → high, 1–2 → medium — where a headset starts —, 3+ → low), else the module's
   own governor over the frames the XR loop draws. HIGH: figures cast shadows, LOD1 past 12 m.
@@ -228,9 +229,9 @@ governor), `tests/waves-quality.test.cjs` (the levels played), `tests/waves-stuc
 | `assets/gun-blaster.glb` | the Blaster: slate + brass, oak grip, cyan strips | 2.8k | 0.59 MB |
 | `assets/gun-scatter.glb` | the Scatter: a sawn-off double barrel, orange cell | 2.7k | 0.61 MB |
 | `assets/gun-beam.glb` | the Beam: coil ring emitter, magenta orb | 2.6k | 0.67 MB |
-| `assets/enemy-grunt.glb` | a stocky orange robot, cyan visor — walk / run / hit / death | 4k + LOD1 1.2k (31; 30c: 7.2k), 24 joints | 0.71 MB |
-| `assets/enemy-runner.glb` | a lean lime sprinter, red visor — runs | 4k + LOD1 1.2k (31; 30c: 7.3k), 24 joints | 0.66 MB |
-| `assets/enemy-tank.glb` | a gunmetal + brass brute, violet chest, yellow visor — walks heavy | 4k + LOD1 1.2k (31; 30c: 7.3k), 24 joints | 0.77 MB |
+| `assets/enemy-grunt.glb` | a stocky orange robot, cyan visor — walk / run / hit / death | 4k + LOD1 1.2k (31; 30c: 7.2k), 24 joints | 0.78 MB |
+| `assets/enemy-runner.glb` | a lean lime sprinter, red visor — runs | 4k + LOD1 1.2k (31; 30c: 7.3k), 24 joints | 0.72 MB |
+| `assets/enemy-tank.glb` | a gunmetal + brass brute, violet chest, yellow visor — walks heavy | 5.6k + LOD1 1.2k (31; 30c: 7.3k), 24 joints | 1.0 MB |
 | `assets/crystal.glb` | the defended crystal (its own emission map) | 0.8k | 0.57 MB |
 
 Made with Meshy.ai through the budgeted pipeline (`packs` repo `tools/meshy`, requester

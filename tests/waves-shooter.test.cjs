@@ -402,7 +402,10 @@ h.run(async () => {
 		window.__waves.prefs.set({ ability: 'pulse', hand: 'right' });
 		window.__waves.powers.reset();
 	});
-	const pushee = (await targets(A.page)).find((t) => t.walking);
+	// (31) a walker that has LEFT its portal (the lane starts ~16-18 m from the crystal): one still at
+	// its portal clamps the shove at the lane's start (3.2 read z -9.70 -> -10.00 on every build)
+	await h.eventually(() => targets(A.page), (t) => t.some((x) => x.walking && x.left < 15 && x.left >= 4), '3.0c a walker on its way', 20000);
+	const pushee = (await targets(A.page)).find((t) => t.walking && t.left < 15 && t.left >= 4) ?? (await targets(A.page)).find((t) => t.walking);
 	await standNear(A.page, pushee.uuid, 2);
 	const q0 = await timedPos(A.page, pushee.uuid);
 	await grip(A.page, 'left');
@@ -843,6 +846,9 @@ h.run(async () => {
 		const prey = (await targets(A.page)).find((t) => t.walking);
 		const fromA = await worldPos(A.page, prey.uuid);
 		const shooter = [fromA[0], fromA[1] + 0.3, fromA[2] + 3];
+		// (31) B may still show the OLD round's count until the new round's reset reaches it: read
+		// B's base only once both copies agree (5.5 failed 2 runs in 3 on that race)
+		await h.eventually(() => Promise.all([enemyState(A.page, prey.uuid), enemyState(B.page, prey.uuid)]), ([a, b]) => !!a && !!b && a.hits === b.hits, '5.4b B\'s copy of the counter agrees with A\'s');
 		const bHits0 = (await enemyState(B.page, prey.uuid))?.hits ?? 0;
 		await shootAt(A.page, 'right', shooter, prey.uuid);
 		await h.eventually(() => enemyState(B.page, prey.uuid), (e) => e && e.hits === bHits0 + 1, '5.5 A\'s shot lands on B\'s copy of the counter');
