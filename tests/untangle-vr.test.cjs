@@ -588,6 +588,7 @@ run(async () => {
 	// (forward pushes it away, back pulls it closer), X SCALES it, the dots with it
 	const reach = () => A.page.evaluate((h) => { const c = window.__untangle.globeHold().centre; return Math.hypot(c[0] - h[0], c[1] - h[1], c[2] - h[2]); }, H1);
 	const look0 = await A.page.evaluate(() => ({ s: window.__untangle.globeHold().scale, r: window.__untangle.look().dotRadius }));
+	let heldScale = look0.s; // what G.12 expects the release to keep
 	const gd0 = await reach();
 	await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, -1));
 	await A.page.waitForTimeout(450);
@@ -616,6 +617,7 @@ run(async () => {
 		await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, 0));
 		await A.page.waitForTimeout(80);
 		const look1 = await A.page.evaluate(() => ({ s: window.__untangle.globeHold().scale, r: window.__untangle.look().dotRadius }));
+		heldScale = look1.s;
 		check(look1.s > look0.s * 1.3, 'G.5c stick RIGHT on the holding hand grows the globe (scale ' + look0.s.toFixed(2) + ' -> ' + look1.s.toFixed(2) + ')');
 		await shot(A.page, 'g-globe-held-scaled');
 		check(Math.abs(look1.r / look0.r - look1.s / look0.s) < 1e-3, 'G.6 the dots grew in proportion (dot radius x' + (look1.r / look0.r).toFixed(3) + ')');
@@ -635,13 +637,17 @@ run(async () => {
 				best = i;
 			}
 		});
-		return { i: best, at: all[best].toArray() };
+		// the left hand stands 0.9 m out along THAT dot's normal, so the dot is in its view whatever
+		// the globe's size (unscaled, the cap facing the old fixed spot can hold no dot at all)
+		const n = all[best].clone().sub(c).normalize();
+		return { i: best, at: all[best].toArray(), lh: all[best].clone().addScaledVector(n, 0.9).add(new THREE.Vector3(-0.05, -0.05, 0)).toArray() };
 	}, LH);
-	await setHands(A.page, { left: await aimPose(A.page, LH, front.at, false) });
+	const LH2 = front.lh;
+	await setHands(A.page, { left: await aimPose(A.page, LH2, front.at, false) });
 	await A.page.waitForTimeout(80);
-	await setHands(A.page, { left: await aimPose(A.page, LH, front.at, true) });
+	await setHands(A.page, { left: await aimPose(A.page, LH2, front.at, true) });
 	await A.page.waitForTimeout(120);
-	const g7 = await A.page.evaluate(() => ({ vr: window.__untangle.vr(), s: window.__untangle.state() }));
+	const g7 = await A.page.evaluate(() => ({ vr: window.__untangle.vr(), s: window.__untangle.state(), hold: window.__untangle.globeHold() }));
 	check(g7.s.carried === front.i && g7.vr.carrier?.hand === 'left' && g7.vr.holder?.hand === 'right', 'G.7 with the right hand holding the globe, the LEFT hand grabs dot ' + front.i + ' (carried ' + g7.s.carried + ')');
 	const gp0 = g7.s.positions[front.i];
 	// the right hand moves the globe while the left laser holds still: the dot stays on the left ray
@@ -651,16 +657,16 @@ run(async () => {
 		await A.page.waitForTimeout(40);
 	}
 	await A.page.waitForTimeout(100);
-	const onRay = await A.page.evaluate(({ LH, leftAim, i }) => {
+	const onRay = await A.page.evaluate(({ LH2, leftAim, i }) => {
 		const THREE = window.__stores.THREE;
-		const o = new THREE.Vector3(...LH);
+		const o = new THREE.Vector3(...LH2);
 		const d = new THREE.Vector3(...leftAim).sub(o).normalize();
 		// the dot's point ON the globe (a carried dot is DRAWN lifted off it, toward the player)
 		const p = new THREE.Vector3(...window.__untangle.boardWorld(window.__untangle.state().positions[i]));
 		return new THREE.Ray(o, d).distanceSqToPoint(p) ** 0.5;
-	}, { LH, leftAim, i: front.i });
+	}, { LH2, leftAim, i: front.i });
 	check(onRay < 0.03, 'G.8 as the right hand carries the globe away, the carried dot stays under the LEFT laser (its globe point ' + (onRay * 100).toFixed(1) + ' cm off the ray)');
-	await setHands(A.page, { left: await aimPose(A.page, LH, leftAim, false) });
+	await setHands(A.page, { left: await aimPose(A.page, LH2, leftAim, false) });
 	await A.page.waitForTimeout(150);
 	const g9 = await state(A.page);
 	const gq = g9.positions[front.i];
@@ -672,9 +678,9 @@ run(async () => {
 	const g12 = await A.page.evaluate(() => {
 		let claims;
 		window.__stores.inputRuntime.inputClaims.subscribe((x) => (claims = x))();
-		return { holder: window.__untangle.vr().holder, hold: window.__untangle.globeHold(), walk: !claims.includes('locomotion') };
+		return { holder: window.__untangle.vr().holder, hold: window.__untangle.globeHold(), walk: !claims.includes('locomotion'), sticks: claims.includes('sticks') };
 	});
-	check(g12.holder === null && g12.hold.scale > 1.3 && g12.walk, 'G.12 the release lets it go where it is (scale ' + g12.hold.scale.toFixed(2) + ' kept) and walking is back');
+	check(g12.holder === null && Math.abs(g12.hold.scale - heldScale) < 1e-9 && g12.walk && !g12.sticks, 'G.12 the release lets it go where it is (scale ' + g12.hold.scale.toFixed(2) + ' kept) and walking is back');
 	const bHold = await B.page.evaluate(() => window.__untangle.globeHold());
 	check(bHold.scale === 1 && bHold.offset.every((v) => v === 0), 'G.13 the hold is LOCAL: B\'s globe did not move or grow');
 	// the flat board has no hold
