@@ -48,6 +48,13 @@ export function run(check) {
 	check(d.env?.preset === 'custom' && (d.env.exposure ?? 1) >= 0.9 && !!d.env.background?.top, 'a custom sky with a readable exposure (>= 0.9)');
 	const kinds = d.post.effects.map((e) => e.kind).join('>');
 	check(kinds === 'ao>tonemapping>bloom>smaa' && d.post.effects[1].params.mode === 'AGX', 'post = AO -> AgX -> bloom -> SMAA (the fork-11 floor)');
+	// roadmap 31: U2 the VR spawn in front of the board, U1 the grips scale the world in the game
+	const sp = d.physics.play.spawn;
+	check(!!sp && sp.vrOnly === true && sp.yaw === 0 && sp.position[2] > 1.1 && Math.abs(sp.position[0] - BOARD.x) < 1e-9, 'play.spawn: VR-only, facing the board from ' + (sp?.position[2] ?? '?') + ' m in front of it (U2)');
+	check(d.physics.play.locomotion?.worldGrab === true && d.physics.play.locomotion.teleport === undefined && d.physics.play.locomotion.fly === undefined, 'play.locomotion.worldGrab on — and no teleport / fly (U1, contract K1)');
+	const ped = d.objects.find((o) => o.name === 'Pedestal');
+	check(!!ped && ped.pos[1] + ped.h / 2 <= 0.13, 'the pedestal is lowered to a flat medallion on the stage (top ' + (ped ? (ped.pos[1] + ped.h / 2).toFixed(2) : '?') + ' m): nothing under the board stands into the VR bar (U4)');
+	check(!d.objects.some((o) => o.type !== 'light' && o.name !== 'Back wall' && (o.pos?.[1] ?? 0) + (o.h ?? o.size?.[1] ?? 0) / 2 > 0.2), 'no object but the back wall rises above 0.2 m: the space between the spawn and the board is clear (U4)');
 	check(d.physics.play.cursor === 'free', 'play.cursor free (the real cursor drags; a core without it keeps the lock + crosshair)');
 	check(Array.isArray(d.view?.pos) && Array.isArray(d.view?.target) && d.thumb?.sceneGroups?.includes('untangle-module'), 'view + thumb.sceneGroups: the card shows the board');
 

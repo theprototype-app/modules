@@ -11,6 +11,14 @@
 // module's own wrapper over localStorage writing the SAME key format core uses,
 // `tp:mod:untangle:<key>`, JSON, never throwing, an in-memory fallback per key — so progress
 // written on a 1.16 core is exactly what a 1.17 core's api.storage reads back.
+//
+// Roadmap 31 (U6, decision 4): ONE progress across the globe and the 2D board. The user on a
+// Quest: "I can pass several levels in 3D globe, and then switch to the 2D, and it will give
+// me the same level" — a level reached in either mode is open in both. The stored shape is
+// unchanged (each mode keeps its own solved list and best times: the two puzzles differ),
+// but `unlocked` is one number written into both modes, a level solved in EITHER mode is
+// done for Continue, and switching mode keeps the level you had open (`switchLevel`). A
+// progress saved by 2.2 (separate unlocks) is merged on read: the higher unlock wins.
 
 export const MAX_LEVEL = 30;
 export const MODES = ['2d', '3d'];
@@ -58,6 +66,9 @@ export function normalizeProgress(raw) {
 		}
 		out[m] = { unlocked: Math.max(unlocked, fromSolved), solved, best };
 	}
+	// U6: one unlock for both modes — the higher one wins
+	const shared = Math.max(...MODES.map((m) => out[m].unlocked));
+	for (const m of MODES) out[m].unlocked = shared;
 	return out;
 }
 
@@ -72,12 +83,34 @@ export function isSolved(progress, mode, level) {
 	return !!progress?.[mode]?.solved?.includes(level);
 }
 
-/** the level Continue opens: the lowest unlocked level not yet solved, else the highest unlocked
- * @param {any} progress @param {string} mode */
-export function continueLevel(progress, mode) {
+/** U6: is a level done in EITHER mode? (Continue skips it; the grid ticks it)
+ * @param {any} progress @param {number} level */
+export function isSolvedAny(progress, level) {
+	return MODES.some((m) => isSolved(progress, m, level));
+}
+
+/** the level Continue opens: the lowest unlocked level not yet solved in EITHER mode, else the
+ * highest unlocked — the same level on the globe and on the board (U6). `mode` is kept for
+ * the callers' sake; the answer no longer depends on it.
+ * @param {any} progress @param {string} [mode] */
+export function continueLevel(progress, mode = MODES[0]) {
 	const p = progress?.[mode] ?? freshMode();
-	for (let l = 1; l <= p.unlocked; l++) if (!p.solved.includes(l)) return l;
+	for (let l = 1; l <= p.unlocked; l++) if (!isSolvedAny(progress, l)) return l;
 	return Math.min(MAX_LEVEL, p.unlocked);
+}
+
+/**
+ * U6: the level a globe <-> board SWITCH opens — the level you had open, in the other mode
+ * ("it should put me into the level I opened"). On a board you have just SOLVED the switch
+ * moves you on to the next level, as Next would (the solved one is done in both modes now),
+ * when that level is open. Pure.
+ * @param {any} progress @param {number} level the level on the board now
+ * @param {boolean} [won] is that board solved?
+ */
+export function switchLevel(progress, level, won = false) {
+	const lvl = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(level) || 1)));
+	if (won && lvl < MAX_LEVEL && isUnlocked(progress, MODES[0], lvl + 1)) return lvl + 1;
+	return lvl;
 }
 
 /**
@@ -93,7 +126,8 @@ export function recordSolve(progress, mode, level, ms) {
 	if (!p.solved.includes(lvl)) p.solved = [...p.solved, lvl].sort((a, b) => a - b);
 	const opened = Math.min(MAX_LEVEL, lvl + 1);
 	const unlockedNew = opened > p.unlocked;
-	if (unlockedNew) p.unlocked = opened;
+	// U6: the unlock is shared — solving on the globe opens the level on the board too
+	if (unlockedNew) for (const m of MODES) next[m].unlocked = opened;
 	let newBest = false;
 	if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) {
 		const prior = p.best[String(lvl)];

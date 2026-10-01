@@ -496,11 +496,11 @@ run(async () => {
 	await eventually(() => state(B.page), (s) => JSON.stringify(s.positions) === JSON.stringify(fresh), 'M.12 B restarts too');
 	await pressCell(3);
 	const m13 = await state(A.page);
-	check(m13.mode === '3d' && m13.level === 1, 'M.13 the mode cell flips to the globe at its continue level (' + m13.mode + ' ' + m13.level + ')');
-	await eventually(() => state(B.page), (s) => s.mode === '3d' && s.level === 1, 'M.14 B flips to the globe too');
+	check(m13.mode === '3d' && m13.level === 12, 'M.13 the mode cell flips to the globe on the SAME level, 12 (U6: one progress) (' + m13.mode + ' ' + m13.level + ')');
+	await eventually(() => state(B.page), (s) => s.mode === '3d' && s.level === 12, 'M.14 B flips to the globe too');
 	await A.page.waitForTimeout(150);
 	const m15 = await bar();
-	check(m15.visible && m15.cells[3].label === 'Flat', 'M.15 under the globe the bar shows, its mode cell now says Flat');
+	check(m15.visible && m15.cells[3].label === '2D', 'M.15 under the globe the bar shows, its mode cell now says 2D');
 	await pressCell(3);
 	check((await state(A.page)).mode === '2d', 'M.16 ...and flips back');
 	const hasModes2 = await A.page.evaluate(() => typeof window.__stores.objectActions?.setEditorMode === 'function');

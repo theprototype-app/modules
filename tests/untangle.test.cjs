@@ -11,6 +11,11 @@
 // 2 open and 3 locked, a locked cell is inert, an open one changes the board; Reset progress
 // asks first, then locks level 2 again and toasts.
 //
+// Roadmap 31 U6 — ONE PROGRESS across the globe and the board: the globe solve earlier opened
+// level 4 on the 2D board too; the grid's "3D globe" button keeps the level that was open;
+// after the reset, passing globe levels 1 and 2 and pressing "2D board" opens 2D level 3,
+// shown as the next level in the grid with 1 and 2 ticked.
+//
 // Roadmap 30 P3 — THE GLOBE: A switches everyone to the 3D mode; the scramble (unit vectors)
 // is identical on B and C; a 3D drop replicates; A turning its globe is LOCAL (B's view and
 // every dot stay put); a solve on A is zero spherical crossings on B too and both advance;
@@ -160,15 +165,15 @@ run(async () => {
 	// ---- P2: progress survives a reload; the grid locks; Reset progress -------------------------
 	const progA = await A.page.evaluate(() => window.__untangle.progress());
 	const progB = await B.page.evaluate(() => window.__untangle.progress());
-	check(progA['2d'].unlocked === 2 && JSON.stringify(progA['2d'].solved) === '[1]', 'P2.1 A (the solver) banked level 1 and opened level 2 (' + JSON.stringify(progA['2d']) + ')');
+	check(progA['2d'].unlocked === 4 && progA['3d'].unlocked === 4 && JSON.stringify(progA['2d'].solved) === '[1]', 'P2.1 A (the solver) banked 2D level 1; with globe level 3 solved ONE progress opened level 4 in both modes (U6) (' + JSON.stringify(progA['2d']) + ')');
 	check(progB['2d'].unlocked === 1 && progB['2d'].solved.length === 0, 'P2.2 B never moved a dot: nothing banked (progress is per player)');
 	const key = await A.page.evaluate(() => localStorage.getItem('tp:mod:untangle:progress'));
-	check(!!key && JSON.parse(key)['2d'].unlocked === 2, 'P2.3 stored under tp:mod:untangle:progress (' + (await A.page.evaluate(() => window.__untangle.storageKind)) + ')');
+	check(!!key && JSON.parse(key)['2d'].unlocked === 4, 'P2.3 stored under tp:mod:untangle:progress (' + (await A.page.evaluate(() => window.__untangle.storageKind)) + ')');
 	await B.ctx.close();
 	await A.page.reload({ waitUntil: 'domcontentloaded' });
 	await A.page.waitForFunction(() => window.__stores && !!window.__stores.moduleSDK, null, { timeout: 30000 });
 	await eventually(() => A.page.evaluate(() => window.__stores.moduleSDK.loadedModules.map((m) => m.id)), (ids) => ids.includes('untangle'), 'P2.4 (premise) after the reload the installed module loads again', 20000);
-	await eventually(() => A.page.evaluate(() => window.__untangle?.progress?.()), (p) => !!p && p['2d'].unlocked === 2 && p['2d'].solved.includes(1), 'P2.5 after the RELOAD level 2 is still open and level 1 solved');
+	await eventually(() => A.page.evaluate(() => window.__untangle?.progress?.()), (p) => !!p && p['2d'].unlocked === 4 && p['2d'].solved.includes(1), 'P2.5 after the RELOAD level 4 is still open and level 1 solved');
 	// the real grid: a HUD document with the module's levels element on a menu screen, in play
 	await A.page.evaluate(() =>
 		window.__stores.hudDocs.hudDocsRestore(
@@ -184,22 +189,47 @@ run(async () => {
 	);
 	await A.page.locator('#play-button').click();
 	const cell = (n) => A.page.locator('#hud-layer .ut-cell[data-level="' + n + '"]');
-	await eventually(() => cell(3).getAttribute('data-state').catch(() => null), (v) => v === 'locked', 'P2.6 the grid renders: level 3 is LOCKED', 10000);
+	await eventually(() => cell(5).getAttribute('data-state').catch(() => null), (v) => v === 'locked', 'P2.6 the grid renders: level 5 is LOCKED', 10000);
 	check((await cell(2).getAttribute('data-state')) === 'next' && (await cell(1).getAttribute('data-state')) === 'solved', 'P2.7 level 1 shows solved, level 2 is the highlighted next level');
+	check((await cell(3).getAttribute('data-state')) === 'solved' && (await cell(4).getAttribute('data-state')) === 'open', 'U6.1 on the 2D grid level 3 (solved on the GLOBE) is ticked and 4 is open: one progress');
 	const before = (await snap(A.page)).level;
-	await cell(3).click({ force: true });
+	await cell(5).click({ force: true });
 	await A.page.waitForTimeout(300);
 	check((await snap(A.page)).level === before, 'P2.8 a locked cell is inert (the board stays on level ' + before + ')');
 	await cell(2).click();
 	await eventually(() => snap(A.page), (s) => s.level === 2, 'P2.9 an open cell loads that level');
 	await A.page.locator('#hud-layer .ut-reset').click();
 	await eventually(() => A.page.locator('#hud-layer .ut-reset-yes').count(), (n) => n === 1, 'P2.10 Reset progress ASKS first');
-	check((await A.page.evaluate(() => window.__untangle.progress()))['2d'].unlocked === 2, 'P2.11 ...and nothing is reset until you confirm');
+	check((await A.page.evaluate(() => window.__untangle.progress()))['2d'].unlocked === 4, 'P2.11 ...and nothing is reset until you confirm');
 	await A.page.locator('#hud-layer .ut-reset-yes').click();
 	await eventually(() => cell(2).getAttribute('data-state'), (v) => v === 'locked', 'P2.12 confirmed: level 2 is locked again');
 	check(/progress reset/i.test(await toasts(A.page)), 'P2.13 a toast says so');
 	const cleared = JSON.parse(await A.page.evaluate(() => localStorage.getItem('tp:mod:untangle:progress')));
 	check(cleared['2d'].unlocked === 1 && cleared['2d'].solved.length === 0 && cleared['3d'].unlocked === 1, 'P2.14 the stored progress is the default again');
+
+	// ---- U6: switching globe <-> board keeps the level; globe progress opens the board ----------
+	const modeBtn = (m) => A.page.locator('#hud-layer .ut-modes button[data-mode="' + m + '"]');
+	await A.page.evaluate(() => window.__untangle.select(1, '2d'));
+	await eventually(() => snap(A.page), (s) => s.level === 1 && s.mode === '2d', 'U6.2 (premise) 2D level 1 after the reset');
+	await modeBtn('3d').click();
+	await eventually(() => snap(A.page), (s) => s.mode === '3d' && s.level === 1, 'U6.3 the grid\'s "3D globe" button opens the SAME level on the globe (1)');
+	check(await A.page.evaluate(() => window.__untangle.solve()), 'U6.4 A passes globe level 1');
+	await eventually(() => snap(A.page), (s) => s.mode === '3d' && s.level === 2 && !s.won, 'U6.5 ...and moves on to globe level 2', 6000);
+	check(await A.page.evaluate(() => window.__untangle.solve()), 'U6.6 A passes globe level 2');
+	await eventually(() => snap(A.page), (s) => s.mode === '3d' && s.level === 3 && !s.won, 'U6.7 ...and is on globe level 3', 6000);
+	await modeBtn('2d').click();
+	await eventually(() => snap(A.page), (s) => s.mode === '2d' && s.level === 3, 'U6.8 "2D board" opens 2D LEVEL 3 — the level that was open, never reached on the board before');
+	const p6 = await A.page.evaluate(() => window.__untangle.progress());
+	check(p6['2d'].unlocked === 3 && p6['2d'].solved.length === 0 && JSON.stringify(p6['3d'].solved) === '[1,2]', 'U6.9 the progress: 3 open in both modes, the solves recorded on the globe (' + JSON.stringify(p6) + ')');
+	await eventually(() => cell(3).getAttribute('data-state').catch(() => null), (v) => v === 'next', 'U6.10 the 2D grid highlights level 3 as the next level');
+	check((await cell(1).getAttribute('data-state')) === 'solved' && (await cell(2).getAttribute('data-state')) === 'solved' && (await cell(4).getAttribute('data-state')) === 'locked', 'U6.11 ...1 and 2 ticked (passed on the globe), 4 locked');
+	await modeBtn('3d').click();
+	await eventually(() => snap(A.page), (s) => s.mode === '3d' && s.level === 3, 'U6.12 and back: the globe opens level 3 again');
+	// the switch keeps the OPEN level, not the Continue one: an older level 1 open on the board
+	await A.page.evaluate(() => window.__untangle.select(1, '2d'));
+	await eventually(() => snap(A.page), (s) => s.level === 1 && s.mode === '2d', 'U6.13 (premise) 2D level 1 open (Continue would be 3)');
+	await modeBtn('3d').click();
+	await eventually(() => snap(A.page), (s) => s.mode === '3d' && s.level === 1, 'U6.14 the globe opens level 1 — the level that was open, not Continue\'s 3');
 	await A.page.keyboard.press('Escape');
 
 	await finish(browser);
