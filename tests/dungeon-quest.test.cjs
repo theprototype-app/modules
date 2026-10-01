@@ -222,16 +222,17 @@ run(async () => {
 				const x = from[0] + dx, z = from[2] + dz;
 				if (cell(x, z) === floorValue && cell(from[0] + dx / 2, from[2] + dz / 2) === floorValue) { inRoom = [x, 0, z]; break; }
 			}
-			// a floor target BEHIND A WALL: the nearest floor cell whose straight line from `from`
-			// crosses a wall cell
+			// a floor target BEHIND A WALL: the nearest floor cell (inside the bounds) whose straight
+			// line from `from` crosses a cell that is neither floor nor a prop (wall or rock)
 			let behind = null, bestD = Infinity;
+			const solidRock = (v) => v !== floorValue && v !== 3;
 			for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
 				if (grid[y * W + x] !== floorValue) continue;
 				const tx = x + minX + 0.5, tz = y + minY + 0.5;
 				const d = Math.hypot(tx - from[0], tz - from[2]);
-				if (d > 9 || d < 2 || d >= bestD) continue;
+				if (d > 20 || d < 2 || d >= bestD) continue;
 				let wall = false;
-				for (let s = 0.05; s < 1; s += 0.05) if (cell(from[0] + (tx - from[0]) * s, from[2] + (tz - from[2]) * s) === 2) wall = true;
+				for (let s = 0.02; s < 1; s += 0.02) if (solidRock(cell(from[0] + (tx - from[0]) * s, from[2] + (tz - from[2]) * s))) wall = true;
 				if (wall) { behind = [tx, 0, tz]; bestD = d; }
 			}
 			const outside = [play.bounds.max[0] + 3, 0, from[2]];
