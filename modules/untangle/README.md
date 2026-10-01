@@ -90,6 +90,9 @@ APP_URL=https://localhost:5216/ npm test -- untangle.test   # the test-flight
 
 ## In VR, the second round (2.3.0, roadmap 31)
 
+2.3.1: the VR HUD line above the board fits its canvas (a long "Level 12 · 7 crossings" was cut
+at both ends in the headset).
+
 - **You start in front of it.** The board publishes a VR-only spawn (`userData.play.spawn`)
   1.35 m in front of its face (1.2-1.5 m with the board's size), centred, facing it, the
   feet on the floor found under that spot — so a headset no longer lands inside the dots.

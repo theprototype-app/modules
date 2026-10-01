@@ -14,7 +14,7 @@
 	"modules": [
 		{
 			"id": "untangle",
-			"version": "2.3.0"
+			"version": "2.3.1"
 		}
 	],
 	"installModules": [

@@ -227,6 +227,11 @@ run(async () => {
 	check(v4.carried === -1 && v4.lastDrop === 'vr-release' && near(v4.positions[0], T), 'V.6 the RELEASE drops it at (' + T + ') (' + v4.lastDrop + ')');
 	check(log4.includes('click') && log4.includes('haptic:bump:right'), 'V.7 the drop clicks and bumps the right controller');
 	await eventually(() => state(B.page), (s) => JSON.stringify(s.positions[0]) === JSON.stringify(v4.positions[0]), 'V.8 B lands on the IDENTICAL position (the authoritative move)');
+	// 31-integrate: the VR HUD line ("Level 12  ·  7 crossings") fits its 512 px canvas — at a fixed
+	// 44px it ran ~600 px wide and the centred text was cut at both ends in the headset
+	await eventually(() => state(A.page).then((s) => s.spriteFit), (f) => !!f, 'V.8b (premise) the drop redrew the VR HUD line', 4000);
+	const fitNow = (await state(A.page)).spriteFit;
+	check(!!fitNow && fitNow.width <= fitNow.canvas - 16, 'V.8c the VR HUD line fits its canvas (' + JSON.stringify(fitNow) + ')');
 	// core's trailing select (it fires on the trigger RELEASE) reaches the click handler
 	const trailing = await A.page.evaluate(() => {
 		let scene;

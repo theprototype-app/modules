@@ -41,7 +41,7 @@ const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defa
 export default {
 	id: 'untangle',
 	name: 'Untangle',
-	version: '2.3.0',
+	version: '2.3.1',
 	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels that unlock as you solve them, one progress for both (it stays on your device). In VR: you start in front of the board, grab dots with the trigger, hold/turn/scale the globe, the grips scale the world, a level picker with Globe / 2D and a level bar. Replicated; board pose, level and readouts as flow nodes.',
 	/** @param {any} api */
 	register(api) {
@@ -363,7 +363,17 @@ export default {
 			const canvas = sprite.userData.canvas;
 			const g = canvas.getContext('2d');
 			g.clearRect(0, 0, canvas.width, canvas.height);
-			g.font = 'bold 44px monospace';
+			// fit the line to the canvas: "Level 12 · 7 crossings" at 44px is ~580 px wide on a
+			// 512 px canvas, and a centred line clipped at BOTH ends (seen in the 31 headset shots)
+			let size = 44;
+			g.font = 'bold ' + size + 'px monospace';
+			const room = canvas.width - 24;
+			const wide = g.measureText(text).width;
+			if (wide > room) {
+				size = Math.max(18, Math.floor((size * room) / wide));
+				g.font = 'bold ' + size + 'px monospace';
+			}
+			sprite.userData.fit = { size, width: g.measureText(text).width, canvas: canvas.width };
 			g.textAlign = 'center';
 			g.fillStyle = color;
 			g.fillText(text, canvas.width / 2, 62);
@@ -1294,7 +1304,7 @@ export default {
 		hook = {
 			state: () => ({
 				level, mode, positions, edges, board: { ...board }, won, crossings, solvedCount, built, touched,
-				nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite,
+				nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite, spriteFit: sprite?.userData.fit ?? null,
 				carried, carryMode: carried === -1 ? 'none' : gesture.carryMode() === 'none' ? carryHow : gesture.carryMode(),
 				lastDrop, lastUp: gesture.lastUp(), rayMode: aim.mode(), rev, syncs: { ...syncs }
 			}),
