@@ -114,6 +114,16 @@ creates exactly them in an empty scene (through `api.create`, `api.physics.set` 
 scene-physics block itself has no api write — set gravity 0, ground off and Knock on in
 Inspector ▸ Physics (DEVX #20), or load the template.
 
+## Frame budget (31 — the Quest round)
+
+"Heavy stuttering in VR mode." The template now fits the Quest budget: the five glass panes are
+plain transparent glass (round 2's physical **transmission** made three render the whole scene a
+second time every frame — per eye in a headset — for panes the player stands inside of); **two**
+floodlights are real lights (spot, no shadow map), the other two heads only glow; no gate point
+lights and no env sun (core's sun casts a shadow map). The module holds its ball/gate lookups
+instead of searching the objects every frame, and a goal's confetti follows `api.quality`
+(`burstBudget`: two thirds in a headset, none at the lowest levels).
+
 ## Owed on device
 
 The knock's and the tip kick's feel on a Quest (does a normal swing land, with or without the

@@ -107,7 +107,11 @@ function buildOverlay(THREE, play, collected) {
     portalGroup.userData.portal = { kind: portal.kind, gated: portal.gated };
     group.add(portalGroup);
   }
-  group.userData._dr = { gemWorld, theme };
+  const part = (portal, name) => portal?.getObjectByName(name) ?? null;
+  const up = group.getObjectByName("dr-portal-up") ?? null;
+  const down = group.getObjectByName("dr-portal-down") ?? null;
+  const portals = [up, down].filter(Boolean).map((p) => ({ group: p, ring: part(p, "dr-portal-ring"), disc: part(p, "dr-portal-disc"), column: part(p, "dr-portal-column") }));
+  group.userData._dr = { gemWorld, theme, gemMesh, portalUp: up, portals };
   applyGems(group, collected);
   return group;
 }
@@ -147,39 +151,33 @@ function setPortalSealed(group, sealed, theme) {
     down.userData.portal.sealed = false;
   }
 }
+var scratch = null;
 function animateOverlay(THREE, group, collected, time) {
   const data = group.userData._dr;
   if (!data) return;
-  const gemMesh = group.getObjectByName("dr-gems");
+  const s = scratch ??= { matrix: new THREE.Matrix4(), position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), scale: new THREE.Vector3(1, 1, 1), axis: new THREE.Vector3(0, 1, 0) };
+  const gemMesh = data.gemMesh;
   if (gemMesh && data.gemWorld.length) {
-    const matrix = new THREE.Matrix4();
-    const position = new THREE.Vector3();
-    const quaternion = new THREE.Quaternion();
-    const scale = new THREE.Vector3(1, 1, 1);
-    const axis = new THREE.Vector3(0, 1, 0);
-    data.gemWorld.forEach((gem, i) => {
-      if (collected.has(gem.index)) return;
-      position.set(gem.x, gem.y + Math.sin(time * 2 + gem.x) * 0.08, gem.z);
-      quaternion.setFromAxisAngle(axis, time * 1.6 + gem.index);
-      matrix.compose(position, quaternion, scale);
-      gemMesh.setMatrixAt(i, matrix);
-    });
+    for (let i = 0; i < data.gemWorld.length; i++) {
+      const gem = data.gemWorld[i];
+      if (collected.has(gem.index)) continue;
+      s.position.set(gem.x, gem.y + Math.sin(time * 2 + gem.x) * 0.08, gem.z);
+      s.quaternion.setFromAxisAngle(s.axis, time * 1.6 + gem.index);
+      s.matrix.compose(s.position, s.quaternion, s.scale);
+      gemMesh.setMatrixAt(i, s.matrix);
+    }
     gemMesh.instanceMatrix.needsUpdate = true;
   }
-  group.children.forEach((child) => {
-    if (child.name === "dr-portal-up" || child.name === "dr-portal-down") {
-      const open = child.userData.portal?.sealed === false;
-      const ring = child.getObjectByName("dr-portal-ring");
-      if (ring && open) ring.rotation.z = time * 0.8;
-      const disc = child.getObjectByName("dr-portal-disc");
-      if (disc && open) disc.material.opacity = 0.6 + Math.sin(time * 2.4) * 0.15;
-      const column = child.getObjectByName("dr-portal-column");
-      if (column?.visible) {
-        column.material.opacity = 0.16 + Math.sin(time * 3.1) * 0.06;
-        column.rotation.y = time * 0.5;
-      }
+  for (let i = 0; i < data.portals.length; i++) {
+    const { group: portal, ring, disc, column } = data.portals[i];
+    const open = portal.userData.portal?.sealed === false;
+    if (ring && open) ring.rotation.z = time * 0.8;
+    if (disc && open) disc.material.opacity = 0.6 + Math.sin(time * 2.4) * 0.15;
+    if (column?.visible) {
+      column.material.opacity = 0.16 + Math.sin(time * 3.1) * 0.06;
+      column.rotation.y = time * 0.5;
     }
-  });
+  }
 }
 
 // modules/dungeon-realms/src/gui.js
@@ -498,10 +496,22 @@ function createGame(api) {
   const me = () => api.peerId() ?? "me";
   const shortName = (peerId) => peerId === me() ? "you" : String(peerId).slice(0, 6);
   const collectedSet = (floor = state.floorIndex) => state.collected[floor] ??= /* @__PURE__ */ new Set();
-  const kitGroup = () => api.scene()?.getObjectByName(KIT_GROUP) ?? null;
+  const refs = {};
+  function byName(name) {
+    const scene = api.scene();
+    if (!scene) return null;
+    const hit = refs[name];
+    if (hit && hit.name === name) {
+      let root2 = hit;
+      while (root2.parent) root2 = root2.parent;
+      if (root2 === scene) return hit;
+    }
+    return refs[name] = scene.getObjectByName(name) ?? null;
+  }
+  const kitGroup = () => byName(KIT_GROUP);
   const kit = () => kitGroup()?.userData?.kit ?? null;
   const play = () => kitGroup()?.userData?.play ?? null;
-  const group = () => api.scene()?.getObjectByName(GROUP_NAME) ?? null;
+  const group = () => byName(GROUP_NAME);
   const _v = new THREE.Vector3();
   function toLocal(p) {
     const k = kitGroup();
@@ -574,8 +584,16 @@ function createGame(api) {
     state.spawn = { position: [x, y, z], yaw: spawn.yaw, floor: p.floorIndex, teleport };
     return api.setSpawn([x, y, z], spawn.yaw, { teleport });
   }
+  let gemsOf = { play: (
+    /** @type {any} */
+    null
+  ), n: 0 };
   const gemCount = (floor = state.floorIndex) => {
-    if (floor === state.floorIndex) return (play()?.props ?? []).filter((p) => p.kind === "gem").length;
+    if (floor === state.floorIndex) {
+      const p = play();
+      if (p !== gemsOf.play) gemsOf = { play: p, n: (p?.props ?? []).filter((q) => q.kind === "gem").length };
+      return gemsOf.n;
+    }
     const dungeon = kit()?.campaign?.()?.floors[floor - 1];
     return dungeon ? dungeon.props.filter((p) => p.kind === "gem").length : 0;
   };
@@ -889,13 +907,24 @@ function createGame(api) {
     const minimap = typeof document !== "undefined" ? document.getElementById("dungeon-minimap") : null;
     return !!minimap && !minimap.classList.contains("hidden");
   }
+  const _here = { x: 0, y: 0, z: 0 };
   function playerXZ() {
-    if (typeof api.playerPosition === "function") {
-      const p = api.playerPosition();
-      if (p) return toLocal(p);
+    let p = typeof api.playerPosition === "function" ? api.playerPosition() : null;
+    if (!p) {
+      const origin = api.pointerRay()?.ray?.origin;
+      if (!origin) return null;
+      p = [origin.x, origin.y, origin.z];
     }
-    const origin = api.pointerRay()?.ray?.origin;
-    return origin ? toLocal([origin.x, origin.y, origin.z]) : null;
+    const k = kitGroup();
+    _v.set(p[0], p[1], p[2]);
+    if (k) {
+      k.updateWorldMatrix(true, false);
+      k.worldToLocal(_v);
+    }
+    _here.x = _v.x;
+    _here.y = _v.y;
+    _here.z = _v.z;
+    return _here;
   }
   function playerAt() {
     const p = typeof api.playerPosition === "function" ? api.playerPosition() : null;
@@ -932,7 +961,7 @@ function createGame(api) {
           const dz = pos.z - gem.z;
           if (dx * dx + dz * dz < r2 && Math.abs(pos.y - gem.y) < 2.6) collectGem(state.floorIndex, gem.index);
         }
-        const portal = g.getObjectByName("dr-portal-up");
+        const portal = g.userData._dr?.portalUp ?? null;
         if (portal && !sealed()) {
           const dx = pos.x - portal.position.x;
           const dz = pos.z - portal.position.z;
@@ -1234,8 +1263,8 @@ function registerNodes(api, game) {
       seen.menu = -1;
       assign(game.config.menu, { ...DEFAULT_MENU });
     }
-    for (const [name, at] of Object.entries(propSeen)) {
-      if (frame - at > EXPIRE_FRAMES) {
+    for (const name in propSeen) {
+      if (frame - propSeen[name] > EXPIRE_FRAMES) {
         delete propSeen[name];
         delete game.config.props[name];
         game.markGuiDirty();
@@ -1249,7 +1278,7 @@ function registerNodes(api, game) {
 var index_default = {
   id: "dungeon-realms",
   name: "Dungeon Realms",
-  version: "2.2.0",
+  version: "2.3.0",
   description: 'Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors \u2014 every rule and readout a flow node. Requires the "dungeon" (Dungeon Kit) module.',
   /** @param {any} api the module SDK surface */
   register(api) {

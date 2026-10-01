@@ -101,6 +101,12 @@ wall-slide collision, per-peer spawn rooms and the corner minimap for free
 (spawn rooms are ordered entrance-first, so P1/P2 start together). This module
 adds: gems, portal gating, the menu, the markers and the grounded flag.
 
+31: **teleport** — the Kit publishes `locomotion.teleport: true` on a core whose teleport is
+bounded (K1: a walkable floor cell, no wall between you and the target, inside the Kit's
+`bounds`), so in VR you can teleport around the floor but never out of the dungeon; on an older
+core teleport stays off. The frame tick holds its scene lookups (no scene-graph search per frame)
+and allocates nothing.
+
 ## The node family (group "Dungeon Realms")
 
 Every rule is node-ownable. A node ALIVE in a running graph owns its rule group

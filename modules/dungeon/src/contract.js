@@ -91,11 +91,16 @@ export function colliderBoxes(dungeon) {
 		open = next;
 	}
 	open.forEach(close);
+	// 31: a solid prop's box covers its WHOLE cell (the walk raster blocks the whole cell): a
+	// bounded teleport (K1) that lands beside a pillar must never land on a cell the walker then
+	// cannot leave — the box and the raster agree to the centimetre
+	// (and exactly where the raster blocks it: a room's spawn cell stays open in both)
+	const raster = walkGrid(dungeon);
 	for (const p of props) {
 		const s = SOLID[p.kind];
-		if (!s) continue;
-		const cx = p.x + ox + 0.5, cz = p.y + oy + 0.5;
-		boxes.push({ min: [cx - s.hx, 0, cz - s.hz], max: [cx + s.hx, s.h, cz + s.hz], kind: p.kind });
+		if (!s || raster[p.y * W + p.x] !== BLOCKED) continue;
+		const x0 = p.x + ox, z0 = p.y + oy;
+		boxes.push({ min: [x0, 0, z0], max: [x0 + 1, s.h, z0 + 1], kind: p.kind });
 	}
 	return boxes;
 }
@@ -131,11 +136,43 @@ export function spawnOrderedRooms(dungeon) {
 		.map((room) => worldRoom(room, dungeon.ox, dungeon.oy));
 }
 
+// ---- 31: TELEPORT, BUT NEVER OUT OF THE DUNGEON (D2) ---------------------------------------
+// The user on a Quest: "I would like to be able to teleport but not outside the dungeon walls
+// (now I see teleporting disabled)". Core's K1 teleport (31-vr-core) is BOUNDED in Interact/Play:
+// the arc's target must be a walkable surface, the segment to it must not cross a collider, and
+// it must lie inside `play.bounds`. The Kit publishes the three: `colliders` (every wall cell,
+// every solid prop's cell), and `bounds` — the box around the floor's FLOOR cells, which the
+// outer walls enclose, only ankle-high (a target on a crate, a pillar or a wall top is refused:
+// the walker could not step off a blocked cell).
+
+/** the teleport target's height window above the floor (metres): the floor, nothing standing on it */
+export const TELEPORT_Y = { min: -0.5, max: 0.4 };
+
+/**
+ * `play.bounds` for one floor — pure: the box around its FLOOR cells, world coordinates (the
+ * Kit group's frame), `{min: [x, y, z], max: [x, y, z]}`. @param {any} dungeon
+ */
+export function teleportBounds(dungeon) {
+	const { W, H, grid, ox, oy } = dungeon;
+	let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+	for (let y = 0; y < H; y++)
+		for (let x = 0; x < W; x++) {
+			if (grid[y * W + x] !== FLOOR) continue;
+			if (x < x0) x0 = x;
+			if (x > x1) x1 = x;
+			if (y < y0) y0 = y;
+			if (y > y1) y1 = y;
+		}
+	if (x0 === Infinity) return null;
+	return { min: [x0 + ox, TELEPORT_Y.min, y0 + oy], max: [x1 + 1 + ox, TELEPORT_Y.max, y1 + 1 + oy] };
+}
+
 /**
  * The full `userData.play` record for one floor of a campaign.
  * @param {any} campaign generateCampaign()'s result
  * @param {number} floorIndex 1-based
- * @param {{grounded?: boolean | null, markers?: {x: number, z: number, kind: string}[]}=} extras
+ * @param {{grounded?: boolean | null, markers?: {x: number, z: number, kind: string}[], teleport?: boolean}=} extras
+ *   `teleport`: allow K1's bounded teleport (the Kit passes true only on a core that bounds it)
  */
 export function playPayload(campaign, floorIndex, extras = {}) {
 	const dungeon = campaign.floors[floorIndex - 1];
@@ -157,9 +194,11 @@ export function playPayload(campaign, floorIndex, extras = {}) {
 		// ---- play settings (playSettings.js) --------------------------------------------
 		// a dungeon is WALKED: the fly keys are off unless a rule module says otherwise
 		grounded: extras.grounded == null ? true : !!extras.grounded,
-		// 30b (C1): no teleport, no fly in Interact/Play — a dungeon is walked (absent means false
-		// too; published so a publisher-aware resolver never inherits a scene's `true`)
-		locomotion: { teleport: false, fly: false },
+		// 30b (C1): no fly in Interact/Play — a dungeon is walked (published so a publisher-aware
+		// resolver never inherits a scene's `true`). 31 (D2): teleport ON where core bounds it to
+		// `bounds` + `colliders` (K1) — never on a core whose teleport would leave the walls
+		locomotion: { teleport: extras.teleport === true, fly: false },
+		bounds: teleportBounds(dungeon),
 		// 30b: the solids as world AABBs for a physics capsule (the raster above is the walk)
 		colliders: colliderBoxes(dungeon),
 		// ---- the inter-module seam (a rule module reads these) --------------------------

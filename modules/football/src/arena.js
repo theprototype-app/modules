@@ -1,6 +1,6 @@
 // football — THE ARENA, pure (30-visuals-mod). Everything the TEMPLATE adds around the pitch
 // to make it look like a stadium: turf with mowing stripes and line markings, a stadium floor
-// that covers the editor grid, four floodlights on poles (one casts the shadows), the two
+// that covers the editor grid, four floodlights on poles (31: two of them real lights, no shadow map), the two
 // scoreboard boards behind the lamp strips, a glowing net in each gate (the score Pulse),
 // perimeter boards. None of it is a rule: no body of its own (the group's one collider is a floor
 // slab, see floorSlab), no node targets it except the two nets' Play Animation, and the
@@ -80,7 +80,7 @@ export function arenaObjects(dims) {
 	}
 
 	// ---- the gates: a glowing net at the back of each sensor (the Pulse plays on a goal),
-	// a team light inside, and the scoreboard board behind the lamp strip ---------------------
+	// and the scoreboard board behind the lamp strip ---------------------
 	for (const team of /** @type {const} */ (['red', 'blue'])) {
 		const sign = team === 'red' ? -1 : 1;
 		const color = team === 'red' ? RED : BLUE;
@@ -100,7 +100,8 @@ export function arenaObjects(dims) {
 			pick: 'through',
 			anim: 'pulse'
 		});
-		kids.push({ type: 'light', name: T + ' gate glow', color, intensity: 1.2, distance: 3, pos: [0, d.mouthY, sign * (mouthZ + d.sensorDepth / 2)] });
+		// 31: no point light in the gate any more (the Quest budget: <= 2 real-time lights) — the
+		// neon frame and the emissive net carry the team colour
 		// the board: a dark rounded slab just behind the lamps, a team-colour trim under it
 		const lampY = lampStripY(d);
 		const boardW = Math.min(d.width - 0.1, 2.5);
@@ -166,7 +167,10 @@ export function arenaObjects(dims) {
 		}
 	}
 
-	// ---- four floodlights on poles at the corners; ONE casts the shadows ---------------------
+	// ---- four floodlights on poles at the corners. 31: TWO of them are real lights, on the
+	// diagonal (the Quest budget: <= 2 real-time lights, no shadow maps — round 2 had four spots
+	// + two gate lights and a 1024 shadow map, every one of them shading every pixel); the other
+	// two heads still glow ------------------------------------------------------------------
 	const px = hw + 1.4;
 	const pz = endZ + 1.2;
 	const poleH = 5.2;
@@ -177,20 +181,21 @@ export function arenaObjects(dims) {
 		const z = sz * pz;
 		kids.push({ type: 'cylinder', name: 'Floodlight pole ' + n, r: 0.06, r2: 0.09, h: poleH, pos: [x, poleH / 2, z], color: 0x5b6470, metalness: 0.6, roughness: 0.45 });
 		kids.push({ type: 'box', name: 'Floodlight head ' + n, size: [0.7, 0.34, 0.14], bevel: 0.04, pos: [x, poleH + 0.1, z], rot: [0.5 * sz, -0.6 * sx * sz, 0], color: 0xf7f3e6, emissive: 0xfff4d6, emissiveIntensity: 3, roughness: 0.3, shadow: false });
+		if (sx !== sz) continue; // poles 2 and 3: the head glows, no light
 		kids.push({
 			type: 'light',
 			kind: 'spot',
 			name: 'Floodlight ' + n,
 			color: 0xfff2dc,
-			intensity: 70,
-			distance: 22,
+			// two lamps do four's work: brighter and wider
+			intensity: 110,
+			distance: 24,
 			decay: 2,
-			angle: 0.62,
-			penumbra: 0.55,
+			angle: 0.75,
+			penumbra: 0.6,
 			pos: [x, poleH, z],
 			target: [-sx * 0.3, 0, -sz * 0.4],
-			castShadow: n === 1,
-			...(n === 1 ? { shadowMapSize: 1024 } : {})
+			castShadow: false
 		});
 	}
 

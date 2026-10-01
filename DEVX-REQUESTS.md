@@ -780,3 +780,27 @@ shim of `api.THREE` and ships Meshy guns, rigged walking enemies and a crystal i
   module off mid-session leaves nothing behind either).
 - A figure's hit flash needs its OWN materials: a SkeletonUtils clone shares them with the source,
   so `assets.instance()` clones the materials per figure (textures stay shared).
+
+## 41. The per-frame reads a game needs allocate, and "a game view" is re-derived everywhere
+
+**Found in:** `modules/dungeon` + `modules/dungeon-realms` + `modules/football` (roadmap 31, the
+Quest stutter). A module's frame task reads the viewer every frame: `api.playerPosition()` builds a
+fresh `Vector3` AND an array per call (the Kit and Realms each call it every frame), and every game
+re-derives "is this a game view" as `api.isPlaying() || api.editorMode() === 'interact'` (Realms,
+the Kit, football each their own way). A game's own per-frame path can be allocation-free (31 made
+the Kit's, guarded by a GC-count test); the api reads under it cannot.
+
+**Ask:** `api.playerPosition(out?)` writing into a caller's `[x, y, z]` (or `Vector3`), and
+`api.gameView()` → `true` in Play and Interact (the one rule, in core).
+
+**Meanwhile:** the modules call them as they are (two small allocations a frame each).
+
+## Roadmap 31 (31-fb-dungeon) — felt again
+
+- The planner's facts named a "Meshy ball + trails" in football; the shipped scene has neither —
+  the VR cost was a physical TRANSMISSION material on the glass (an extra scene pass per eye) and
+  six lights + two shadow maps. A def-level check for transmission / shadow-casting lights (the
+  author script warning on a VR game) would have caught it at authoring time.
+- Scene-root groups are found by `scene.getObjectByName`, a whole-graph search; modules now hold
+  the reference and re-check its root each frame. An `api.sceneGroup(name)` that caches would
+  make the right thing the easy thing.

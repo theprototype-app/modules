@@ -135,8 +135,40 @@ export function run(check) {
 	}
 	check(uncovered === 0 && floorInside === 0, 'colliders: every wall cell inside a wall box, no floor cell inside one');
 	check(walls.length * 3 < wallCells, '  walls merged into runs (' + walls.length + ' boxes for ' + wallCells + ' wall cells)');
-	check(boxes.length - walls.length === d0.props.filter((p) => SOLID[p.kind]).length && boxes.every((b) => b.max[1] > b.min[1] && b.min[1] === 0), '  one box per solid prop, every box standing on the floor');
+	const raster0 = walkGrid(d0);
+	const blockedCells = raster0.filter((v) => v === BLOCKED).length;
+	check(boxes.length - walls.length === blockedCells && boxes.every((b) => b.max[1] > b.min[1] && b.min[1] === 0), '  one box per BLOCKED raster cell (' + blockedCells + '), every box standing on the floor');
+	// 31: a prop's box is its WHOLE cell — the collider and the walk raster agree (a bounded
+	// teleport beside a pillar never lands on a cell the walker cannot leave)
+	const props0 = boxes.filter((b) => b.kind !== 'wall');
+	const cellOf = (b) => Math.floor(b.min[2] - d0.oy) * d0.W + Math.floor(b.min[0] - d0.ox);
+	check(props0.length > 0 && props0.every((b) => b.max[0] - b.min[0] === 1 && b.max[2] - b.min[2] === 1 && raster0[cellOf(b)] === BLOCKED), '  a solid prop\'s box covers exactly its blocked cell (' + props0.length + ' boxes)');
 	check(JSON.stringify(play.colliders) === JSON.stringify(boxes), '  published on userData.play.colliders');
-	check(play.locomotion && play.locomotion.teleport === false && play.locomotion.fly === false, 'the Kit publishes locomotion {teleport: false, fly: false} (C1: walk in Interact/Play)');
+	check(play.locomotion && play.locomotion.teleport === false && play.locomotion.fly === false, 'the Kit publishes locomotion {teleport: false, fly: false} by default (C1: walk in Interact/Play)');
+	// ---- 31 D2: bounded teleport ------------------------------------------------------------
+	const tp = playPayload(campaign, 1, { teleport: true });
+	check(tp.locomotion.teleport === true && tp.locomotion.fly === false, 'D2: on a core that bounds teleport the Kit turns it ON (fly stays off)');
+	const b = tp.bounds;
+	check(!!b && b.min.length === 3 && b.max.length === 3 && [...b.min, ...b.max].every(Number.isFinite), '  and publishes play.bounds {min, max} with finite numbers');
+	let floorOut = 0, floors0 = 0, voidIn = 0;
+	for (let y = 0; y < d0.H; y++) for (let x = 0; x < d0.W; x++) {
+		const wx = x + d0.ox + 0.5, wz = y + d0.oy + 0.5;
+		const inside = wx > b.min[0] && wx < b.max[0] && wz > b.min[2] && wz < b.max[2];
+		if (d0.grid[y * d0.W + x] === FLOOR) { floors0++; if (!inside) floorOut++; }
+	}
+	// the bounds' edge rows: every cell just OUTSIDE the box is wall or rock, never floor
+	for (let x = 0; x < d0.W; x++) for (let y = 0; y < d0.H; y++) {
+		const wx = x + d0.ox + 0.5, wz = y + d0.oy + 0.5;
+		if ((wx < b.min[0] || wx > b.max[0] || wz < b.min[2] || wz > b.max[2]) && d0.grid[y * d0.W + x] === FLOOR) voidIn++;
+	}
+	check(floorOut === 0 && voidIn === 0 && floors0 > 50, '  every one of ' + floors0 + ' floor cells lies inside the bounds, no floor cell outside them');
+	const edge = (x, y) => d0.grid[y * d0.W + x];
+	const x0 = Math.round(b.min[0] - d0.ox), x1 = Math.round(b.max[0] - d0.ox) - 1, y0 = Math.round(b.min[2] - d0.oy), y1 = Math.round(b.max[2] - d0.oy) - 1;
+	let ringOpen = 0;
+	for (let x = x0; x <= x1; x++) for (const y of [y0 - 1, y1 + 1]) if (y >= 0 && y < d0.H && edge(x, y) === FLOOR) ringOpen++;
+	for (let y = y0; y <= y1; y++) for (const x of [x0 - 1, x1 + 1]) if (x >= 0 && x < d0.W && edge(x, y) === FLOOR) ringOpen++;
+	check(ringOpen === 0, '  the bounds are tight: the row/column just past each side holds no floor');
+	check(b.min[1] < 0 && b.max[1] < 0.72 && b.max[1] > 0.1, '  ankle-high (' + b.min[1] + '..' + b.max[1] + ' m): a crate (0.72), a pillar or a wall top is never a target');
+	check(JSON.stringify(playPayload(campaign, 2, { teleport: true }).bounds) !== JSON.stringify(b), '  per floor (floor 2 has its own box)');
 	check(walkGrid(d0).length === d0.grid.length && walkGrid(d0) !== d0.grid, 'walkGrid is a copy');
 }

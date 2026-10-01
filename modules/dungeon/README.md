@@ -61,12 +61,31 @@ module reads the Kit's record through `api.scene()` instead:
 | `spawns[]` | typed enemy slots, world coords |
 | `grounded` | `true` by default — a dungeon is walked |
 | `markers[]` | `{x, z, kind}` for the minimap; a bare Kit publishes **none** |
+| `colliders[]` | `{min, max, kind}` world AABBs: merged wall runs + one per **blocked** prop cell (31: the whole cell — the colliders and the walk raster agree) |
+| `locomotion` | `{teleport, fly: false}` — 31: `teleport` is `true` only on a core that BOUNDS it (`api.locomotion.boundedTeleport`, roadmap 31 K1); an older core's free teleport would leave the walls |
+| `bounds` | 31: `{min: [x, y, z], max: [x, y, z]}` — the box around the floor's FLOOR cells, y −0.5..0.4: K1 refuses a teleport target outside it (so never onto a crate, a pillar or a wall top) |
 
 `userData.kit` is the function half: `generate(seed, params)`, `showFloor(k)`,
 `clear()` (each replicates), `setMarkers(owner, list)`, `setGrounded(bool|null)`,
 `state()`, `campaign()`, `stats()`, `onChange(fn)`. World coordinates: cell `(x, y)`
 of floor k is at `(x + ox + 0.5, y + oy + 0.5)`; floor k+1's DOWN portal stands exactly
 where floor k's UP portal stands, so travel rebuilds the world around the players.
+
+## Frame budget (31 — the Quest round)
+
+"In VR there is stuttering when I'm moving through the dungeon." What the Kit draws per frame:
+
+- **The editor** draws the whole floor (its overview). **A game view** (Interact/Play) draws only
+  the torches near the viewer — the torch models within the tier's radius, the flames, halos and
+  pools a little farther (they fade to nothing AT the cull radius, so nothing pops) — and
+  re-packs the set only when the viewer has moved a metre. Only the drawn flames animate.
+- **Quality tiers** (`kitQuality`): core's `api.quality.level` (0 best … 9, feature-detected) and
+  a headset (at least tier 1). Tier 0: 4 point lights, torches within 18 m; tier 1 (a headset,
+  level 1-2): 2 lights, 14 m; tier 2 (3-5): 2 lights, 10 m; tier 3 (6+): 1 light, 8 m, no halos.
+  A light past the budget is hidden, never removed (a light-count change recompiles the lit
+  materials once, at the tier change — never per frame).
+- **No garbage per frame**: the light slots, the cull and the flicker loops allocate nothing
+  (a GC-count test guards it: `test/quest.test.mjs`).
 
 ## The generator
 
