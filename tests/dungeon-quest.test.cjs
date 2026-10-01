@@ -128,15 +128,38 @@ run(async () => {
 	check(vr.maxSolidDist <= vr.quality.solidRadius + 1e-6 && vr.quality.solidRadius < near.quality.solidRadius, '  a tighter torch radius (' + vr.quality.solidRadius + ' m)');
 	await A.page.evaluate(() => window.__stores.isVRMode.set(false));
 	await eventually(() => drawn(A.page), (d) => d.quality.tier === 0 && d.lightsOn === 4, '  leaving the headset: four lights again');
+	// 31-perf's REAL api.quality, where the core has it: the governor pinned at level 4 = tier 2
+	const realQuality = await A.page.evaluate(() => !!window.__stores.qualityGovernor?.governorForTest && typeof window.__dungeonKit.api.quality?.onChange === 'function');
+	if (realQuality) {
+		await A.page.evaluate(() => {
+			const g = window.__stores.qualityGovernor;
+			g.governorForTest.setLevel(4);
+			g.pinQuality();
+		});
+		const real = await settle(() => drawn(A.page), (d) => d.quality.tier === 2, '4b the REAL api.quality (31-perf): level 4 pinned -> tier 2');
+		check(real.lightsOn === 2 && real.halosVisible && real.maxSolidDist <= real.quality.solidRadius + 1e-6 && real.quality.solidRadius === 10, '  two lights, halos on, torches within 10 m (' + real.lightsOn + ' lights, ' + real.quality.solidRadius + ' m)');
+		await A.page.evaluate(() => {
+			const g = window.__stores.qualityGovernor;
+			g.releaseQuality();
+			g.governorForTest.reset();
+		});
+		await settle(() => drawn(A.page), (d) => d.quality.tier === 0 && d.lightsOn === 4, '  released: the full look again');
+	} else console.log('SKIP 4b: this core has no api.quality (31-perf) — the stand-in below covers the Kit side');
 	// api.quality (31-perf) stood in on the Kit's OWN api object: level 6 = tier 3
+	const realApiQuality = await A.page.evaluate(() => window.__dungeonKit.api.quality ?? null);
 	await A.page.evaluate(() => {
 		const listeners = [];
+		window.__savedQuality = window.__dungeonKit.api.quality ?? null;
 		window.__dungeonKit.api.quality = { level: 6, max: 9, onChange: (fn) => listeners.push(fn) };
 	});
 	const low = await settle(() => drawn(A.page), (d) => d.quality.tier === 3, '  api.quality.level 6 (feature-detected): tier 3');
 	check(low.lightsOn === 1 && !low.halosVisible && low.maxSolidDist <= low.quality.solidRadius + 1e-6, '  one light, no halos/pools, torches within ' + low.quality.solidRadius + ' m (' + low.lightsOn + ' light, halos ' + (low.halosVisible ? 'on' : 'off') + ')');
-	await A.page.evaluate(() => delete window.__dungeonKit.api.quality);
-	await eventually(() => drawn(A.page), (d) => d.quality.tier === 0 && d.lightsOn === 4 && d.halosVisible, '  without api.quality: the full look again');
+	// put the core's own api.quality back (the stand-in replaced it; absent stays absent)
+	await A.page.evaluate((hadReal) => {
+		if (window.__savedQuality) window.__dungeonKit.api.quality = window.__savedQuality;
+		else delete window.__dungeonKit.api.quality;
+	}, !!realApiQuality);
+	await eventually(() => drawn(A.page), (d) => d.quality.tier === 0 && d.lightsOn === 4 && d.halosVisible, '  the stand-in removed: the full look again');
 
 	// back to the editor: the overview returns
 	await A.page.evaluate(() => window.__stores.objectActions.setEditorMode('edit'));
