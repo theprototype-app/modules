@@ -26,14 +26,16 @@ import {
 	sinkDepth,
 	deathOver
 } from './figures.js';
+import { budgetOf, lodFar } from './quality.js';
 
 /**
  * @param {any} api
  * @param {ReturnType<import('./engine.js').createWavesEngine>} engine
  * @param {any} root the module's scene-root group
  * @param {ReturnType<import('./assets.js').createAssets>} assets
+ * @param {ReturnType<import('./quality.js').createQuality> | null} [quality] 31 W2: the device's level
  */
-export function registerAvatars(api, engine, root, assets) {
+export function registerAvatars(api, engine, root, assets, quality = null) {
 	const THREE = api.THREE;
 	const group = new THREE.Group();
 	group.name = 'Waves figures';
@@ -42,7 +44,7 @@ export function registerAvatars(api, engine, root, assets) {
 
 	/** @typedef {{uuid: string, kind: string, model: any, mixer: any, actions: Record<string, any>, scale: number,
 	 *   yaw: number, last: number[] | null, gait: {speed: number, forward: boolean}, dyingAt: number | null, deathPos: number[] | null,
-	 *   hitUntil: number, object: any}} Figure */
+	 *   hitUntil: number, object: any, near: any[], far: any[], lod: boolean, feet: number[], prev: number[], skip: boolean, acc: number}} Figure */
 	/** @type {Map<string, Figure>} enemy uuid -> its figure */
 	const figures = new Map();
 	/** the objects a figure stands in for right now (their meshes hide DURING a render) @type {Set<any>} */
@@ -50,13 +52,25 @@ export function registerAvatars(api, engine, root, assets) {
 	/** @type {{model: any, scale: number, source: any, mats: any[]} | null} */
 	let crystal = null;
 	let enabled = true;
-	const stats = { made: 0, hits: 0, deaths: 0, walking: 0 };
+	/** a look probe pins every figure to one LOD (null = by distance) @type {0 | 1 | null} */
+	let forcedLod = null;
+	const stats = { made: 0, hits: 0, deaths: 0, walking: 0, lod1: 0, halfRate: 0 };
+	// 31 W2: what the device's quality level lets the figures cost (shadows, LOD, anim rate)
+	let budget = budgetOf(quality?.level() ?? 0);
+	quality?.onChange((l) => {
+		budget = budgetOf(l);
+		for (const f of figures.values()) for (const m of f.near) m.castShadow = budget.shadows;
+	});
 
 	const _m = new THREE.Matrix4();
 	const _p = new THREE.Vector3();
 	const _q = new THREE.Quaternion();
 	const _s = new THREE.Vector3();
 	const _up = new THREE.Vector3(0, 1, 0);
+	const _wp = new THREE.Vector3();
+	/** one pass over the scene per frame, reused (the frame task allocates no maps) */
+	const byUuid = new Map();
+	const seen = new Set();
 
 	/** the group's world matrix inverted — once per frame (the group may hang under a moving rig;
 	 * updating only its ANCESTORS, never the figures' bone trees under it) */
@@ -137,6 +151,28 @@ export function registerAvatars(api, engine, root, assets) {
 		const size = box.getSize(new THREE.Vector3());
 		const scale = fitScale(size.y, figureOf(kind).height);
 		body.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
+		// 31 W2: the GLB carries a second skinned mesh `…_lod1` on the SAME skin (optimize-assets.mjs):
+		// one skeleton and one mixer drive both, the frame shows one or the other by distance
+		/** @type {any[]} */
+		const near = [];
+		/** @type {any[]} */
+		const far = [];
+		body.traverse((/** @type {any} */ o) => {
+			if (!o.isMesh) return;
+			const lod1 = /_lod1$/.test(o.name ?? '');
+			(lod1 ? far : near).push(o);
+			o.castShadow = !lod1 && budget.shadows;
+			o.receiveShadow = false;
+			if (o.isSkinnedMesh) {
+				// culled again (30c drew every figure, behind the player too): the bind pose's sphere,
+				// padded for the stride and the fall, is where the posed body can be
+				o.geometry.computeBoundingSphere();
+				o.boundingSphere = o.geometry.boundingSphere.clone();
+				o.boundingSphere.radius *= 1.6;
+				o.frustumCulled = true;
+			}
+			if (lod1) o.visible = false;
+		});
 		const mixer = new THREE.AnimationMixer(body);
 		/** @type {Record<string, any>} */
 		const actions = {};
@@ -159,7 +195,7 @@ export function registerAvatars(api, engine, root, assets) {
 		model.visible = false;
 		group.add(model);
 		stats.made++;
-		return { uuid, kind, model, mixer, actions, scale, yaw: 0, last: null, gait: { speed: 0, forward: true }, dyingAt: null, deathPos: null, hitUntil: 0, object: null };
+		return { uuid, kind, model, mixer, actions, scale, yaw: 0, last: null, gait: { speed: 0, forward: true }, dyingAt: null, deathPos: null, hitUntil: 0, object: null, near, far, lod: false, feet: [0, 0, 0], prev: [0, 0, 0], skip: false, acc: 0 };
 	}
 
 	/** the walking clip of a figure @param {Figure} f */
@@ -213,12 +249,14 @@ export function registerAvatars(api, engine, root, assets) {
 		hookScene();
 		const objects = api.objectsGroup();
 		refreshInverse();
-		/** @type {Map<string, any>} one pass over the scene, not a search per enemy */
-		const byUuid = new Map();
+		byUuid.clear();
 		for (const c of objects?.children ?? []) byUuid.set(c.uuid, c);
-		/** @type {Set<string>} */
-		const seen = new Set();
+		seen.clear();
 		let walking = 0;
+		let lod1 = 0;
+		let halfRate = 0;
+		// the eye the LOD and the animation rate measure from (the player's head, in a headset too)
+		const eye = api.playerPosition?.() ?? null;
 		for (const s of engine.all()) {
 			for (const e of s.enemies) {
 				const object = byUuid.get(e.uuid) ?? objects?.getObjectByProperty('uuid', e.uuid);
@@ -235,13 +273,16 @@ export function registerAvatars(api, engine, root, assets) {
 				}
 				seen.add(e.uuid);
 				f.object = object;
-				const wp = object.getWorldPosition(new THREE.Vector3()).toArray();
+				const wp = object.getWorldPosition(_wp);
 				const drop = footDrop(f.kind);
-				const feet = [wp[0], wp[1] - drop, wp[2]];
+				const feet = f.feet;
+				feet[0] = wp.x;
+				feet[1] = wp.y - drop;
+				feet[2] = wp.z;
 				// a dead figure whose enemy stands up again (the next wave uses it): revive
 				if (f.dyingAt !== null && deathOver(t - f.dyingAt)) revive(f);
 				const dying = f.dyingAt !== null;
-				const show = enabled && figureShown({ visible: !!object.visible, y: wp[1], dying });
+				const show = enabled && figureShown({ visible: !!object.visible, y: wp.y, dying });
 				hop(object, show);
 				f.model.visible = show;
 				if (!show) {
@@ -249,10 +290,22 @@ export function registerAvatars(api, engine, root, assets) {
 					f.gait.speed = 0;
 					continue;
 				}
+				// 31 W2: LOD1 past the level's distance, and half-rate animation farther out
+				const dist = eye ? Math.hypot(feet[0] - eye[0], feet[2] - eye[2]) : 0;
+				const wantFar = f.far.length > 0 && (forcedLod === null ? lodFar(dist, f.lod, budget.lodFar) : forcedLod === 1);
+				if (wantFar !== f.lod) {
+					f.lod = wantFar;
+					for (const m of f.near) m.visible = !wantFar;
+					for (const m of f.far) m.visible = wantFar;
+				}
+				if (f.lod) lod1++;
 				if (dying && f.deathPos) {
 					const age = t - /** @type {number} */ (f.dyingAt);
 					const d = f.deathPos;
-					placeWorld(f.model, [d[0], d[1] - sinkDepth(age), d[2]], f.yaw, f.scale);
+					feet[0] = d[0];
+					feet[1] = d[1] - sinkDepth(age);
+					feet[2] = d[2];
+					placeWorld(f.model, feet, f.yaw, f.scale);
 					f.mixer.update(dt);
 					continue;
 				}
@@ -261,8 +314,16 @@ export function registerAvatars(api, engine, root, assets) {
 				const goal = s.goal;
 				const target = goal ? yawTo(feet, goal) : f.yaw;
 				f.yaw = f.last ? turnToward(f.yaw, target, dt, 7) : target;
-				f.gait = f.last ? gait(f.gait, f.last, feet, dt, f.yaw) : { speed: 0, forward: true };
-				f.last = feet;
+				if (f.last) gait(f.gait, f.last, feet, dt, f.yaw, f.gait);
+				else {
+					f.gait.speed = 0;
+					f.gait.forward = true;
+				}
+				// `last` is the figure's own second array (feet is rewritten next frame)
+				f.last = f.prev;
+				f.last[0] = feet[0];
+				f.last[1] = feet[1];
+				f.last[2] = feet[2];
 				placeWorld(f.model, feet, f.yaw, f.scale);
 				const walk = walkOf(f);
 				if (walk) {
@@ -274,10 +335,22 @@ export function registerAvatars(api, engine, root, assets) {
 					f.actions.hit.fadeOut(0.15);
 					f.hitUntil = 0;
 				}
-				f.mixer.update(dt);
+				// far figures pose every other frame (the time they skipped is not lost)
+				if (dist > budget.halfRateFrom && !f.hitUntil) {
+					halfRate++;
+					f.skip = !f.skip;
+					if (f.skip) {
+						f.acc += dt;
+						continue;
+					}
+				}
+				f.mixer.update(dt + f.acc);
+				f.acc = 0;
 			}
 		}
 		stats.walking = walking;
+		stats.lod1 = lod1;
+		stats.halfRate = halfRate;
 		// enemies that left the scene: their figures go, and nothing stays hopped
 		for (const [uuid, f] of figures)
 			if (!seen.has(uuid)) {
@@ -382,6 +455,10 @@ export function registerAvatars(api, engine, root, assets) {
 			}
 		},
 		enabled: () => enabled,
+		/** pin every figure to LOD0 / LOD1, or null for the distance rule (a look probe's A/B) @param {0 | 1 | null} lod */
+		forceLod(lod) {
+			forcedLod = lod === 0 || lod === 1 ? lod : null;
+		},
 		/** does a figure stand in for `object` (its meshes hidden while the scene renders)? @param {any} object */
 		standsIn: (object) => standing.has(object)
 	};

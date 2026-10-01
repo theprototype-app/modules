@@ -27,6 +27,8 @@ export function createJuice(api, root) {
 
 	/** @type {{mesh: any, born: number, life: number, kind: string, vel?: any}[]} */
 	const live = [];
+	/** 31 W2: what the device's quality level lets a kill throw (quality.js budgetOf) */
+	let budget = { shards: 10, burst: 1 };
 	/** how many of each kind were ever drawn (a flight reads it; a flash lives 60 ms) */
 	const drawn = /** @type {Record<string, number>} */ ({});
 	/** @type {Map<string, any[]>} */
@@ -57,7 +59,7 @@ export function createJuice(api, root) {
 
 	/** stretch a -Z box between two world points @param {any} mesh @param {number[]} from @param {number[]} to @param {number} width */
 	function place(mesh, from, to, width) {
-		group.updateMatrixWorld(true);
+		group.updateWorldMatrix(true, false); // 31: the group's frame only, not its pooled meshes
 		_a.set(from[0], from[1], from[2]);
 		_b.set(to[0], to[1], to[2]);
 		const len = Math.max(0.001, _a.distanceTo(_b));
@@ -104,20 +106,23 @@ export function createJuice(api, root) {
 		core.position.copy(local(at));
 		core.scale.setScalar(0.1);
 		live.push({ mesh: core, born: clock(), life: POP_LIFE, kind: 'pop' });
-		for (let i = 0; i < 10; i++) {
+		const shards = Math.max(0, Math.min(10, budget.shards));
+		for (let i = 0; i < shards; i++) {
 			const shard = take('shard', () => new THREE.Mesh(unit, glow(0xffffff, 1)));
 			shard.material.color.setHex(i % 2 ? color : 0xffd0a0);
 			shard.material.opacity = 1;
 			shard.position.copy(local(at));
 			shard.scale.set(0.05, 0.05, 0.12);
 			shard.rotation.set(Math.random() * 6, Math.random() * 6, 0);
-			const a = (i / 10) * Math.PI * 2 + Math.random() * 0.4;
+			const a = (i / shards) * Math.PI * 2 + Math.random() * 0.4;
 			const up = 2.2 + Math.random() * 2.2;
 			const out = 1.8 + Math.random() * 2;
 			live.push({ mesh: shard, born: clock(), life: SHARD_LIFE, kind: 'shard', vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out) });
 		}
-		api.effects?.burst?.(at, { kind: 'sparks', color: '#' + color.toString(16).padStart(6, '0'), count: 24 });
-		api.effects?.burst?.(at, { kind: 'smoke', count: 10 });
+		if (budget.burst > 0) {
+			api.effects?.burst?.(at, { kind: 'sparks', color: '#' + color.toString(16).padStart(6, '0'), count: Math.round(24 * budget.burst) });
+			api.effects?.burst?.(at, { kind: 'smoke', count: Math.round(10 * budget.burst) });
+		}
 	}
 
 	// ---- the beam: one persistent streak per hand, re-aimed every frame it fires --------------
@@ -176,5 +181,19 @@ export function createJuice(api, root) {
 		}
 	}
 
-	return { group, tracer, flash, spark, pop, beam, frame, live: () => live.length, drawn: () => ({ ...drawn }) };
+	return {
+		group,
+		tracer,
+		flash,
+		spark,
+		pop,
+		beam,
+		frame,
+		live: () => live.length,
+		drawn: () => ({ ...drawn }),
+		/** 31 W2 @param {{shards: number, burst: number}} b */
+		setBudget: (b) => {
+			budget = b;
+		}
+	};
 }

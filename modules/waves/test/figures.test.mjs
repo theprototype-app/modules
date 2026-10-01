@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import {
 	STAND_IN_LAYER,
 	HELPER_LAYER,
+	CORE_LAYERS,
 	FIGURES,
 	footDrop,
 	fitScale,
@@ -34,7 +35,7 @@ const ASSET_FILES = Object.fromEntries(
 /** @param {(ok: boolean, label: string) => void} check */
 export function run(check) {
 	// ---- the stand-in -----------------------------------------------------------------
-	check(STAND_IN_LAYER !== 0 && STAND_IN_LAYER !== HELPER_LAYER && STAND_IN_LAYER !== 31 && STAND_IN_LAYER < 32, 'the stand-in layer is none of core\'s (0 drawn, 1 the editor\'s helpers, 31 overload guard)');
+	check(STAND_IN_LAYER !== 0 && !CORE_LAYERS.includes(STAND_IN_LAYER) && STAND_IN_LAYER !== HELPER_LAYER && STAND_IN_LAYER < 32, 'the stand-in layer is none of core\'s (0 drawn, 1/2 the XR eyes, 30 the helpers since 1.17, 31 overload guard)');
 	const av = readFileSync(join(mod, 'src/avatars.js'), 'utf8');
 	check(/onBeforeRender/.test(av) && /onAfterRender/.test(av) && !/layers\.set\(/.test(av), '  the hop lasts one render (onBeforeRender -> onAfterRender), bits flipped, never set');
 	check(Object.keys(FIGURES).sort().join() === Object.keys(KINDS).sort().join() && Object.keys(FIGURES).every((k) => k in ENEMY_LOOKS), 'a figure for every enemy kind');

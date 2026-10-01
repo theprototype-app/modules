@@ -9,6 +9,8 @@ import { run as abilityTests } from './abilities.test.mjs';
 import { run as levelTests } from './levels.test.mjs';
 import { run as menuTests } from './menu.test.mjs';
 import { run as figureTests } from './figures.test.mjs';
+import { run as clockTests } from './clock.test.mjs';
+import { run as budgetTests } from './budget.test.mjs';
 
 let failures = 0;
 function check(ok, label) {
@@ -33,5 +35,9 @@ console.log('\n=== menu.test.mjs ===');
 menuTests(check);
 console.log('\n=== figures.test.mjs ===');
 figureTests(check);
+console.log('\n=== clock.test.mjs ===');
+clockTests(check);
+console.log('\n=== budget.test.mjs ===');
+budgetTests(check);
 console.log('\n' + (failures === 0 ? 'ALL PASS' : failures + ' FAILURES'));
 process.exit(failures === 0 ? 0 : 1);
