@@ -1987,7 +1987,8 @@ function createFeel(api, prefs) {
 }
 
 // modules/waves/src/figures.js
-var STAND_IN_LAYER = 30;
+var STAND_IN_LAYER = 29;
+var CORE_LAYERS = Object.freeze([1, 2, 30, 31]);
 var FIGURES = Object.freeze({
   grunt: Object.freeze({ walk: "walk", clipSpeed: 1.1, height: 1.2 }),
   runner: Object.freeze({ walk: "run", clipSpeed: 2.6, height: 1.05 }),
@@ -3405,7 +3406,7 @@ var ROOT = MODULE_ROOT;
 var index_default = {
   id: "waves",
   name: "Waves",
-  version: "2.1.0",
+  version: "2.2.0",
   description: "A VR wave shooter on the health module: a gun in your hand, five levels of grunts, runners and tanks walking from the portals to your crystal, a loadout of guns and abilities \u2014 every wave derived on every peer, no authority.",
   /** @param {any} api the module SDK surface */
   register(api) {

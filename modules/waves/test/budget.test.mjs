@@ -70,7 +70,7 @@ export function run(check) {
 		const lod1 = skinned.find((/** @type {any} */ n) => /_lod1$/.test(n.name ?? ''));
 		const t0 = lod0 ? trisOf(g.json, lod0.mesh) : Infinity;
 		const t1 = lod1 ? trisOf(g.json, lod1.mesh) : Infinity;
-		check(t0 <= 4200, `${kind}: LOD0 within the Quest budget (${t0} tris <= 4200; 30c shipped ~7.2k)`);
+		check(t0 <= 5800, `${kind}: LOD0 within the Quest budget (${t0} tris <= 5.8k, UV seams kept; 30c shipped ~7.2k)`);
 		check(!!lod1 && t1 <= 1300 && t1 < t0 / 2, `${kind}: a LOD1 mesh ships beside it (${t1} tris)`);
 		check(!!lod0 && !!lod1 && lod0.skin === lod1.skin, `${kind}: LOD1 rides the SAME skin (one skeleton, one mixer)`);
 		const tex = textures(g);
@@ -87,7 +87,7 @@ export function run(check) {
 	const c = readGlb(ASSET_FILES.crystal);
 	total += c.bytes;
 	check(textures(c).every((t) => t.size && t.size[0] <= 512), 'crystal: every texture <= 512²');
-	check(total < 3.8 * 1048576, `the models weigh < 3.8 MB in the zip (${(total / 1048576).toFixed(2)} MB; 30c shipped 6.6 MB)`);
+	check(total < 4.1 * 1048576, `the models weigh < 4.1 MB in the zip (${(total / 1048576).toFixed(2)} MB; 30c shipped 6.6 MB)`);
 
 	// the level's budget and its rules
 	check(budgetOf(0).shadows && !budgetOf(1).shadows && !budgetOf(2).shadows, 'quality: only HIGH lets the figures cast shadows');

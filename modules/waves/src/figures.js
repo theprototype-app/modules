@@ -7,13 +7,17 @@
 import { ENEMY_LOOKS } from './look.js';
 
 /** the render layer a stood-in primitive hops to for the length of each RENDER while its figure
- * shows — no camera draws it (core's cameras draw 0, the editor adds its helper layer 1; 31 is
- * core's overload guard). Only during a render: the .tpscene save is toJSON, which WRITES
- * layers, so outside a render the meshes must be exactly the scene's (never `visible` either:
- * that is a replicated fact) */
-export const STAND_IN_LAYER = 30;
-/** core's helper layer (the editor draws it) — the stand-in must never land there */
-export const HELPER_LAYER = 1;
+ * shows — no camera draws it. Core's layers: 0 drawn, 1/2 the XR eyes, 30 the editor's helpers
+ * (since 1.17 — it was 1, three's LEFT-eye layer), 31 the overload guard. 31: this was 30, which
+ * core 1.17 made its helper layer, so in EDIT the capsules drew OVER the figures again. Only
+ * during a render: the .tpscene save is toJSON, which WRITES layers, so outside a render the
+ * meshes must be exactly the scene's (never `visible` either: that is a replicated fact) */
+export const STAND_IN_LAYER = 29;
+/** core's layers a stand-in must never land on: the XR eyes, the helper layer (30, core
+ * helperLayer.js since 1.17), the overload guard (31) */
+export const CORE_LAYERS = Object.freeze([1, 2, 30, 31]);
+/** core's helper layer (the editor draws it) — 30 since 1.17 */
+export const HELPER_LAYER = 30;
 
 /**
  * Per kind: which clip walks it, how fast that clip walks at scale 1 (metres per second of

@@ -56,7 +56,12 @@ const figures = (page) =>
 				hasLod1: f.far.length > 0,
 				shadow: f.near.some((m) => m.castShadow) || f.far.some((m) => m.castShadow),
 				culled: skinned.every((m) => m.frustumCulled && m.boundingSphere && m.boundingSphere.radius > 0.5),
-				sameSkeleton: f.far.every((m) => m.skeleton === f.near.find((n) => n.isSkinnedMesh)?.skeleton)
+				// SkeletonUtils gives each skinned mesh its own Skeleton — over the SAME bone objects,
+				// which is what one mixer poses
+				sameSkeleton: f.far.every((m) => {
+					const near = f.near.find((n) => n.isSkinnedMesh)?.skeleton;
+					return !!near && m.skeleton.bones.length === near.bones.length && m.skeleton.bones.every((b, i) => b === near.bones[i]);
+				})
 			});
 		}
 		return out;
@@ -104,9 +109,14 @@ h.run(async () => {
 
 	// ---- HIGH ----
 	const hi = await figures(A.page);
-	h.check(hi.length >= 3 && hi.every((f) => f.hasLod1 && f.sameSkeleton), '1.1 every figure carries its LOD1 mesh on the SAME skeleton (' + hi.length + ' figures)');
+	h.check(hi.length >= 3 && hi.every((f) => f.hasLod1 && f.sameSkeleton), '1.1 every figure carries its LOD1 mesh on the SAME bones (' + hi.length + ' figures: ' + JSON.stringify(hi.map((f) => [f.hasLod1, f.sameSkeleton])) + ')');
 	h.check(hi.every((f) => f.culled), '1.2 the skinned figures are frustum-culled again, with a padded bounding sphere');
-	const hiNear = hi.filter((f) => f.dist < 11);
+	// the walkers come toward the player: wait until one is within 11 m
+	let hiNear = [];
+	for (let i = 0; i < 40 && !hiNear.length; i++) {
+		hiNear = (await figures(A.page)).filter((f) => f.dist < 11);
+		if (!hiNear.length) await A.page.waitForTimeout(500);
+	}
 	h.check(hiNear.length > 0 && hiNear.every((f) => f.lod0 && f.shadow), '1.3 HIGH: the figures within 11 m show LOD0 and cast shadows (' + JSON.stringify(hiNear.map((f) => [f.dist, f.lod0, f.shadow])) + ')');
 
 	// ---- LOW ----
@@ -160,6 +170,28 @@ h.run(async () => {
 		return { a, b };
 	});
 	h.check(auto.a.level === 2 && auto.a.source === 'core' && auto.b.level === 0, "3.1 AUTO follows core's api.quality: core level 4 -> LOW, 0 -> HIGH (" + JSON.stringify(auto) + ')');
+
+	// ---- 31: in EDIT (where the camera draws core's helper layer 30) a stood-in capsule is NOT
+	// drawn under its figure — the stand-in layer was 30, the layer core 1.17 gave its helpers ----
+	const editDraw = await A.page.evaluate(async () => {
+		const S = window.__stores;
+		S.playMode.exitPlay?.();
+		S.isVRMode.set(false);
+		S.editorMode.set('edit');
+		await new Promise((r) => setTimeout(r, 1500));
+		let g;
+		S.objectsGroup.subscribe((v) => (g = v))();
+		const enemies = g.children.filter((c) => /^Enemy/.test(c.name) && window.__waves.avatars.standsIn(c));
+		const meshes = [];
+		for (const e of enemies) e.traverse((o) => o.isMesh && meshes.push(o));
+		let drawn = 0;
+		const prev = meshes.map((m) => m.onBeforeRender);
+		meshes.forEach((m) => (m.onBeforeRender = () => drawn++));
+		await new Promise((r) => setTimeout(r, 1000));
+		meshes.forEach((m, i) => (m.onBeforeRender = prev[i]));
+		return { stoodIn: enemies.length, meshes: meshes.length, drawn, mode: (() => { let m; S.editorMode.subscribe((v) => (m = v))(); return m; })() };
+	});
+	h.check(editDraw.stoodIn > 0 && editDraw.drawn === 0, '4.1 in EDIT no stood-in capsule is drawn under its figure (' + JSON.stringify(editDraw) + ')');
 
 	// ---- the look: one figure close (LOD0) and the same at LOW (LOD1), shots for a human eye ----
 	if (SHOTS) {

@@ -4,7 +4,7 @@
 //
 // Reads the ORIGINAL 30c files out of git (never the already-optimised ones in assets/, so a
 // re-run is idempotent) and writes assets/:
-//   enemies  LOD0 simplified to ENEMY_TRIS; a second skinned mesh `<name>_lod1` (LOD1_TRIS) on
+//   enemies  LOD0 simplified toward ENEMY_TRIS with the UV seams kept (the tank stops near 5.5k); a second skinned mesh `<name>_lod1` (LOD1_TRIS) on
 //            the SAME skin, so one skeleton and one mixer drive both and avatars.js shows one or
 //            the other by distance; every texture 512² (a 1.2 m robot seen from metres away)
 //   guns     geometry as is (2.7k, in the hand); the base colour stays 1024² (it is at the eye),
@@ -40,18 +40,19 @@ export const LOD1_TRIS = 1200;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
 const trisOf = (prim) => (prim.getIndices() ? prim.getIndices().getCount() : prim.getAttribute('POSITION').getCount()) / 3;
 
-/** simplify one primitive to about `target` triangles. Meshy's texture atlas cuts the mesh into
- * many UV islands, and meshoptimizer keeps every seam by default (the robots stalled at ~5k), so
- * the seams may collapse (`Permissive`) — bounded by the error, which grows until the target is
- * met; the unused vertices are compacted away */
-function simplifyTo(prim, target) {
+/** simplify one primitive to about `target` triangles (the error bound grows until it gets there;
+ * the unused vertices are compacted away). Meshy's texture atlas cuts the mesh into many UV
+ * islands and meshoptimizer keeps every seam by default, so a robot stalls near 4-5.5k: that is
+ * LOD0 — seen up close, its texture must not smear. LOD1 (6-12 m out) may collapse the seams
+ * (`Permissive`): the look shots showed zebra-striped smears when LOD0 did that too */
+function simplifyTo(prim, target, permissive) {
 	const pos = prim.getAttribute('POSITION');
 	const positions = new Float32Array(pos.getArray());
 	for (const error of [0.002, 0.005, 0.01, 0.02, 0.04, 0.08]) {
 		const now = trisOf(prim);
 		if (now <= target * 1.05) break;
 		const indices = new Uint32Array(prim.getIndices().getArray());
-		const [out] = MeshoptSimplifier.simplify(indices, positions, 3, target * 3, error, ['Permissive']);
+		const [out] = MeshoptSimplifier.simplify(indices, positions, 3, target * 3, error, permissive ? ['Permissive'] : []);
 		prim.getIndices().setArray(new Uint32Array(out));
 	}
 	compactPrimitive(prim);
@@ -77,10 +78,10 @@ async function optimise(file, kind) {
 			const c = p.clone();
 			c.setIndices(p.getIndices().clone());
 			for (const sem of p.listSemantics()) c.setAttribute(sem, p.getAttribute(sem).clone());
-			report.lod1 += simplifyTo(c, LOD1_TRIS);
+			report.lod1 += simplifyTo(c, LOD1_TRIS, true);
 			lodMesh.addPrimitive(c);
 		}
-		for (const p of mesh.listPrimitives()) report.trisOut += simplifyTo(p, ENEMY_TRIS);
+		for (const p of mesh.listPrimitives()) report.trisOut += simplifyTo(p, ENEMY_TRIS, false);
 		const lodNode = doc
 			.createNode((node.getName() || 'body') + '_lod1')
 			.setMesh(lodMesh)

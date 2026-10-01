@@ -9,7 +9,7 @@
 // module's real code against the real app. The feel on a Quest is OWED, never claimed.
 //
 //   WAVES_TPSCENE=<staged scene.tpscene> APP_URL=https://theprototype.app:5246/ npm test -- waves-shooter
-//   (30c) timing-bound: run it under `e2e-slot --exclusive`. WAVES_NO_FIGURES=1 turns the Meshy
+//   (30c) timing-bound: run it under `e2e-slot --exclusive`. (31) WAVES_ZIP=waves-before installs <repo>/waves-before.zip (an A/B). WAVES_NO_FIGURES=1 turns the Meshy
 //   figures off after install (an A/B of the same build); SOLO=1 skips the two-peer section.
 const h = require('./helpers.cjs');
 const fs = require('fs');
@@ -156,7 +156,7 @@ h.run(async () => {
 	const browser = await h.launch({ args: h.GPU_ARGS });
 	const A = await h.setupPage(browser, 'A');
 	await h.installModule(A, 'health');
-	await h.installModule(A, 'waves');
+	await h.installModule(A, process.env.WAVES_ZIP || 'waves', 'waves');
 	await loadTemplate(A.page);
 	// A/B switch (30c): the same build with the Meshy figures off — the 30b primitive look
 	if (process.env.WAVES_NO_FIGURES) await A.page.evaluate(() => window.__waves.avatars.setEnabled(false));
@@ -815,7 +815,7 @@ h.run(async () => {
 	if (!process.env.SOLO) {
 		const B = await h.setupPage(browser, 'B');
 		await h.installModule(B, 'health');
-		await h.installModule(B, 'waves');
+		await h.installModule(B, process.env.WAVES_ZIP || 'waves', 'waves');
 		// the connect dialog is editor UI: out of the headset and out of play first
 		await headset(A.page, false);
 		await A.page.evaluate(() => window.__stores.isLocked.set(false));
