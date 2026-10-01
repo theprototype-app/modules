@@ -1,5 +1,5 @@
 // vrmenu.js — the VR level picker's layout, cell states and the hole in core's panel (pure).
-import { pickerLayout, pickerHit, pickerCells, panelHole, menuCrop, stageRect, PX_W, PX_H, COLS } from '../src/vrmenu.js';
+import { pickerLayout, pickerHit, pickerCells, panelHole, menuCrop, stageRect, PX_W, PX_H, COLS, SORT_LEAD } from '../src/vrmenu.js';
 import { defaultProgress, recordSolve, MAX_LEVEL } from '../src/progress.js';
 import { untangleHud } from '../src/def.js';
 
@@ -51,4 +51,25 @@ export function run(check) {
 	const solved = untangleHud().scene.screens.find((s) => s.id === 'solved');
 	const sc = menuCrop(solved);
 	check(panelHole(menu, 'levels', sc.w * 0.0016, (sc.h + 96) * 0.0016) === null, 'the solved card\'s panel is refused');
+
+	// ---- 33 G3: the picker DRAWS after core's panel at every head pitch ----
+	// Both are at core's PANEL_ORDER on a K2 core, so three draws the one whose sort key (the
+	// geometry's bounding-sphere centre) is nearer along the view LAST. Core's panel: 1.2 m ahead,
+	// 0.22 m below the eyes, pitched -0.12 rad (vrGamePanel), its sphere at its centre. The picker's
+	// in the panel frame: (hole.x, hole.y, 4 mm + lead). It draws after the panel iff that offset,
+	// turned into the world, points TOWARD the eye (dot < 0).
+	const PITCH = -0.12;
+	const lead = (L0, headPitchDeg) => {
+		const y = hole.y;
+		const z = 0.004 + L0;
+		const wy = y * Math.cos(PITCH) - z * Math.sin(PITCH);
+		const wz = y * Math.sin(PITCH) + z * Math.cos(PITCH);
+		const p = (headPitchDeg * Math.PI) / 180;
+		return wy * Math.sin(p) + wz * -Math.cos(p); // the offset along the view direction
+	};
+	check(lead(0, 0) > 0, 'CF: without the lead a LEVEL head sees the picker\'s origin behind the panel\'s (+' + (lead(0, 0) * 1000).toFixed(1) + ' mm): the panel drew over it (the Quest report)');
+	check(lead(0, -20) < 0, '...looking down 20 deg it drew (why the 31 eye shots, aimed down at the panel, showed it)');
+	const pitches = [];
+	for (let d = -40; d <= 15; d += 5) pitches.push(d);
+	check(SORT_LEAD >= 0.1 && pitches.every((d) => lead(SORT_LEAD, d) < -0.05), 'with SORT_LEAD ' + SORT_LEAD + ' m the picker sorts nearer at every head pitch -40..+15 deg (worst ' + (Math.max(...pitches.map((d) => lead(SORT_LEAD, d))) * 1000).toFixed(0) + ' mm)');
 }

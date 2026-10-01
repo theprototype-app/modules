@@ -1686,6 +1686,7 @@ function panelHole(screen, id, meshW, meshH) {
   const cy = r.top + r.h / 2 - crop.y;
   return { x: cx * k - meshW / 2, y: meshH / 2 - cy * k, w: r.w * k, h: r.h * k };
 }
+var SORT_LEAD = 0.15;
 var AMBER3 = "#fbbf24";
 var GREEN3 = "#3ee08f";
 function makeVRMenu(THREE) {
@@ -1698,8 +1699,10 @@ function makeVRMenu(THREE) {
     texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace ?? texture.colorSpace;
   }
+  const plane = new THREE.PlaneGeometry(1, 1);
+  plane.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, SORT_LEAD), 2);
   const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(1, 1),
+    plane,
     new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })
   );
   mesh.name = "untangle-vrmenu";
@@ -2974,7 +2977,7 @@ var index_default = {
       /** 30b: the LOCAL globe hold — offset (parent frame), scale, and the view quaternion */
       globeHold: () => ({ offset: hold.offset.toArray(), scale: hold.scale, quat: globeQuat.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
       /** roadmap 31: the VR level picker — where it is drawn, open?, the hovered rect, the last press */
-      vrMenu: () => ({ at: pickerAt, open: pickerOpen, visible: vrMenu.mesh.visible, centre: vrMenu.mesh.getWorldPosition(new THREE.Vector3()).toArray(), size: [vrMenu.mesh.scale.x, vrMenu.mesh.scale.y], hover: pickerHover, last: lastPick, cells: pickerCells({ mode, level, progress }, vrMenu.ids()), renderOrder: vrMenu.mesh.renderOrder, depthTest: vrMenu.mesh.material.depthTest }),
+      vrMenu: () => ({ at: pickerAt, open: pickerOpen, visible: vrMenu.mesh.visible, centre: vrMenu.mesh.getWorldPosition(new THREE.Vector3()).toArray(), sortCentre: vrMenu.mesh.localToWorld(vrMenu.mesh.geometry.boundingSphere.center.clone()).toArray(), size: [vrMenu.mesh.scale.x, vrMenu.mesh.scale.y], hover: pickerHover, last: lastPick, cells: pickerCells({ mode, level, progress }, vrMenu.ids()), renderOrder: vrMenu.mesh.renderOrder, depthTest: vrMenu.mesh.material.depthTest }),
       /** world centre of picker rect `id` ('mode:3d', 'level:7', 'continue', 'close') */
       vrMenuCell: (id) => vrMenu.worldOf(id),
       /** roadmap 31 K3: what the game shell was handed (feature-detected) */

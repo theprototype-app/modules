@@ -1327,7 +1327,7 @@ export default {
 			/** 30b: the LOCAL globe hold — offset (parent frame), scale, and the view quaternion */
 			globeHold: () => ({ offset: hold.offset.toArray(), scale: hold.scale, quat: globeQuat.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
 			/** roadmap 31: the VR level picker — where it is drawn, open?, the hovered rect, the last press */
-			vrMenu: () => ({ at: pickerAt, open: pickerOpen, visible: vrMenu.mesh.visible, centre: vrMenu.mesh.getWorldPosition(new THREE.Vector3()).toArray(), size: [vrMenu.mesh.scale.x, vrMenu.mesh.scale.y], hover: pickerHover, last: lastPick, cells: pickerCells({ mode, level, progress }, vrMenu.ids()), renderOrder: vrMenu.mesh.renderOrder, depthTest: vrMenu.mesh.material.depthTest }),
+			vrMenu: () => ({ at: pickerAt, open: pickerOpen, visible: vrMenu.mesh.visible, centre: vrMenu.mesh.getWorldPosition(new THREE.Vector3()).toArray(), sortCentre: vrMenu.mesh.localToWorld(vrMenu.mesh.geometry.boundingSphere.center.clone()).toArray(), size: [vrMenu.mesh.scale.x, vrMenu.mesh.scale.y], hover: pickerHover, last: lastPick, cells: pickerCells({ mode, level, progress }, vrMenu.ids()), renderOrder: vrMenu.mesh.renderOrder, depthTest: vrMenu.mesh.material.depthTest }),
 			/** world centre of picker rect `id` ('mode:3d', 'level:7', 'continue', 'close') */
 			vrMenuCell: (id) => vrMenu.worldOf(id),
 			/** roadmap 31 K3: what the game shell was handed (feature-detected) */

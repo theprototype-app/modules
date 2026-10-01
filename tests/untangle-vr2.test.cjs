@@ -229,7 +229,49 @@ run(async () => {
 	check(!!fit && Math.abs(fit.size[0] - fit.wantW) < 0.005, 'L.3 ...and is the level grid\'s size (' + (fit ? fit.size[0].toFixed(3) + ' vs ' + fit.wantW.toFixed(3) : '?') + ' m wide)');
 	check(!!fit && fit.proud > 0 && fit.proud < 0.02, 'L.4 ...a few mm in front of the panel, toward the eyes (' + (fit ? (fit.proud * 1000).toFixed(1) : '?') + ' mm)');
 	check(m1.renderOrder > 1000 && m1.depthTest === false, 'L.5 drawn over the scene AND over core\'s panel (renderOrder ' + m1.renderOrder + ', depthTest off)');
+	// 33 G3 — the RENDER, not the hit test: from the spawn's eyes with the head LEVEL (how a player
+	// stands; the 31 shots looked DOWN at the panel), the lit "2D board" cell's pixel is the
+	// picker's amber, not core's panel backdrop. Both sit at core's overlay order on a K2 core, so
+	// three draws the nearer ORIGIN last — the picker lost that tie on a Quest (vrmenu SORT_LEAD).
+	const looks = await A.page.evaluate(({ eye }) => {
+		const s = window.__stores;
+		const THREE = s.THREE;
+		let renderer, scene;
+		s.globalRenderer.subscribe((v) => (renderer = v))();
+		s.globalScene.subscribe((v) => (scene = v))();
+		const W = 640;
+		const H = 360;
+		const out = {};
+		for (const [name, pitch] of [['level', 0], ['down10', -10], ['down25', -25]]) {
+			const cam = new THREE.PerspectiveCamera(70, W / H, 0.05, 200);
+			cam.position.set(...eye);
+			cam.rotation.set((pitch * Math.PI) / 180, 0, 0, 'YXZ');
+			cam.updateMatrixWorld(true);
+			const at = new THREE.Vector3(...window.__untangle.vrMenuCell('mode:2d')).project(cam);
+			const x = Math.round(((at.x + 1) / 2) * W);
+			const y = Math.round(((at.y + 1) / 2) * H); // GL rows run bottom-up
+			const rt = new THREE.WebGLRenderTarget(W, H);
+			const xr = renderer.xr.enabled;
+			renderer.xr.enabled = false;
+			renderer.setRenderTarget(rt);
+			renderer.render(scene, cam);
+			const px = new Uint8Array(4);
+			renderer.readRenderTargetPixels(rt, x, y, 1, 1, px);
+			renderer.setRenderTarget(null);
+			renderer.xr.enabled = xr;
+			rt.dispose();
+			out[name] = { px: Array.from(px), x, y };
+		}
+		return out;
+	}, { eye: EYE });
+	// the render target is LINEAR: the picker's amber (#fbbf24) reads ~(245, 133, 4); core's backdrop ~(3, 2, 3)
+	const amber = (p) => p[0] > 120 && p[1] > 55 && p[2] < 60 && p[0] > p[1] * 1.4;
+	console.log('  picker pixels: ' + JSON.stringify(looks));
+	check(m1.cells['mode:2d'].state === 'on', 'L.5a (premise) "2D board" is the lit (amber) cell');
+	check(amber(looks.level.px), 'L.5b the head LEVEL (as a player stands): the picker is SEEN over core\'s panel — its amber cell, not the panel backdrop (' + looks.level.px + ')');
+	check(amber(looks.down10.px) && amber(looks.down25.px), 'L.5c ...and looking down 10 / 25 degrees (' + looks.down10.px + ' / ' + looks.down25.px + ')');
 	await eyeShot(A.page, 'vr-menu-panel', EYE, [0, EYE[1] - 0.25, 0]);
+	await eyeShot(A.page, 'vr-menu-panel-level', EYE, [0, EYE[1], EYE[2] - 2]);
 	const at3d = await A.page.evaluate(() => window.__untangle.vrMenuCell('mode:3d'));
 	await setHands(A.page, { right: await aimPose(A.page, HAND, at3d, false) });
 	await eventually(() => menuOf(A.page), (m) => m.hover === 'mode:3d', 'L.6 the laser on "3D globe" lights it (hover)', 3000);
