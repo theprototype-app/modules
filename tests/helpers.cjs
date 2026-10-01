@@ -392,7 +392,25 @@ function run(body) {
 	});
 }
 
+// core 1.18 (31 K3): in a GAME, Escape opens the shared pause menu instead of leaving Play.
+// Leave through its Back to editor (a core without the shell, or a scene that is not a game:
+// Escape leaves, as before). A peer must be OUT of Play to approve a joiner.
+async function leavePlay(peer) {
+	const page = peer.page ?? peer;
+	const locked = () => page.evaluate(() => { let v; window.__stores.isLocked.subscribe((x) => (v = x))(); return v; });
+	if ((await locked()) !== true) return true;
+	await page.keyboard.press('Escape');
+	const back = page.locator('#game-shell-menu [data-shell-item="editor"]');
+	if (await back.waitFor({ state: 'visible', timeout: 2500 }).then(() => true, () => false)) await back.click();
+	for (let i = 0; i < 20 && (await locked()) === true; i++) await page.waitForTimeout(150);
+	if ((await locked()) === true) await page.evaluate(() => window.__stores.gameKit?.gameShell?.leaveToEditor?.());
+	for (let i = 0; i < 20 && (await locked()) === true; i++) await page.waitForTimeout(150);
+	await page.waitForTimeout(300);
+	return (await locked()) !== true;
+}
+
 module.exports = {
+	leavePlay,
 	URL,
 	GPU_ARGS,
 	AUDIO_ARGS,

@@ -9,7 +9,7 @@
 //   npm run pack -- dungeon
 //   APP_URL=https://theprototype.app:5216/ node tests/dungeon.test.cjs
 
-const { launch, setupPage, installModule, connect, check, eventually, finish, run } = require('./helpers.cjs');
+const { launch, setupPage, installModule, connect, check, eventually, finish, run, leavePlay } = require('./helpers.cjs');
 
 /** the Kit's group + contract on a page */
 function snap(page) {
@@ -237,8 +237,7 @@ run(async () => {
 	// core reads the contract: the minimap shows in play mode (dungeonData -> userData.play)
 	await A.page.locator('#play-button').click();
 	await eventually(() => snap(A.page), (s) => s?.minimapVisible, 'A: play mode shows the core minimap off the Kit\'s contract');
-	await A.page.keyboard.press('Escape');
-	await A.page.waitForTimeout(500);
+	check(await leavePlay(A), '(premise) A stepped out of Play (core 1.18: through the pause menu)');
 
 	// the floor stepper replicates travel
 	await A.page.evaluate(() => document.getElementById('dk-floor-up').click());

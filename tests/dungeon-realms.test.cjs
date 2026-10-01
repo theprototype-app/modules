@@ -10,7 +10,7 @@
 //   npm run pack -- dungeon && npm run pack -- dungeon-realms
 //   APP_URL=https://theprototype.app:5216/ node tests/dungeon-realms.test.cjs
 
-const { launch, setupPage, installModule, connect, check, eventually, finish, run } = require('./helpers.cjs');
+const { launch, setupPage, installModule, connect, check, eventually, finish, run, leavePlay } = require('./helpers.cjs');
 
 /** one serializable snapshot of the Kit world + the Realms game on a page */
 function snap(page) {
@@ -255,8 +255,7 @@ run(async () => {
 	// late joiner: installs BOTH, connects mid-game, catches up wholesale.
 	// A leaves play mode first — the approval toast is unreachable while the
 	// approving peer is pointer-locked in play mode.
-	await A.page.keyboard.press('Escape');
-	await A.page.waitForTimeout(500);
+	check(await leavePlay(A), '(premise) A stepped out of Play (core 1.18: through the pause menu)');
 	await eventually(() => calls(A.page), (c) => c.some((x) => x.fn === 'musicStop'), 'A leaves play: the dungeon music stops');
 	// Interact is a game view (C1: VR's Play enters Interact): music on, the vault closed, gems live
 	const interactFrom = await callCount(A.page);
