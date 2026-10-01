@@ -30,6 +30,7 @@ import { makeVRBar, barCells, barPose, CELLS } from './vrbar.js';
 import { spawnFor } from './stance.js';
 import { makeVRMenu, panelHole, pickerCells, PX_W, PX_H } from './vrmenu.js';
 import { untangleHud } from './def.js';
+import { heldStick, pointPush } from './reel.js';
 
 const GROUP = 'untangle-module';
 /** the modes this build plays: the flat board and (P3) the globe */
@@ -41,8 +42,8 @@ const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defa
 export default {
 	id: 'untangle',
 	name: 'Untangle',
-	version: '2.3.1',
-	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels that unlock as you solve them, one progress for both (it stays on your device). In VR: you start in front of the board, grab dots with the trigger, hold/turn/scale the globe, the grips scale the world, a level picker with Globe / 2D and a level bar. Replicated; board pose, level and readouts as flow nodes.',
+	version: '2.4.0',
+	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels that unlock as you solve them, one progress for both (it stays on your device). In VR: you start in front of the board, grab dots with the trigger, hold/turn/scale the globe, the stick pushes the board or the held globe farther / pulls it closer (as Edit does to a held object), the grips scale the world, a level picker with Globe / 2D and a level bar. Replicated; board pose, level and readouts as flow nodes.',
 	/** @param {any} api */
 	register(api) {
 		const THREE = api.THREE;
@@ -123,7 +124,8 @@ export default {
 		const fits = (p) => Array.isArray(p) && p.length === (mode === '3d' ? 3 : 2) && p.every((v) => Number.isFinite(+v));
 		/** 30b: the player's LOCAL hold of the globe (VR): where it was carried to (an offset in
 		 * the board's parent frame) and how big it is; its turn goes into globeQuat. Never
-		 * replicated — like the view rotation, the dots replicate as unit vectors. */
+		 * replicated — like the view rotation, the dots replicate as unit vectors. 33 G2: the
+		 * stick's push/pull moves the flat board by the same offset (its scale stays 1). */
 		const hold = { offset: new THREE.Vector3(), scale: 1 };
 		function resetHold() {
 			hold.offset.set(0, 0, 0);
@@ -132,7 +134,8 @@ export default {
 		function placeGroup() {
 			if (!group) return;
 			group.position.set(board.x, board.boardY, board.z);
-			if (mode === '3d') group.position.add(hold.offset);
+			// 33 G2: the LOCAL push/pull (the stick while pointing) moves the flat board too
+			group.position.add(hold.offset);
 			group.scale.setScalar(mode === '3d' ? hold.scale : 1);
 			group.rotation.set(0, board.yaw, 0);
 			group.updateMatrixWorld(true);
@@ -700,6 +703,26 @@ export default {
 		/** @type {any} the hold's start: the hand pose, the globe centre, the view, the frame */
 		let holdStart = null;
 		const HOLD_SCALE = [0.35, 4];
+		// ---------- 33 G2: the sticks (reel.js) ----------
+		/** does this core pause BOTH sticks for a module (`claimInput('sticks')` answers true, 1.19)?
+		 * Asked once: claim + release. */
+		let sticksKnown = /** @type {boolean | null} */ (null);
+		function sticksScope() {
+			if (sticksKnown === null) {
+				sticksKnown = api.claimInput?.('sticks') === true;
+				api.releaseInput?.('sticks');
+			}
+			return sticksKnown;
+		}
+		/** claim the sticks for a hold / a point: 'sticks' where the core has it, else 'locomotion'
+		 * (the left stick only — what 2.3 claimed). Returns the scope to release. */
+		function claimSticks() {
+			const scope = sticksScope() ? 'sticks' : 'locomotion';
+			api.claimInput?.(scope);
+			return scope;
+		}
+		/** what the sticks did (the flights read it) */
+		const reel = { holds: 0, reels: 0, pushes: 0, pointing: false, scope: /** @type {string | null} */ (null), turns: 0 };
 		/** does this hand's laser (or tip) touch the globe? */
 		function globeUnder(pose) {
 			if (mode !== '3d' || !group) return false;
@@ -711,15 +734,24 @@ export default {
 		}
 		function startHold(pose, hand) {
 			group.updateMatrixWorld();
+			const p0 = new THREE.Vector3().fromArray(pose.position);
+			const c0 = group.getWorldPosition(new THREE.Vector3());
+			// 33 G2: the hand -> centre offset the stick reels (a tip inside the globe: along the aim)
+			const off0 = c0.clone().sub(p0);
+			if (off0.length() < 0.05) off0.set(0, 0, -0.05).applyQuaternion(new THREE.Quaternion().fromArray(pose.quaternion));
 			holdStart = {
-				p0: new THREE.Vector3().fromArray(pose.position),
+				p0,
 				q0inv: new THREE.Quaternion().fromArray(pose.quaternion).invert(),
-				c0: group.getWorldPosition(new THREE.Vector3()),
+				c0,
+				off0,
+				dist: off0.length(),
 				g0: globeQuat.clone(),
 				// the group's world turn WITHOUT the view (the hold moves and scales, never turns, it)
-				w: group.getWorldQuaternion(new THREE.Quaternion())
+				w: group.getWorldQuaternion(new THREE.Quaternion()),
+				// the holding hand's stick reels + scales: it must not walk / turn / teleport
+				scope: claimSticks()
 			};
-			api.claimInput?.('locomotion'); // the holding hand's stick scales, it must not walk
+			reel.holds++;
 			sfx.play('pop', holdStart.c0.toArray());
 			sfx.haptic('tap', hand);
 		}
@@ -727,16 +759,23 @@ export default {
 		const newC = new THREE.Vector3();
 		const handP = new THREE.Vector3();
 		/** the globe rides the hand rigidly (the edit-mode object grab): its centre keeps its
-		 * offset from the controller, its turn follows the controller's; the stick scales it */
+		 * offset from the controller, its turn follows the controller's. 33 G2: the holding hand's
+		 * stick does what it does to a held object in Edit — Y reels it (forward pushes it away,
+		 * back pulls it closer), X scales it (reel.js) */
 		function holdTo(pose, hand) {
 			if (!holdStart || !group) return;
 			const axes = api.input?.()?.axes;
+			const x = (hand === 'left' ? axes?.lx : axes?.rx) ?? 0;
 			const y = (hand === 'left' ? axes?.ly : axes?.ry) ?? 0;
-			// forward (y < 0 in xr-standard) grows, back shrinks — the Y axis, because the right
-			// stick's X is core's snap turn and a module cannot pause it
-			if (Math.abs(y) > 0.15) hold.scale = Math.min(HOLD_SCALE[1], Math.max(HOLD_SCALE[0], hold.scale * (1 - y * 0.025)));
+			// a core without the 'sticks' scope cannot pause the RIGHT stick's snap turn: X stays
+			// the player's turn there (the left stick's is free under the 'locomotion' claim)
+			const xs = holdStart.scope === 'sticks' || hand === 'left' ? x : 0;
+			const next = heldStick({ dist: holdStart.dist, scale: hold.scale, x: xs, y, range: HOLD_SCALE });
+			if (next.dist !== holdStart.dist) reel.reels++;
+			holdStart.dist = next.dist;
+			hold.scale = next.scale;
 			dq.fromArray(pose.quaternion).multiply(holdStart.q0inv);
-			newC.copy(holdStart.c0).sub(holdStart.p0).applyQuaternion(dq).add(handP.fromArray(pose.position));
+			newC.copy(holdStart.off0).applyQuaternion(dq).setLength(holdStart.dist).add(handP.fromArray(pose.position));
 			// the view: W^-1 dq W G0 — the controller's world turn, expressed in the group frame
 			globeQuat.copy(holdStart.w).invert().multiply(dq).multiply(holdStart.w).multiply(holdStart.g0).normalize();
 			const at = group.parent ? group.parent.worldToLocal(newC.clone()) : newC.clone();
@@ -745,8 +784,9 @@ export default {
 			redraw(lastCounts);
 		}
 		function endHold(hand) {
+			const scope = holdStart?.scope;
 			holdStart = null;
-			api.releaseInput?.('locomotion');
+			if (scope) api.releaseInput?.(scope);
 			sfx.play('click', group ? group.getWorldPosition(new THREE.Vector3()).toArray() : undefined);
 			sfx.haptic('bump', hand);
 		}
@@ -882,6 +922,7 @@ export default {
 					at = 'panel';
 					if (m.parent !== panel.parent) panel.parent.add(m);
 					// a sibling of the panel: its pose is the panel's, offset onto the hole, 4 mm proud
+					// (its draw order: vrmenu SORT_LEAD)
 					m.position.set(hole.x, hole.y, 0.004).applyQuaternion(panel.quaternion).add(panel.position);
 					m.quaternion.copy(panel.quaternion);
 					m.scale.set(hole.w, hole.h, 1);
@@ -969,6 +1010,8 @@ export default {
 					options: ['globe', '2d'],
 					optionLabels: ['Globe', '2D board'],
 					default: choiceOf(mode),
+					// 33 G3: also the tabs above the shell's Levels grid (a 1.19 core; older ones ignore it)
+					onLevels: true,
 					onChange: (v) => {
 						// a stored choice replayed while registering must not switch the room's board
 						if (shellInit) return;
@@ -987,7 +1030,9 @@ export default {
 				'Drag the dots until no line crosses another — red lines cross, green ones are free.',
 				'Desktop: drag a dot (or click it, then click where it goes); on the globe, right-drag turns it.',
 				'VR: point at a dot and hold the trigger (or touch it with the controller tip), release to drop it.',
-				'VR: hold the trigger on the globe to carry and turn it, its stick scales it; the grips move and scale the world.',
+				'VR: hold the trigger on the globe to carry and turn it — its stick up/down pushes it away / pulls it closer, left/right scales it.',
+				'VR: point at the board or the globe and push the right stick up/down to move it farther / closer (left/right turns the globe).',
+				'VR: the grips move and scale the world; a grip plus the stick up/down pushes the world away / pulls it closer.',
 				'The bar in front of the board: previous / next level, Globe / 2D, restart, Levels.',
 				'One progress: a level you reach on the globe is open on the 2D board too.'
 			]);
@@ -1026,6 +1071,64 @@ export default {
 			},
 			{ modes: ['interact', 'play'], sweep: false }
 		);
+		// ---------- 33 G2: pointing + the right stick ----------
+		const pushV = new THREE.Vector3();
+		const parentQ = new THREE.Quaternion();
+		const boardPlane = new THREE.Plane();
+		const planeHit = new THREE.Vector3();
+		/** where the right laser meets the board (the flat plate, or the globe), world, or null */
+		function boardUnder(ray) {
+			if (mode === '3d') return globeHit(ray, false);
+			const s = surface();
+			boardPlane.setFromNormalAndCoplanarPoint(planeNormal.fromArray(s.normal), hitPoint.fromArray(s.point));
+			if (!ray.ray.intersectPlane(boardPlane, planeHit)) return null;
+			const at = group.worldToLocal(planeHit.clone());
+			const r = board.radius * 1.15;
+			return Math.abs(at.x) <= r && Math.abs(at.y) <= r ? planeHit.clone() : null;
+		}
+		/** let go of the point's claim */
+		function releasePoint() {
+			if (reel.scope) api.releaseInput?.(reel.scope);
+			reel.scope = null;
+			reel.pointing = false;
+		}
+		function pointStick() {
+			const pose = api.isVR?.() && carried === -1 && !vrDrag.holder() && interactive() ? handPose('right') : null;
+			const ray = pose && !menuUnder(pose) && !coreUiOn(pose) ? poseRay(pose) : null;
+			const hit = ray ? boardUnder(ray) : null;
+			reel.pointing = !!hit;
+			const axes = hit ? api.input?.()?.axes : null;
+			const rx = axes?.rx ?? 0;
+			const ry = axes?.ry ?? 0;
+			const turning = mode === '3d' && Math.abs(rx) > 0.2;
+			if (!hit || (!turning && Math.abs(ry) <= 0.15)) {
+				// the stick back at rest (or the laser off the board): navigation is the player's again
+				if (reel.scope) {
+					api.releaseInput?.(reel.scope);
+					reel.scope = null;
+				}
+				return;
+			}
+			// the stick is the board's while it is deflected at it ('sticks': no turn, no teleport;
+			// a core without it: the right stick's Y is free anyway, X still turns the player)
+			if (!reel.scope && sticksScope()) reel.scope = claimSticks();
+			if (turning) {
+				rotateBy(rx * 4, 0);
+				reel.turns++;
+			}
+			const push = pointPush(hit.distanceTo(ray.ray.origin), ry);
+			if (!push) return;
+			// along the laser, in the board's parent frame (the world rig may turn / scale it)
+			pushV.copy(ray.ray.direction).multiplyScalar(push);
+			if (group.parent) {
+				group.parent.getWorldQuaternion(parentQ).invert();
+				pushV.applyQuaternion(parentQ).divideScalar(group.parent.getWorldScale(localHit).x || 1);
+			}
+			hold.offset.add(pushV);
+			reel.pushes++;
+			placeGroup();
+			redraw(lastCounts);
+		}
 		api.registerFrameTask(() => {
 			frame++;
 			// the node-or-fallback gate: no utboard node within EXPIRE_FRAMES of load (or of a
@@ -1056,13 +1159,9 @@ export default {
 			const t = performance.now() / 1000;
 			burst?.tick(t);
 			const ray = aim.current();
-			// P3: in VR the thumbstick turns the globe while the hand points at it
-			if (mode === '3d' && api.isVR?.() && carried === -1 && !vrDrag.holder() && globeHit(ray, false)) {
-				const axes = api.input?.()?.axes;
-				const rx = axes?.rx ?? 0;
-				const ry = axes?.ry ?? 0;
-				if (Math.abs(rx) > 0.2 || Math.abs(ry) > 0.2) rotateBy(rx * 4, ry * 4);
-			}
+			// P3 + 33 G2: the RIGHT hand pointing at the board / the globe — its stick's Y pushes it
+			// away / pulls it closer along the laser (Edit's reel), X turns the globe
+			pointStick();
 			// VR: the controllers drive the drag (a carry left over from VR drops on leaving it)
 			vrMoved = false;
 			const vr = vrDragOn();
@@ -1260,6 +1359,7 @@ export default {
 		api.onSceneClear?.(() => {
 			sceneClears++;
 			resetHold();
+			releasePoint();
 			level = 1;
 			nodeLevel = null;
 			remoteApplied = false;
@@ -1325,6 +1425,7 @@ export default {
 			},
 			vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), holder: vrDrag.holder(), lastHand: vrHandLast, on: vrDragOn() }),
 			/** 30b: the LOCAL globe hold — offset (parent frame), scale, and the view quaternion */
+			reel: () => ({ ...reel, sticks: sticksScope(), holdDist: holdStart ? holdStart.dist : null, offset: hold.offset.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
 			globeHold: () => ({ offset: hold.offset.toArray(), scale: hold.scale, quat: globeQuat.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
 			/** roadmap 31: the VR level picker — where it is drawn, open?, the hovered rect, the last press */
 			vrMenu: () => ({ at: pickerAt, open: pickerOpen, visible: vrMenu.mesh.visible, centre: vrMenu.mesh.getWorldPosition(new THREE.Vector3()).toArray(), sortCentre: vrMenu.mesh.localToWorld(vrMenu.mesh.geometry.boundingSphere.center.clone()).toArray(), size: [vrMenu.mesh.scale.x, vrMenu.mesh.scale.y], hover: pickerHover, last: lastPick, cells: pickerCells({ mode, level, progress }, vrMenu.ids()), renderOrder: vrMenu.mesh.renderOrder, depthTest: vrMenu.mesh.material.depthTest }),

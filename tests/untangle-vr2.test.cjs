@@ -500,6 +500,76 @@ run(async () => {
 	if (sh.hasSetting) check(sh.setting && !sh.error, 'K.2 the module added the "Board: Globe / 2D" setting');
 	else console.log('SKIP K.2: this core has no api.game.addSetting');
 
+	// ---- R. 33 G2: the right stick pushes / pulls the board while the laser is on it -------------
+	// "I can make bigger/smaller the globe but cannot use up/down on stick to move it further/closer
+	// ... just as in edit mode for objects" — Edit's reel (grabStickAdjust) on the board, LOCAL
+	{
+		const reelOf = () => A.page.evaluate(() => window.__untangle.reel());
+		const stickR = (x, y) => A.page.evaluate(({ x, y }) => window.__stores.inputRuntime.setVRAxes('right', x, y), { x, y });
+		const claims = () => A.page.evaluate(() => { let v; window.__stores.inputRuntime.inputClaims.subscribe((x) => (v = x))(); return [...v]; });
+		const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+		const along = (a, b, from, to) => {
+			const d = b.map((v, i) => v - a[i]);
+			const r = to.map((v, i) => v - from[i]);
+			return d.reduce((acc, v, i) => acc + v * r[i], 0) / (Math.hypot(...d) * Math.hypot(...r) || 1);
+		};
+		if ((await state(A.page)).mode !== '2d') {
+			await A.page.evaluate(() => window.__untangle.select(12, '2d'));
+			await eventually(() => state(A.page), (s) => s.mode === '2d', 'R.0a (premise) the flat board');
+		}
+		const sticks = (await reelOf()).sticks;
+		console.log('  the "sticks" input scope in this core: ' + sticks);
+		const bc0 = B ? await B.page.evaluate(() => window.__untangle.centre()) : null;
+		for (const md of ['2d', '3d']) {
+			if (md === '3d') {
+				await A.page.evaluate(() => window.__untangle.select(12, '3d'));
+				await eventually(() => state(A.page), (s) => s.mode === '3d', 'R.3d.0a (premise) the globe');
+				await A.page.waitForTimeout(150);
+			}
+			const c0 = await A.page.evaluate(() => window.__untangle.centre());
+			await setHands(A.page, { right: await aimPose(A.page, HAND, c0, false) });
+			await A.page.waitForTimeout(150);
+			check((await reelOf()).pointing, 'R.' + md + '.0 (premise) the right laser is on the ' + (md === '3d' ? 'globe' : 'board'));
+			await stickR(0, -1);
+			await A.page.waitForTimeout(450);
+			const held = await claims();
+			await stickR(0, 0);
+			await A.page.waitForTimeout(150);
+			const c1 = await A.page.evaluate(() => window.__untangle.centre());
+			check(dist(HAND, c1) > dist(HAND, c0) + 0.3, 'R.' + md + '.1 stick FORWARD pushes it away (' + dist(HAND, c0).toFixed(2) + ' -> ' + dist(HAND, c1).toFixed(2) + ' m from the hand)');
+			check(along(c0, c1, HAND, c0) > 0.99, 'R.' + md + '.2 ...straight along the laser (cos ' + along(c0, c1, HAND, c0).toFixed(4) + ')');
+			if (sticks) check(held.includes('sticks'), 'R.' + md + '.3 while the stick is deflected at the board it is the board\'s: both sticks claimed, no snap turn (' + held + ')');
+			else console.log('SKIP R.' + md + '.3: this core has no "sticks" scope (1.19) — the right stick\'s Y is free in Untangle anyway');
+			check(!(await claims()).includes('sticks'), 'R.' + md + '.4 back at rest the stick is the player\'s again (' + (await claims()) + ')');
+			await setHands(A.page, { right: await aimPose(A.page, HAND, c1, false) });
+			await stickR(0, 1);
+			await A.page.waitForTimeout(450);
+			await stickR(0, 0);
+			await A.page.waitForTimeout(150);
+			const c2 = await A.page.evaluate(() => window.__untangle.centre());
+			check(dist(HAND, c2) < dist(HAND, c1) - 0.3, 'R.' + md + '.5 stick BACK pulls it closer (' + dist(HAND, c1).toFixed(2) + ' -> ' + dist(HAND, c2).toFixed(2) + ' m)');
+			if (md === '3d') {
+				const t0 = (await reelOf()).turns;
+				await setHands(A.page, { right: await aimPose(A.page, HAND, c2, false) });
+				await stickR(1, 0);
+				await A.page.waitForTimeout(300);
+				const heldX = await claims();
+				await stickR(0, 0);
+				await A.page.waitForTimeout(150);
+				const r = await reelOf();
+				check(r.turns > t0 && (!sticks || heldX.includes('sticks')), 'R.3d.6 left/right turns the globe' + (sticks ? ' — and no longer ALSO snap-turns the player (sticks claimed)' : '') + ' (' + (r.turns - t0) + ' frames)');
+			}
+		}
+		if (bc0) {
+			const bc1 = await B.page.evaluate(() => window.__untangle.centre());
+			check(dist(bc0, bc1) < 1e-6, 'R.7 the push is LOCAL: B\'s board never moved');
+		}
+		// back to the authored pose (a mode change drops the local hold) for the spawn checks below
+		await A.page.evaluate(() => window.__untangle.select(1, '2d'));
+		await eventually(() => A.page.evaluate(() => window.__untangle.reel()), (r) => r.offset.every((v) => v === 0), 'R.8 a mode switch puts the board back where it was authored');
+		await setHands(A.page, { right: await aimPose(A.page, HAND, AWAY, false) });
+	}
+
 	// ---- U2. the spawn, through the real per-frame XR path --------------------------------------
 	if (!fs.existsSync(FAKE_XR)) {
 		console.log('SKIP U2: no ' + FAKE_XR + ' (set CORE_DIR to a core checkout)');
@@ -555,6 +625,71 @@ run(async () => {
 			check(Math.abs(ws - g1) < 1e-6, 'U1.6 ...and the board scales with it (world scale ' + ws.toFixed(3) + ')');
 			check((await state(A.page)).carried === -1, 'U1.7 ...the grips grabbed no dot');
 		} else console.log('SKIP U1.5-U1.7: this core has no play.locomotion.worldGrab (contract K1, 31-vr-core P3)');
+
+		// ---- S. 33 G3 — the headset's path to the levels: the controller's menu button (left X) opens
+		// the game's pause menu; the laser presses Levels; the Board tabs sit above the grid; a tab
+		// switches the board; a tile loads that level. The board is core's VR panel (drawn from a
+		// synthetic head at the spawn's eyes, as core's suites do); the presses go through core's own
+		// panel press path along a laser.
+		await A.page.evaluate(() => window.__untangle.select(1, '2d'));
+		await eventually(() => state(A.page), (s) => s.mode === '2d' && s.level === 1, 'S.0 (premise) 2D level 1');
+		await A.page.evaluate(() => window.__stores.objectActions.setEditorMode('interact'));
+		const hasTabs = await A.page.evaluate(() => typeof window.__stores.gameKit.gameShell.shellLevelTabs === 'function');
+		console.log('  the shell\'s level tabs (onLevels) in this core: ' + hasTabs);
+		const shellOpen = () => A.page.evaluate(() => { let v; window.__stores.gameKit.gameShell.shellMenu.subscribe((x) => (v = x))(); return v; });
+		const boardIds = async () => {
+			await panelFrame(A.page, EYE);
+			return A.page.evaluate(() => window.__stores.gameKit.vrGamePanel.vrGamePanelDebug().hits['vr-game-panel'].map((x) => x.id));
+		};
+		const laser = (id) =>
+			A.page.evaluate(({ id, hand }) => {
+				const s = window.__stores;
+				const k = s.gameKit.vrGamePanel;
+				const surf = k.vrGameSurface('vr-game-panel');
+				const rect = k.vrGamePanelDebug().hits['vr-game-panel'].find((x) => x.id === id);
+				if (!rect) return { ok: false, why: 'no rect ' + id };
+				const g = surf.mesh.geometry.parameters;
+				const target = surf.mesh.localToWorld(new s.THREE.Vector3(((rect.x + rect.w / 2) / surf.canvas.width - 0.5) * g.width, (0.5 - (rect.y + rect.h / 2) / surf.canvas.height) * g.height, 0));
+				const from = new s.THREE.Vector3(...hand);
+				const t = k.panelTargetAlong(new s.THREE.Raycaster(from, target.clone().sub(from).normalize()));
+				if (!t) return { ok: false, why: 'the laser missed' };
+				return { ok: k.pressPanelTarget(t), hit: t.hit.id };
+			}, { id, hand: HAND });
+		await xr.button(A.page, 'left', 4, true);
+		await A.page.waitForTimeout(250);
+		await xr.button(A.page, 'left', 4, false);
+		await A.page.waitForTimeout(150);
+		check((await shellOpen()).open, 'S.1 the controller\'s menu button (left X) opens the pause menu, through the real per-frame path');
+		let ids = await boardIds();
+		check(ids.includes('shell:item:levels') && ids.includes('shell:item:settings'), 'S.2 the VR board offers Levels and Settings (' + ids.filter((i) => i.startsWith('shell:item')).join(', ') + ')');
+		let p = await laser('shell:item:levels');
+		ids = await boardIds();
+		check(p.ok && (await shellOpen()).page === 'levels' && ids.includes('shell:level:1'), 'S.3 the laser opens Levels: the level tiles are on the board (' + JSON.stringify(p) + ')');
+		const unlocked = await A.page.evaluate(() => window.__stores.gameKit.gameShell.gameShellDebug().levels.list.filter((l) => !l.locked).length);
+		check(ids.filter((i) => i.startsWith('shell:level:')).length === unlocked, 'S.4 every open level is a tile (' + unlocked + ')');
+		await eyeShot(A.page, 'vr-shell-levels', EYE, [0, EYE[1], EYE[2] - 2]);
+		if (hasTabs) {
+			check(ids.includes('shell:tab:0:0') && ids.includes('shell:tab:0:1'), 'S.5 the Board tabs (Globe / 2D board) sit above the grid (' + ids.filter((i) => i.startsWith('shell:tab')) + ')');
+			p = await laser('shell:tab:0:0');
+			await eventually(() => state(A.page), (s) => s.mode === '3d' && s.level === 1, 'S.6 the laser on the Globe tab switches the board to the globe, same level (' + JSON.stringify(p) + ')', 4000);
+			check((await shellOpen()).page === 'levels', 'S.7 ...and the Levels page stays up (the tiles are now the globe\'s)');
+		} else {
+			console.log('SKIP S.5-S.7: this core has no level tabs (1.19) — the Board choice is the Settings row');
+			await laser('shell:back');
+			await boardIds();
+			await laser('shell:item:settings');
+			ids = await boardIds();
+			check(ids.includes('shell:set:board:next'), 'S.5b the Settings page carries the Board row');
+			await laser('shell:set:board:prev');
+			await eventually(() => state(A.page), (s) => s.mode === '3d', 'S.6b ...and it switches the board to the globe', 4000);
+			await laser('shell:back');
+			await boardIds();
+			await laser('shell:item:levels');
+			await boardIds();
+		}
+		p = await laser('shell:level:1');
+		await eventually(() => state(A.page), (s) => s.level === 1 && s.mode === '3d', 'S.8 a tile press loads that level on the globe (' + JSON.stringify(p) + ')', 4000);
+		check(!(await shellOpen()).open, 'S.9 ...and closes the menu');
 		await xr.uninstall(A.page);
 	}
 

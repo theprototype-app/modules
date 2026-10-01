@@ -554,7 +554,9 @@ run(async () => {
 	await A.page.waitForTimeout(120);
 	const g1v = await A.page.evaluate(() => ({ vr: window.__untangle.vr(), s: window.__untangle.state() }));
 	check(g1v.vr.holder?.hand === 'right' && g1v.s.carried === -1, 'G.1 the right trigger on the globe (not a dot) HOLDS it (holder ' + JSON.stringify(g1v.vr.holder) + ', carried ' + g1v.s.carried + ')');
-	check(await A.page.evaluate(() => { let v; window.__stores.inputRuntime.inputClaims.subscribe((x) => (v = x))(); return v.includes('locomotion'); }), 'G.2 left-stick walking is paused while the globe is held');
+	// 33 G2: a 1.19 core pauses BOTH sticks for the hold ('sticks'); an older one the left stick
+	const sticks = await A.page.evaluate(() => window.__untangle.reel().sticks);
+	check(await A.page.evaluate((sticks) => { let v; window.__stores.inputRuntime.inputClaims.subscribe((x) => (v = x))(); return v.includes(sticks ? 'sticks' : 'locomotion'); }, sticks), 'G.2 stick navigation is paused while the globe is held (' + (sticks ? 'both sticks: no walk, turn or teleport' : 'the left stick: this core has no "sticks" scope') + ')');
 	// move the hand 30 cm right and 10 up, and turn it 35 degrees about +Y
 	const H1 = [H0[0] + 0.3, H0[1] + 0.1, H0[2]];
 	const q1 = await A.page.evaluate((q0) => {
@@ -582,16 +584,42 @@ run(async () => {
 	}, { H0, H1, q0, q1, before, c0: spot.c });
 	check(rigid.moved > 0.25 && rigid.centreErr < 2e-3, 'G.3 the globe rides the hand: its centre moved ' + rigid.moved.toFixed(2) + ' m, exactly where the controller carried it (error ' + rigid.centreErr.toExponential(1) + ')');
 	check(rigid.dotErr < 2e-3, 'G.4 and it TURNED with the hand: every dot followed the controller\'s move + 35 deg turn (max error ' + rigid.dotErr.toExponential(1) + ' m)');
-	// the holding hand's stick scales it — the dots with it
+	// 33 G2: the holding hand's stick does what it does to a held object in Edit — Y REELS the globe
+	// (forward pushes it away, back pulls it closer), X SCALES it, the dots with it
+	const reach = () => A.page.evaluate((h) => { const c = window.__untangle.globeHold().centre; return Math.hypot(c[0] - h[0], c[1] - h[1], c[2] - h[2]); }, H1);
 	const look0 = await A.page.evaluate(() => ({ s: window.__untangle.globeHold().scale, r: window.__untangle.look().dotRadius }));
+	const gd0 = await reach();
 	await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, -1));
-	await A.page.waitForTimeout(500);
+	await A.page.waitForTimeout(450);
 	await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, 0));
 	await A.page.waitForTimeout(80);
-	const look1 = await A.page.evaluate(() => ({ s: window.__untangle.globeHold().scale, r: window.__untangle.look().dotRadius }));
-	check(look1.s > look0.s * 1.3, 'G.5 stick forward on the holding hand grows the globe (scale ' + look0.s.toFixed(2) + ' -> ' + look1.s.toFixed(2) + ')');
-	await shot(A.page, 'g-globe-held-scaled');
-	check(Math.abs(look1.r / look0.r - look1.s / look0.s) < 1e-3, 'G.6 the dots grew in proportion (dot radius x' + (look1.r / look0.r).toFixed(3) + ')');
+	const gd1 = await reach();
+	const lookY = await A.page.evaluate(() => ({ s: window.__untangle.globeHold().scale }));
+	check(gd1 > gd0 * 1.3 && Math.abs(lookY.s - look0.s) < 1e-9, 'G.5 stick FORWARD on the holding hand pushes the globe away (' + gd0.toFixed(2) + ' -> ' + gd1.toFixed(2) + ' m from the hand), its size unchanged — Edit\'s reel');
+	await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, 1));
+	await A.page.waitForTimeout(300);
+	await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, 0));
+	await A.page.waitForTimeout(80);
+	const gd2 = await reach();
+	check(gd2 < gd1 * 0.85, 'G.5b stick BACK pulls it closer (' + gd1.toFixed(2) + ' -> ' + gd2.toFixed(2) + ' m)');
+	// reel it back to where the hold began (the two-hand checks below expect the globe there)
+	for (let k = 0; k < 40 && (await reach()) > gd0 * 1.02; k++) {
+		await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, 0.5));
+		await A.page.waitForTimeout(30);
+		await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, 0));
+		await A.page.waitForTimeout(20);
+	}
+	check(Math.abs((await reach()) / gd0 - 1) < 0.08, 'G.5d ...and reels back to where the hold began (' + (await reach()).toFixed(2) + ' vs ' + gd0.toFixed(2) + ' m)');
+	if (sticks) {
+		await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 1, 0));
+		await A.page.waitForTimeout(500);
+		await A.page.evaluate(() => window.__stores.inputRuntime.setVRAxes('right', 0, 0));
+		await A.page.waitForTimeout(80);
+		const look1 = await A.page.evaluate(() => ({ s: window.__untangle.globeHold().scale, r: window.__untangle.look().dotRadius }));
+		check(look1.s > look0.s * 1.3, 'G.5c stick RIGHT on the holding hand grows the globe (scale ' + look0.s.toFixed(2) + ' -> ' + look1.s.toFixed(2) + ')');
+		await shot(A.page, 'g-globe-held-scaled');
+		check(Math.abs(look1.r / look0.r - look1.s / look0.s) < 1e-3, 'G.6 the dots grew in proportion (dot radius x' + (look1.r / look0.r).toFixed(3) + ')');
+	} else console.log('SKIP G.5c/G.6: without the "sticks" scope the right stick\'s X stays the player\'s snap turn');
 	// the OTHER hand grabs a dot while the globe is held, and carries it across the moving globe
 	const front = await A.page.evaluate((lh) => {
 		const THREE = window.__stores.THREE;

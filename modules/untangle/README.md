@@ -28,9 +28,10 @@ modules/untangle/
   src/vrbar.js     the VR level bar (pure layout/labels/pose + one canvas plane)
   src/vrmenu.js    the VR level picker (pure layout/states + the hole in core's VR panel)
   src/stance.js    the PURE VR spawn in front of the board + the "is it ahead" measure
+  src/reel.js      the PURE stick reel / scale (Edit's grab) for the held globe and the pointed board
   src/index.js     the module: board, modes, nodes, replication
   src/def.js       the games/untangle template def (room, HUD shell, graph)
-  test/            puzzle / progress / sphere / sfx / vrdrag / vrbar / vrmenu / stance / def tests (npm run test:untangle)
+  test/            puzzle / progress / sphere / sfx / vrdrag / vrbar / vrmenu / stance / reel / def tests (npm run test:untangle)
   module.js        the bundled, self-contained entry (committed)
 ```
 
@@ -73,8 +74,8 @@ APP_URL=https://localhost:5216/ npm test -- untangle.test   # the test-flight
   On a core without the 30b sound set a tiny local synth plays the four sounds instead.
 - **Hold the globe.** Pull the trigger on the globe itself (not on a dot, not on the bar):
   it rides that hand like an object in the editor's grab — move it, turn it — and that
-  hand's stick scales it (forward grows, back shrinks, 0.35x-4x; the dots and edges scale
-  with it). The OTHER hand keeps grabbing and moving dots meanwhile. The hold is yours
+  hand's stick scales it (0.35x-4x; the dots and edges scale with it — 2.4.0: left/right
+  scales, up/down pushes it away / pulls it closer, the Edit mapping). The OTHER hand keeps grabbing and moving dots meanwhile. The hold is yours
   alone (the dots replicate as unit vectors, the hold never), and is forgotten when you
   switch to the flat board. Left-stick walking pauses while you hold.
 - **The level bar.** A console in front of the board's lower edge at waist height, tilted
@@ -87,6 +88,33 @@ APP_URL=https://localhost:5216/ npm test -- untangle.test   # the test-flight
   keeps the dots under your hand. 2.3.0 publishes `userData.play.locomotion.worldGrab`
   (and the template's play block has it): on a core with contract K1 the GRIPS move, turn
   and scale the world DURING the game — the trigger owns the dots.
+
+## In VR, the third round (2.4.0, roadmap 33)
+
+- **The stick pushes and pulls the board, as Edit does to a held object (G2).** Holding the
+  globe (trigger on it), that hand's stick now maps like an Edit grab: UP pushes the globe
+  away, DOWN pulls it closer, LEFT / RIGHT scales it (it was up/down = scale). Pointing the
+  right laser at the board or the globe, the right stick's up/down pushes it away / pulls it
+  closer along the laser (left/right still turns the globe). Local, like the hold; a mode
+  switch puts the board back where it was authored. The numbers are Edit's reel (`reel.js`,
+  core's grabStickAdjust: 3 % of the distance per frame at full stick). On a 1.19 core
+  `api.claimInput('sticks')` pauses BOTH sticks while they act on the board (no snap turn, no
+  walking); on 1.18 the hold claims the left stick only and the right stick's left/right stays
+  the player's snap turn (so only the left hand scales there). Core 1.19 also reels the WORLD:
+  a right grip that pans the world + the stick up/down pushes it away / pulls it closer.
+- **The level picker shows in the headset (G3).** On a 1.18 core the picker was invisible over
+  core's VR panel when you stood with the head level: core re-stamps every registered VR
+  panel to its own draw order each frame, so the tie with core's panel was broken by depth,
+  and the panel's backdrop won (looking down past ~3 degrees it showed — why the round-31 eye
+  shots, aimed down at the panel, had it). three sorts by each geometry's bounding-sphere
+  centre, so the picker's geometry now carries a sphere centred 15 cm toward the eyes
+  (`vrmenu.js` SORT_LEAD): it draws last at any head pitch on any core. The Board choice is also registered `onLevels`: a 1.19 core draws it as tabs (Globe /
+  2D board) above the pause menu's Levels grid, desktop and VR, and that grid shows all 30
+  levels in VR (it stopped at 20).
+- Flights: `untangle-vr2` L.5b/c (the picker's pixel from a LEVEL head and looking down), R
+  (push / pull on the board and the globe, the claim), S (left X → the pause menu → Levels →
+  the Board tabs → a level, through core's panel press path); `untangle-vr` G.5-G.6 (the
+  held globe reels on Y, scales on X).
 
 ## In VR, the second round (2.3.0, roadmap 31)
 
