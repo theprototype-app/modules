@@ -162,21 +162,24 @@ export function kindOf(label) {
  * counter) are taken off how far it has come — never behind its start, never past the goal.
  * `slows` (30b Slow-mo) stretch the walk: inside a window it walks at SLOW_RATE.
  * @param {{start: number[], goal: number[], waveStart: number, index: number, now: number, speed: any, stagger: any, setback?: number, slows?: {at: number, until: number}[]}} p
+ * @param {number[]=} out
  * @returns {number[]}
  */
-export function enemyPosition(p) {
+export function enemyPosition(p, out = [0, 0, 0]) {
+	// 31: `out` lets the per-frame walk reuse one array per enemy (the default is a fresh one)
 	const speed = clamp(p.speed, 0.01, 100, DEFAULTS.speed);
 	const stagger = clamp(p.stagger, 0, 60, DEFAULTS.stagger);
 	const leave = p.waveStart + stagger * p.index;
 	const t = p.slows?.length ? warpedElapsed(leave, p.now, p.slows) : p.now - leave;
-	if (!(t > 0)) return p.start.slice();
 	const dx = p.goal[0] - p.start[0];
 	const dz = p.goal[2] - p.start[2];
 	const dist = Math.hypot(dx, dz);
-	if (dist < 1e-6) return p.start.slice();
-	const along = Math.min(dist, Math.max(0, t * speed - Math.max(0, Number(p.setback) || 0)));
-	const f = along / dist;
-	return [p.start[0] + dx * f, p.start[1], p.start[2] + dz * f];
+	const along = !(t > 0) || dist < 1e-6 ? 0 : Math.min(dist, Math.max(0, t * speed - Math.max(0, Number(p.setback) || 0)));
+	const f = dist < 1e-6 ? 0 : along / dist;
+	out[0] = p.start[0] + dx * f;
+	out[1] = p.start[1];
+	out[2] = p.start[2] + dz * f;
+	return out;
 }
 
 /**
@@ -231,6 +234,30 @@ export function fxOf(held, round) {
 export function setbackOf(hits, heals, max, knock) {
 	const taken = Math.max(0, Math.min(max, (Number(hits) || 0) - (Number(heals) || 0)));
 	return taken * Math.max(0, Number(knock) || 0);
+}
+
+/**
+ * 31 W1: THE WAVE CLOCK. When wave `n` of a round cleared (the stamp of its last kill), frozen
+ * the moment a peer first sees it clear. Reading it off the damage counters' LATEST stamp every
+ * sweep (30b) was wrong from wave 2 on: every enemy of wave n walks again in wave n+1, so the
+ * next hit on any of them — a shot, a kill, a breach — moved "the clear", and with it the running
+ * wave's start: the whole wave snapped back to its portals and stood for `interval` seconds.
+ * Kept in a round-scoped replicated game variable `{round, at: {n: seconds}}` so a late joiner
+ * (whose counters carry only the latest stamps) reads the same start.
+ * @param {any} held the variable as stored @param {number | null} round @param {number} n
+ * @returns {number | null}
+ */
+export function clearedAtOf(held, round, n) {
+	if (!held || typeof held !== 'object' || held.round !== round || !held.at || typeof held.at !== 'object') return null;
+	const t = Number(held.at[n]);
+	return Number.isFinite(t) ? t : null;
+}
+/** the clock with wave `n`'s clear written (an entry already there wins: the first sight is the
+ * truth; another round's clock is dropped) @param {any} held @param {number} round @param {number} n @param {number} t */
+export function withClear(held, round, n, t) {
+	const at = held && typeof held === 'object' && held.round === round && held.at && typeof held.at === 'object' ? held.at : {};
+	if (Number.isFinite(Number(at[n]))) return { round, at };
+	return { round, at: { ...at, [n]: t } };
 }
 
 /** distance on the ground plane @param {number[]} a @param {number[]} b */

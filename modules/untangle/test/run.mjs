@@ -7,6 +7,8 @@ import { run as defTests } from './def.test.mjs';
 import { run as sfxTests } from './sfx.test.mjs';
 import { run as vrdragTests } from './vrdrag.test.mjs';
 import { run as vrbarTests } from './vrbar.test.mjs';
+import { run as stanceTests } from './stance.test.mjs';
+import { run as vrmenuTests } from './vrmenu.test.mjs';
 
 let failures = 0;
 function check(ok, label) {
@@ -25,6 +27,10 @@ console.log('\n=== vrdrag.test.mjs ===');
 vrdragTests(check);
 console.log('\n=== vrbar.test.mjs ===');
 vrbarTests(check);
+console.log('\n=== vrmenu.test.mjs ===');
+vrmenuTests(check);
+console.log('\n=== stance.test.mjs ===');
+stanceTests(check);
 console.log('\n=== def.test.mjs ===');
 await defTests(check);
 console.log('\n' + (failures === 0 ? 'ALL PASS' : failures + ' FAILURES'));

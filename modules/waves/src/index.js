@@ -25,6 +25,7 @@ import { registerMenu } from './menu.js';
 import { createAssets } from './assets.js';
 import { MODULE_ROOT } from './look.js';
 import { registerAvatars } from './avatars.js';
+import { createQuality } from './quality.js';
 
 /** 30b: the module's own scene-root group — the headset board, later the gun and the shots.
  * LOCAL content: never in objectsGroup, never saved, never sent. */
@@ -33,7 +34,7 @@ export const ROOT = MODULE_ROOT;
 export default {
 	id: 'waves',
 	name: 'Waves',
-	version: '2.1.0',
+	version: '2.2.0',
 	description:
 		'A VR wave shooter on the health module: a gun in your hand, five levels of grunts, runners and tanks walking from the portals to your crystal, a loadout of guns and abilities — every wave derived on every peer, no authority.',
 
@@ -54,6 +55,11 @@ export default {
 		const prefs = createPrefs(api);
 		const feel = createFeel(api, prefs);
 		const juice = createJuice(api, root);
+		// 31 W2: the device's quality level (core's api.quality when it has one, else our own
+		// governor over the frames the headset actually draws) — the figures and the kill pop obey
+		const quality = createQuality(api, prefs);
+		juice.setBudget(quality.budget());
+		quality.onChange(() => juice.setBudget(quality.budget()));
 		// 30c: the Meshy guns, enemies and crystal (lazy: the primitive look until each is in)
 		const assets = createAssets(api);
 		/** @type {ReturnType<typeof registerAvatars> | null} */
@@ -67,7 +73,7 @@ export default {
 		api.registerSystemGroup?.(ROOT);
 		const start = registerStart(api, root);
 		const weapon = registerWeapon(api, engine, root, juice, prefs, feel, assets);
-		avatars = registerAvatars(api, engine, root, assets);
+		avatars = registerAvatars(api, engine, root, assets, quality);
 		// the models load once a Waves arena is in the scene (not for a module merely installed)
 		let preloaded = false;
 		api.registerFrameTask(() => {
@@ -159,6 +165,7 @@ export default {
 				menu,
 				assets,
 				avatars,
+				quality,
 				hud: arenaHud,
 				hudGraph,
 				snapshot: () =>

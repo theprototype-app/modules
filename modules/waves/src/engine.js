@@ -12,12 +12,14 @@
 // waves node fires no `wave`/`over` event and appends no log entry here — those moments
 // were somebody else's to witness.
 
-import { curveOf, sizeOf, killsOf, waveOf, aliveIn, usedIn, healsBefore, enemyPosition, spawnFor, runEntry, appendRun, clamp, DEFAULTS, KINDS, kindOf, setbackOf, pushedBy, appendFx, fxOf, levelOf, levelSpeed, opensLevel, killScore, groundDistance } from './curve.js';
+import { curveOf, sizeOf, killsOf, waveOf, aliveIn, usedIn, healsBefore, enemyPosition, spawnFor, runEntry, appendRun, clamp, DEFAULTS, KINDS, kindOf, setbackOf, pushedBy, appendFx, fxOf, levelOf, levelSpeed, opensLevel, killScore, groundDistance, clearedAtOf, withClear } from './curve.js';
 
 const SWEEP = 0.1;
 const LOG_PREFIX = 'waves:';
 /** 30b: the round's ability events (Slow-mo windows, Pulse shoves) — a replicated game var */
 const FX_PREFIX = 'waves:fx:';
+/** 31 W1: when each wave of the round cleared — frozen at first sight, replicated for joiners */
+const CLOCK_PREFIX = 'waves:clock:';
 /** the game shell stamps its round in session milliseconds; the trigger log and
  * api.now() are seconds of day — one conversion, here @param {number} ms */
 const toSeconds = (ms) => (ms / 1000) % 86400;
@@ -62,6 +64,14 @@ export function createWavesEngine(api) {
 	const roundRun = new Map();
 	/** 30b: enemy uuid -> the life (its kills count) it already breached in */
 	const breached = new Map();
+	/** 31 W2: bumped whenever what the walk derives from may change (a sweep, a shot, a breach):
+	 * the walk re-derives who is used and alive only then, not every frame */
+	let walkVersion = 0;
+	/** 31 W2: enemy uuid -> its walk's position array, reused every frame */
+	const walkPos = new Map();
+	/** 31 W1: waves node id -> {round, at: {n: seconds}} — the clears THIS peer froze (the
+	 * replicated clock may not have come back yet) */
+	const clears = new Map();
 	/** 30b: waves node id -> when this peer first saw it (seconds, performance clock) */
 	const firstSeen = new Map();
 	/** 30b: run listeners (start / wave / level / over / breach), LOCAL edges
@@ -73,10 +83,24 @@ export function createWavesEngine(api) {
 	const enemyListeners = new Set();
 
 	const now = () => api.now();
+	/** 31 W2: uuid -> object, so the per-frame walk does not search the whole scene per enemy
+	 * (a getObjectByProperty is a full traversal: ten of them every frame on a Quest's CPU) */
+	const objects = new Map();
 	/** @param {string|null} uuid */
 	function objectOf(uuid) {
 		if (!uuid) return null;
-		return api.objectsGroup()?.getObjectByProperty('uuid', uuid) ?? null;
+		const root = api.objectsGroup();
+		const held = objects.get(uuid);
+		// still in the scene? (a scene reload, an undo or a delete re-made or removed it)
+		if (held && held.uuid === uuid) {
+			let p = held.parent;
+			while (p && p !== root) p = p.parent;
+			if (p === root && root) return held;
+		}
+		const found = root?.getObjectByProperty('uuid', uuid) ?? null;
+		if (found) objects.set(uuid, found);
+		else objects.delete(uuid);
+		return found;
 	}
 	/** @param {any} object @returns {number[]} */
 	const worldPos = (object) => object.getWorldPosition(new api.THREE.Vector3()).toArray();
@@ -191,13 +215,15 @@ export function createWavesEngine(api) {
 		let waveStart = typeof cutoff === 'number' && Number.isFinite(cutoff) ? toSeconds(cutoff) : null;
 		let clearedAt = null;
 		if (completed > 0) {
-			let last = null;
-			for (const i of usedIn(completed, curve)) {
-				const e = enemies[i];
-				if (e?.lastHit !== null && e?.lastHit !== undefined && (last === null || e.lastHit > last)) last = e.lastHit;
-			}
-			clearedAt = last;
-			if (last !== null && !done) waveStart = last + interval;
+			clearedAt = clearOf(node.id, name, completed, typeof cutoff === 'number' && Number.isFinite(cutoff) ? cutoff : null, () => {
+				let last = null;
+				for (const i of usedIn(completed, curve)) {
+					const e = enemies[i];
+					if (e?.lastHit !== null && e?.lastHit !== undefined && (last === null || e.lastHit > last)) last = e.lastHit;
+				}
+				return last;
+			});
+			if (clearedAt !== null && !done) waveStart = clearedAt + interval;
 		}
 		const started = running && waveStart !== null && now() >= waveStart;
 		if (typeof cutoff === 'number' && Number.isFinite(cutoff)) roundSeen.set(node.id, cutoff);
@@ -243,6 +269,30 @@ export function createWavesEngine(api) {
 		};
 	}
 
+	/**
+	 * 31 W1: when wave `n` of this round cleared. The replicated clock first (every peer, a joiner
+	 * too, reads the same), then this peer's own frozen sight, else the counters' latest stamp —
+	 * true only NOW, at first sight (every enemy of the wave is dead: nothing hits it until the
+	 * next wave heals it) — frozen and written to the clock. No round (the editor, a stopped
+	 * game): the stamp, as ever.
+	 * @param {string} id @param {string} name @param {number} n @param {number | null} round @param {() => number | null} fromStamps
+	 * @returns {number | null}
+	 */
+	function clearOf(id, name, n, round, fromStamps) {
+		if (round === null) return fromStamps();
+		const key = CLOCK_PREFIX + name;
+		const held = api.game.getVar(key, null);
+		const shared = clearedAtOf(held, round, n);
+		if (shared !== null) return shared;
+		const mine = clearedAtOf(clears.get(id), round, n);
+		if (mine !== null) return mine;
+		const t = fromStamps();
+		if (t === null) return null;
+		clears.set(id, withClear(clears.get(id), round, n, t));
+		api.game.setVar(key, withClear(held, round, n, t));
+		return t;
+	}
+
 	// ---- heals into the next wave ----------------------------------------------------------
 	/** every peer fires the LOCAL heal pulses the current wave owes each enemy it uses —
 	 * idempotent against the heal counter, so a joiner (whose counter arrived healed)
@@ -269,16 +319,19 @@ export function createWavesEngine(api) {
 	 * shots are still on their way into it @param {any} e */
 	const hitsOf = (e) => Math.max(e.hits, hitExpected.get(e.healthId) ?? 0);
 
-	/** @param {any} object @param {number[]} to */
-	function stash(object, to) {
-		object.position.fromArray(to);
+	/** who the wave uses and who is alive, as this peer knows it — re-derived only when a sweep,
+	 * a shot or a breach may have changed it @param {any} s */
+	function walkSets(s) {
+		if (s.walk?.version !== walkVersion) {
+			const kills = s.enemies.map((/** @type {any} */ e) => killsOf(hitsOf(e), e.max));
+			s.walk = { version: walkVersion, used: usedIn(s.wave, s.curve), alive: new Set(aliveIn(s.wave, kills, s.curve)) };
+		}
+		return s.walk;
 	}
 
 	/** @param {ReturnType<typeof derive>} s */
 	function moveSweep(s) {
-		const used = usedIn(s.wave, s.curve);
-		const kills = s.enemies.map((e) => killsOf(hitsOf(e), e.max));
-		const alive = new Set(aliveIn(s.wave, kills, s.curve));
+		const { used, alive } = walkSets(s);
 		for (let k = 0; k < s.enemies.length; k++) {
 			const e = s.enemies[k];
 			const object = objectOf(e.uuid);
@@ -288,8 +341,10 @@ export function createWavesEngine(api) {
 			const index = used.indexOf(k);
 			const walking = s.running && s.started && index >= 0 && alive.has(k) && s.goal;
 			if (walking && s.waveStart !== null) {
-				const start = spawnFor(index, s.spawns, home);
+				const start = s.spawns.length ? s.spawns[index % s.spawns.length] : home;
 				const kind = KINDS[e.kind] ?? KINDS.grunt;
+				let at = walkPos.get(e.uuid);
+				if (!at) walkPos.set(e.uuid, (at = [0, 0, 0]));
 				object.position.fromArray(
 					enemyPosition({
 						start,
@@ -301,9 +356,9 @@ export function createWavesEngine(api) {
 						stagger: s.stagger,
 						setback: setbackOf(hitsOf(e), e.heals, e.max, kind.knock) + pushedBy(e.uuid, s.fx, s.waveStart, now()),
 						slows: s.slows
-					})
+					}, at)
 				);
-				e.pos = object.position.toArray();
+				e.pos = at;
 				if (s.breach && groundDistance(e.pos, /** @type {number[]} */ (s.goal)) <= s.reach) breachBy(s, e, object);
 			} else if (!s.running) {
 				// no run: everyone stands where the scene put them
@@ -315,7 +370,7 @@ export function createWavesEngine(api) {
 				// 30b: a run is on and this enemy is not in it (unused by this wave, or dead):
 				// under the ground, and hidden if the wave does not use it — so the arena holds
 				// only the wave, and nothing invisible stands in anyone's way
-				stash(object, [home[0], STASH_DEPTH, home[2]]);
+				object.position.set(home[0], STASH_DEPTH, home[2]);
 				if (index < 0 && object.visible) {
 					object.visible = false;
 					stashed.add(e.uuid);
@@ -358,6 +413,7 @@ export function createWavesEngine(api) {
 		breached.set(e.uuid, life);
 		for (let i = 0; i < left; i++) api.fireNodeTrigger('damage', (/** @type {any} */ _d, /** @type {string} */ id) => id === e.damageId, { replicate: false });
 		hitExpected.set(e.healthId, hitsOf(e) + left);
+		walkVersion++;
 		announcedKills.set(e.uuid, killsOf(hitsOf(e), e.max));
 		const pos = object.getWorldPosition(new api.THREE.Vector3()).toArray();
 		const blocked = guard();
@@ -412,6 +468,7 @@ export function createWavesEngine(api) {
 		if (!landed) return null;
 		for (let i = 0; i < landed; i++) api.fireNodeTrigger('damage', (/** @type {any} */ _d, /** @type {string} */ id) => id === e.damageId);
 		hitExpected.set(e.healthId, hitsOf(e) + landed);
+		walkVersion++;
 		const killed = landed >= e.hp;
 		const pos = objectOf(uuid)?.getWorldPosition(new api.THREE.Vector3()).toArray() ?? e.pos ?? [0, 0, 0];
 		if (killed) {
@@ -534,6 +591,7 @@ export function createWavesEngine(api) {
 
 	// ---- the sweep -------------------------------------------------------------------------
 	function sweep() {
+		walkVersion++;
 		const g = graphView();
 		const live = new Set();
 		for (const node of g.nodes) {
@@ -554,6 +612,7 @@ export function createWavesEngine(api) {
 				roundRun.delete(id);
 				doneSeen.delete(id);
 				runSeen.delete(id);
+				clears.delete(id);
 			}
 		// once the counter shows what we fired (or a reset took it below), forget the expectation
 		for (const s of state.values())
@@ -609,6 +668,9 @@ export function createWavesEngine(api) {
 		breached.clear();
 		firstSeen.clear();
 		roundRun.clear();
+		clears.clear();
+		objects.clear();
+		walkPos.clear();
 	}
 
 	return {

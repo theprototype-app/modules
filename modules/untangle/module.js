@@ -823,6 +823,8 @@ function normalizeProgress(raw) {
     }
     out[m] = { unlocked: Math.max(unlocked, fromSolved), solved, best };
   }
+  const shared = Math.max(...MODES.map((m) => out[m].unlocked));
+  for (const m of MODES) out[m].unlocked = shared;
   return out;
 }
 function isUnlocked(progress, mode, level) {
@@ -832,10 +834,18 @@ function isUnlocked(progress, mode, level) {
 function isSolved(progress, mode, level) {
   return !!progress?.[mode]?.solved?.includes(level);
 }
-function continueLevel(progress, mode) {
+function isSolvedAny(progress, level) {
+  return MODES.some((m) => isSolved(progress, m, level));
+}
+function continueLevel(progress, mode = MODES[0]) {
   const p = progress?.[mode] ?? freshMode();
-  for (let l = 1; l <= p.unlocked; l++) if (!p.solved.includes(l)) return l;
+  for (let l = 1; l <= p.unlocked; l++) if (!isSolvedAny(progress, l)) return l;
   return Math.min(MAX_LEVEL, p.unlocked);
+}
+function switchLevel(progress, level, won = false) {
+  const lvl = Math.max(1, Math.min(MAX_LEVEL, Math.round(Number(level) || 1)));
+  if (won && lvl < MAX_LEVEL && isUnlocked(progress, MODES[0], lvl + 1)) return lvl + 1;
+  return lvl;
 }
 function recordSolve(progress, mode, level, ms) {
   const next = normalizeProgress(progress);
@@ -845,7 +855,7 @@ function recordSolve(progress, mode, level, ms) {
   if (!p.solved.includes(lvl)) p.solved = [...p.solved, lvl].sort((a, b) => a - b);
   const opened = Math.min(MAX_LEVEL, lvl + 1);
   const unlockedNew = opened > p.unlocked;
-  if (unlockedNew) p.unlocked = opened;
+  if (unlockedNew) for (const m of MODES) next[m].unlocked = opened;
   let newBest = false;
   if (typeof ms === "number" && Number.isFinite(ms) && ms > 0) {
     const prior = p.best[String(lvl)];
@@ -999,7 +1009,7 @@ function makeMenuKinds(ctx) {
       const next = continueLevel(v.progress, v.mode);
       for (let lvl = 1; lvl <= MAX_LEVEL; lvl++) {
         const open = isUnlocked(v.progress, v.mode, lvl);
-        const solved = isSolved(v.progress, v.mode, lvl);
+        const solved = isSolvedAny(v.progress, lvl);
         const current = lvl === v.level;
         const isNext = open && lvl === next;
         const cell = document.createElement("button");
@@ -1445,11 +1455,17 @@ function createVRDrag(hooks) {
 // modules/untangle/src/vrbar.js
 var CELLS = (
   /** @type {const} */
-  ["prev", "level", "next", "mode", "restart"]
+  ["prev", "level", "next", "mode", "restart", "levels"]
 );
-var WIDTHS = [0.14, 0.38, 0.14, 0.18, 0.16];
+var WIDTHS = [0.12, 0.32, 0.12, 0.16, 0.12, 0.16];
 var BAR_W = 1.8;
 var BAR_H = 0.24;
+function barPose(mode, radius, globeR = radius) {
+  if (mode === "3d") return { y: -globeR * 0.95, z: globeR * 0.8, tilt: -BAR_TILT };
+  return { y: -radius * 0.78, z: radius * 0.55, tilt: -BAR_TILT };
+}
+var BAR_TILT = 0.7;
+var BAR_RENDER_ORDER = 990;
 function cellAt(u) {
   if (!(u >= 0 && u <= 1)) return -1;
   let edge = 0;
@@ -1471,8 +1487,10 @@ function barCells(v) {
     { id: "prev", label: "\u25C0", enabled: v.level > 1 },
     { id: "level", label: "Level " + v.level + (startable ? "  \xB7  Start" : ""), enabled: startable },
     { id: "next", label: "\u25B6", enabled: next },
-    { id: "mode", label: v.mode === "3d" ? "Flat" : "Globe", enabled: true },
-    { id: "restart", label: "\u21BA", enabled: true }
+    { id: "mode", label: v.mode === "3d" ? "2D" : "Globe", enabled: true },
+    { id: "restart", label: "\u21BA", enabled: true },
+    // roadmap 31 U5: the level picker (vrmenu.js) on the board, mid-round too
+    { id: "levels", label: v.picker ? "Close" : "Levels", enabled: true }
   ];
 }
 function makeVRBar(THREE, radius) {
@@ -1489,10 +1507,11 @@ function makeVRBar(THREE, radius) {
   }
   const mesh = new THREE.Mesh(
     new THREE.PlaneGeometry(w, h),
-    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false })
+    // U4: never hidden by the stage, a plinth or a wall — the bar draws over the scene
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false })
   );
   mesh.name = "untangle-vrbar";
-  mesh.renderOrder = 2;
+  mesh.renderOrder = BAR_RENDER_ORDER;
   let lastKey = "";
   function draw(cells, hover) {
     const key = JSON.stringify(cells) + hover;
@@ -1512,7 +1531,7 @@ function makeVRBar(THREE, radius) {
       if (!g.roundRect) g.rect(x + pad, pad, cw - 2 * pad, H - 2 * pad);
       g.fill();
       g.fillStyle = k === hover && c.enabled ? "#0f172a" : c.enabled || c.id === "level" ? "#e5e9f0" : "rgba(229,233,240,0.35)";
-      g.font = "bold " + (c.id === "level" ? 44 : 52) + "px system-ui, sans-serif";
+      g.font = "bold " + (c.id === "level" ? 44 : c.id === "levels" || c.id === "mode" ? 40 : 52) + "px system-ui, sans-serif";
       g.textAlign = "center";
       g.textBaseline = "middle";
       g.fillText(c.label, x + cw / 2, H / 2 + 2);
@@ -1540,6 +1559,303 @@ function makeVRBar(THREE, radius) {
   };
 }
 
+// modules/untangle/src/stance.js
+var SPAWN_DIST = { base: 1.35, perRadius: 1.35 / 0.85, min: 1.2, max: 1.5 };
+function spawnDistance(radius) {
+  const r = Number(radius);
+  const d = Number.isFinite(r) && r > 0 ? r * SPAWN_DIST.perRadius : SPAWN_DIST.base;
+  return Math.min(SPAWN_DIST.max, Math.max(SPAWN_DIST.min, d));
+}
+function spawnFor(board, floorY = 0) {
+  const yaw = Number(board?.yaw) || 0;
+  const d = spawnDistance(board?.radius);
+  const x = (Number(board?.x) || 0) + Math.sin(yaw) * d;
+  const z = (Number(board?.z) || 0) + Math.cos(yaw) * d;
+  const y = Number.isFinite(Number(floorY)) ? Number(floorY) : 0;
+  return { position: [round(x), round(y), round(z)], yaw: round(yaw), vrOnly: true };
+}
+var round = (v) => Math.round(v * 1e3) / 1e3;
+
+// modules/untangle/src/vrmenu.js
+var COLS = 6;
+var ROWS = Math.ceil(MAX_LEVEL / COLS);
+var PX_W = 960;
+var PX_H = 660;
+var PAD = 24;
+var HEAD_H = 92;
+var FOOT_H = 96;
+var GAP = 12;
+function pickerLayout(opts = {}) {
+  const out = [];
+  const labelW = 150;
+  const modeW = (PX_W - PAD * 2 - labelW - GAP) / 2;
+  out.push({ id: "mode:3d", x: PAD + labelW, y: PAD, w: modeW - GAP / 2, h: HEAD_H - PAD });
+  out.push({ id: "mode:2d", x: PAD + labelW + modeW + GAP / 2, y: PAD, w: modeW - GAP / 2, h: HEAD_H - PAD });
+  const gridTop = HEAD_H + GAP;
+  const gridH = PX_H - gridTop - FOOT_H - GAP;
+  const cw = (PX_W - PAD * 2 - GAP * (COLS - 1)) / COLS;
+  const ch = (gridH - GAP * (ROWS - 1)) / ROWS;
+  for (let lvl = 1; lvl <= MAX_LEVEL; lvl++) {
+    const c = (lvl - 1) % COLS;
+    const r = Math.floor((lvl - 1) / COLS);
+    out.push({ id: "level:" + lvl, x: PAD + c * (cw + GAP), y: gridTop + r * (ch + GAP), w: cw, h: ch });
+  }
+  const fy = PX_H - FOOT_H + GAP / 2;
+  const fh = FOOT_H - PAD;
+  if (opts.close) {
+    const closeW = 220;
+    out.push({ id: "continue", x: PAD, y: fy, w: PX_W - PAD * 2 - closeW - GAP, h: fh });
+    out.push({ id: "close", x: PX_W - PAD - closeW, y: fy, w: closeW, h: fh });
+  } else out.push({ id: "continue", x: PAD, y: fy, w: PX_W - PAD * 2, h: fh });
+  return out;
+}
+function pickerHit(layout, x, y) {
+  for (const r of layout) if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return r.id;
+  return null;
+}
+function pickerCells(v, ids) {
+  const next = continueLevel(v.progress, v.mode);
+  const out = {};
+  for (const id of ids) {
+    if (id === "mode:3d" || id === "mode:2d") {
+      const m = id.slice(5);
+      const on = m === v.mode;
+      out[id] = { label: m === "3d" ? "3D globe" : "2D board", enabled: !on, state: on ? "on" : "off" };
+    } else if (id.startsWith("level:")) {
+      const lvl = Number(id.slice(6));
+      const open = isUnlocked(v.progress, v.mode, lvl);
+      const state = !open ? "locked" : lvl === v.level ? "current" : isSolvedAny(v.progress, lvl) ? "solved" : lvl === next ? "next" : "open";
+      out[id] = { label: String(lvl), enabled: open, state };
+    } else if (id === "continue") out[id] = { label: "Continue \xB7 Level " + next, enabled: true, state: "go" };
+    else if (id === "close") out[id] = { label: "Close", enabled: true, state: "quiet" };
+  }
+  return out;
+}
+var STAGE_W = 1280;
+var STAGE_H = 720;
+var CROP_PAD = 36;
+var MIN_CROP_W = 720;
+var PANEL_FOOTER = 96;
+function stageRect(el) {
+  const w = Number(el.w) || 0;
+  const h = Number(el.h) || 0;
+  const x = Number(el.x) || 0;
+  const y = Number(el.y) || 0;
+  const a = String(el.anchor ?? "top-left");
+  const col = a.endsWith("left") ? 0 : a.endsWith("right") ? 2 : 1;
+  const row = a.startsWith("top") ? 0 : a.startsWith("bottom") ? 2 : 1;
+  const left = col === 0 ? x : col === 2 ? STAGE_W - w - x : STAGE_W / 2 + x - w / 2;
+  const top = row === 0 ? y : row === 2 ? STAGE_H - h - y : STAGE_H / 2 + y - h / 2;
+  return { left, top, w, h };
+}
+function menuCrop(screen) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const el of screen?.elements ?? []) {
+    if (String(el.kind).startsWith("mod-")) continue;
+    const r = stageRect(el);
+    x0 = Math.min(x0, r.left);
+    y0 = Math.min(y0, r.top);
+    x1 = Math.max(x1, r.left + r.w);
+    y1 = Math.max(y1, r.top + r.h);
+  }
+  if (!Number.isFinite(x0)) return { x: 0, y: 0, w: STAGE_W, h: STAGE_H };
+  x0 = Math.max(0, x0 - CROP_PAD);
+  y0 = Math.max(0, y0 - CROP_PAD);
+  x1 = Math.min(STAGE_W, x1 + CROP_PAD);
+  y1 = Math.min(STAGE_H, y1 + CROP_PAD);
+  let w = x1 - x0;
+  if (w < MIN_CROP_W) {
+    const cx = (x0 + x1) / 2;
+    w = MIN_CROP_W;
+    x0 = Math.min(Math.max(0, cx - w / 2), STAGE_W - w);
+  }
+  return { x: x0, y: y0, w, h: Math.max(120, y1 - y0) };
+}
+function panelHole(screen, id, meshW, meshH) {
+  const el = (screen?.elements ?? []).find((e) => e.id === id);
+  if (!el || !(meshW > 0) || !(meshH > 0)) return null;
+  const crop = menuCrop(screen);
+  const aspect = (crop.h + PANEL_FOOTER) / crop.w;
+  if (Math.abs(meshH / meshW - aspect) > aspect * 0.01) return null;
+  const k = meshW / crop.w;
+  const r = stageRect(el);
+  const cx = r.left + r.w / 2 - crop.x;
+  const cy = r.top + r.h / 2 - crop.y;
+  return { x: cx * k - meshW / 2, y: meshH / 2 - cy * k, w: r.w * k, h: r.h * k };
+}
+var AMBER3 = "#fbbf24";
+var GREEN3 = "#3ee08f";
+function makeVRMenu(THREE) {
+  let canvas = null;
+  let texture = null;
+  if (typeof document !== "undefined") {
+    canvas = document.createElement("canvas");
+    canvas.width = PX_W;
+    canvas.height = PX_H;
+    texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace ?? texture.colorSpace;
+  }
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })
+  );
+  mesh.name = "untangle-vrmenu";
+  mesh.renderOrder = 1001;
+  mesh.frustumCulled = false;
+  mesh.visible = false;
+  mesh.userData.localOnly = true;
+  let layout = pickerLayout();
+  let closeable = false;
+  let lastKey = "";
+  function draw(v, hover, close) {
+    if (close !== closeable) {
+      closeable = close;
+      layout = pickerLayout({ close });
+    }
+    const cells = pickerCells(v, layout.map((r) => r.id));
+    const key = JSON.stringify([cells, hover, close]);
+    if (!canvas || key === lastKey) return;
+    lastKey = key;
+    const g = canvas.getContext("2d");
+    g.clearRect(0, 0, PX_W, PX_H);
+    round2(g, 0, 0, PX_W, PX_H, 28);
+    g.fillStyle = "rgba(13, 17, 28, 0.94)";
+    g.fill();
+    g.lineWidth = 3;
+    g.strokeStyle = "rgba(251, 191, 36, 0.45)";
+    g.stroke();
+    g.textAlign = "left";
+    g.textBaseline = "middle";
+    g.fillStyle = "#cbd5e1";
+    g.font = "600 32px system-ui, sans-serif";
+    g.fillText("Board", PAD + 8, PAD + (HEAD_H - PAD) / 2);
+    for (const r of layout) {
+      const c = cells[r.id];
+      const hot = hover === r.id && c.enabled;
+      const on = c.state === "on";
+      const bg = hot ? "rgba(251,191,36,0.95)" : on || c.state === "go" ? c.state === "go" ? "rgba(217,119,6,0.95)" : AMBER3 : c.state === "locked" ? "rgba(15,23,42,0.6)" : c.state === "current" ? "rgba(251,191,36,0.28)" : c.state === "solved" ? "rgba(62,224,143,0.16)" : "rgba(30,41,59,0.95)";
+      round2(g, r.x, r.y, r.w, r.h, 14);
+      g.fillStyle = bg;
+      g.fill();
+      g.lineWidth = c.state === "next" ? 4 : 2;
+      g.strokeStyle = c.state === "next" ? AMBER3 : "rgba(148,163,184,0.3)";
+      g.stroke();
+      g.textAlign = "center";
+      g.fillStyle = hot || on ? "#1a1305" : c.state === "locked" ? "#475569" : "#f1f5f9";
+      g.font = (r.id.startsWith("level:") ? "700 34px" : "700 30px") + " system-ui, sans-serif";
+      g.fillText(c.label, r.x + r.w / 2, r.y + r.h / 2 + 2);
+      if (c.state === "solved" && !hot) {
+        g.fillStyle = GREEN3;
+        g.font = "700 22px system-ui, sans-serif";
+        g.fillText("\u2713", r.x + r.w - 16, r.y + 16);
+      }
+    }
+    texture.needsUpdate = true;
+  }
+  return {
+    mesh,
+    draw,
+    /** the id a world ray (THREE.Raycaster) hits, or null */
+    hit(raycaster) {
+      if (!mesh.visible) return null;
+      const uv = raycaster.intersectObject(mesh, false)[0]?.uv;
+      return uv ? pickerHit(layout, uv.x * PX_W, (1 - uv.y) * PX_H) : null;
+    },
+    /** the WORLD point at the centre of rect `id` (the flights aim at it) */
+    worldOf(id) {
+      const r = layout.find((q) => q.id === id);
+      if (!r) return null;
+      mesh.updateMatrixWorld(true);
+      return mesh.localToWorld(new THREE.Vector3((r.x + r.w / 2) / PX_W - 0.5, 0.5 - (r.y + r.h / 2) / PX_H, 0)).toArray();
+    },
+    ids: () => layout.map((r) => r.id),
+    dispose() {
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      texture?.dispose();
+    }
+  };
+}
+function round2(g, x, y, w, h, r) {
+  g.beginPath();
+  if (g.roundRect) g.roundRect(x, y, w, h, r);
+  else g.rect(x, y, w, h);
+}
+
+// modules/untangle/src/def.js
+var PANEL = { bg: "rgba(13, 17, 28, 0.92)", radius: 16, border: "1px solid rgba(251, 191, 36, 0.35)" };
+var BUTTON = (bg) => ({ size: 15, weight: "600", bg, color: "#ffffff", radius: 10 });
+var QUIET = { size: 15, weight: "500", bg: "#334155", color: "#e5e9f0", radius: 10 };
+function untangleHud() {
+  return {
+    scene: {
+      active: "",
+      changedAt: 0,
+      screens: [
+        {
+          id: "menu",
+          name: "Menu",
+          showWhile: "menu",
+          input: "menu",
+          elements: [
+            { id: "menu-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 540, h: 560, z: 0, label: "", style: PANEL },
+            { id: "title", kind: "text", anchor: "center", x: 0, y: -235, w: 480, h: 48, z: 1, label: "UNTANGLE", style: { size: 36, weight: "700", color: "#fbbf24", align: "center" } },
+            { id: "subtitle", kind: "text", anchor: "center", x: 0, y: -185, w: 480, h: 44, z: 1, label: "Drag the dots until no edges cross \u2014 on a flat board or around a globe. Every peer sees the same board; your unlocked levels are yours.", style: { size: 13, color: "#d8dee9", align: "center" }, wrap: true },
+            // the module's own HUD kind: mode, the 30-level grid with locks, Continue, Reset
+            { id: "levels", kind: "mod-untangle-levels", anchor: "center", x: 0, y: 10, w: 480, h: 330, z: 1, label: "" },
+            { id: "start-btn", kind: "button", anchor: "center", x: 0, y: 212, w: 220, h: 46, z: 1, label: "Start", enabled: true, style: BUTTON("#d97706") },
+            { id: "menu-hint", kind: "text", anchor: "center", x: 0, y: 252, w: 480, h: 20, z: 1, label: "Pick a level (or Continue) \xB7 drag, or click a dot then click where it goes \xB7 P pauses", style: { size: 12, color: "#8b97a8", align: "center" } }
+          ]
+        },
+        {
+          id: "hud",
+          name: "HUD",
+          showWhile: "playing",
+          input: "game",
+          elements: [
+            { id: "hud-panel", kind: "panel", anchor: "top-left", x: 16, y: 64, w: 260, h: 118, z: 0, label: "", style: PANEL },
+            { id: "ut-level", kind: "text", anchor: "top-left", x: 30, y: 72, w: 230, h: 30, z: 1, label: "LEVEL 1", style: { size: 22, weight: "700", color: "#fbbf24", align: "left" } },
+            { id: "ut-crossings", kind: "text", anchor: "top-left", x: 30, y: 104, w: 230, h: 22, z: 1, label: "Crossings: 0", style: { size: 15, color: "#e2e8f0", align: "left" } },
+            // the module's clock + your best for this level (m:ss, an em dash for none)
+            { id: "ut-time", kind: "mod-untangle-stats", anchor: "top-left", x: 30, y: 128, w: 230, h: 22, z: 1, label: "", show: "play" },
+            { id: "ut-counter", kind: "text", anchor: "top-left", x: 30, y: 154, w: 230, h: 20, z: 1, label: "0 untangled", style: { size: 12, color: "#94a3b8", align: "left" } },
+            // boards solved by the room this session
+            { id: "play-hint", kind: "text", anchor: "bottom-center", x: 0, y: 12, w: 620, h: 20, z: 1, label: "Drag a dot, or click it then click where it goes \xB7 on the globe right-drag turns it \xB7 P pauses", style: { size: 11, color: "#8b97a8", align: "center" } }
+          ]
+        },
+        {
+          id: "solved",
+          name: "Solved",
+          showWhile: "over",
+          input: "menu",
+          elements: [
+            { id: "solved-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 420, h: 250, z: 0, label: "", style: { ...PANEL, border: "1px solid rgba(62, 224, 143, 0.5)" } },
+            { id: "solved-title", kind: "text", anchor: "center", x: 0, y: -82, w: 420, h: 40, z: 1, label: "UNTANGLED!", style: { size: 30, weight: "700", color: "#3ee08f", align: "center" } },
+            { id: "ut-clear", kind: "text", anchor: "center", x: 0, y: -44, w: 360, h: 24, z: 1, label: "LEVEL 1 UNTANGLED", style: { size: 14, weight: "600", color: "#e2e8f0", align: "center" } },
+            { id: "ut-result", kind: "mod-untangle-stats", anchor: "center", x: 0, y: -8, w: 380, h: 28, z: 1, label: "", show: "result" },
+            { id: "next-btn", kind: "button", anchor: "center", x: -60, y: 60, w: 160, h: 44, z: 1, label: "Next level", enabled: true, style: BUTTON("#059669") },
+            { id: "menu-btn", kind: "button", anchor: "center", x: 115, y: 60, w: 130, h: 44, z: 1, label: "Menu", enabled: true, style: QUIET }
+          ]
+        },
+        {
+          id: "pause",
+          name: "Pause",
+          input: "menu",
+          elements: [
+            { id: "pause-panel", kind: "panel", anchor: "center", x: 0, y: 0, w: 380, h: 250, z: 0, label: "", style: PANEL },
+            { id: "pause-title", kind: "text", anchor: "center", x: 0, y: -75, w: 300, h: 36, z: 1, label: "PAUSED", style: { size: 26, weight: "700", color: "#e5e9f0", align: "center" } },
+            { id: "resume-btn", kind: "button", anchor: "center", x: 0, y: -10, w: 240, h: 42, z: 1, label: "Resume", enabled: true, style: BUTTON("#d97706") },
+            { id: "quit-btn", kind: "button", anchor: "center", x: 0, y: 42, w: 240, h: 42, z: 1, label: "Quit to menu", enabled: true, style: QUIET }
+          ]
+        }
+      ]
+    }
+  };
+}
+
 // modules/untangle/src/index.js
 var GROUP = "untangle-module";
 var MODES_PLAYED = ["2d", "3d"];
@@ -1548,8 +1864,8 @@ var EXPIRE_FRAMES = 40;
 var index_default = {
   id: "untangle",
   name: "Untangle",
-  version: "2.2.0",
-  description: "Drag the dots until no edges cross \u2014 on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device). In VR: grab dots with the trigger, hold/turn/scale the globe with one hand while the other moves dots, a level bar under the board. Replicated; board pose, level and readouts as flow nodes.",
+  version: "2.3.1",
+  description: "Drag the dots until no edges cross \u2014 on a flat board or around a globe, 30 levels that unlock as you solve them, one progress for both (it stays on your device). In VR: you start in front of the board, grab dots with the trigger, hold/turn/scale the globe, the grips scale the world, a level picker with Globe / 2D and a level bar. Replicated; board pose, level and readouts as flow nodes.",
   /** @param {any} api */
   register(api) {
     const THREE = api.THREE;
@@ -1597,6 +1913,7 @@ var index_default = {
     function saveProgress() {
       storage.set(PROGRESS_KEY, progress);
       menus?.refreshAll();
+      syncShell();
     }
     function clockMs() {
       if (clock.ms !== null) return clock.ms;
@@ -1619,6 +1936,27 @@ var index_default = {
       group.scale.setScalar(mode === "3d" ? hold.scale : 1);
       group.rotation.set(0, board.yaw, 0);
       group.updateMatrixWorld(true);
+      publishSpawn();
+    }
+    const down = new THREE.Raycaster();
+    const DOWN = new THREE.Vector3(0, -1, 0);
+    function floorAt(x, z) {
+      const root = api.objectsGroup?.();
+      if (!root) return 0;
+      down.set(new THREE.Vector3(x, board.boardY + 2, z), DOWN);
+      down.far = board.boardY + 4;
+      const hit = down.intersectObject(root, true).find((h) => h.object.isMesh && h.object.visible);
+      return hit ? Math.max(0, hit.point.y) : 0;
+    }
+    let spawnKey = "";
+    function publishSpawn() {
+      if (!group) return;
+      const probe = spawnFor(board, 0);
+      const s = spawnFor(board, floorAt(probe.position[0], probe.position[2]));
+      const key = JSON.stringify(s);
+      if (key === spawnKey && group.userData.play) return;
+      spawnKey = key;
+      group.userData.play = { spawn: s, locomotion: { worldGrab: true } };
     }
     const dotR = () => board.radius * Math.max(0.105, 0.15 - Math.max(0, positions.length - 6) * 45e-4);
     let edgeLayer = null;
@@ -1628,6 +1966,7 @@ var index_default = {
     let burst = null;
     let vrBar = null;
     let barHover = -1;
+    let barPanelUndo = null;
     let hovered = -1;
     let lift = 0;
     function disposeGroup(g) {
@@ -1652,6 +1991,7 @@ var index_default = {
       if (group) {
         if (group.parent && attached(group, scene)) parent = group.parent;
         group.removeFromParent();
+        if (vrMenu.mesh.parent === group) group.remove(vrMenu.mesh);
         disposeGroup(group);
       }
       group = new THREE.Group();
@@ -1690,9 +2030,12 @@ var index_default = {
       burst = makeBurst(THREE);
       group.add(burst.points, burst.wave);
       vrBar = makeVRBar(THREE, board.radius);
-      const below = mode === "3d" ? globeR() : board.radius;
-      vrBar.mesh.position.set(0, -below - BAR_H * board.radius * 0.5 - 0.22, mode === "3d" ? globeR() * 0.35 : 0.03);
+      const bp = barPose(mode, board.radius, globeR());
+      vrBar.mesh.position.set(0, bp.y, bp.z);
+      vrBar.mesh.rotation.set(bp.tilt, 0, 0);
       vrBar.mesh.visible = false;
+      barPanelUndo?.();
+      barPanelUndo = typeof api.vrPanel === "function" ? api.vrPanel(vrBar.mesh) ?? null : null;
       group.add(vrBar.mesh);
       parent.add(group);
       placeGroup();
@@ -1774,6 +2117,8 @@ var index_default = {
       canvas.height = 96;
       sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false }));
       sprite.name = "untangle-hud";
+      sprite.raycast = () => {
+      };
       sprite.scale.set(1.6, 0.3, 1);
       sprite.position.set(0, board.radius + 0.45, 0);
       sprite.userData.canvas = canvas;
@@ -1784,7 +2129,15 @@ var index_default = {
       const canvas = sprite.userData.canvas;
       const g = canvas.getContext("2d");
       g.clearRect(0, 0, canvas.width, canvas.height);
-      g.font = "bold 44px monospace";
+      let size = 44;
+      g.font = "bold " + size + "px monospace";
+      const room = canvas.width - 24;
+      const wide = g.measureText(text).width;
+      if (wide > room) {
+        size = Math.max(18, Math.floor(size * room / wide));
+        g.font = "bold " + size + "px monospace";
+      }
+      sprite.userData.fit = { size, width: g.measureText(text).width, canvas: canvas.width };
       g.textAlign = "center";
       g.fillStyle = color;
       g.fillText(text, canvas.width / 2, 62);
@@ -1818,7 +2171,12 @@ var index_default = {
       gesture?.reset();
       build();
       menus?.refreshAll();
+      syncShell();
       if (announce) fire("level");
+    }
+    function switchMode(md) {
+      if (!MODES_PLAYED.includes(md) || md === mode) return;
+      selectLevel(switchLevel(progress, level, won), md);
     }
     function selectLevel(lvl, md = mode) {
       touched = true;
@@ -2115,6 +2473,7 @@ var index_default = {
     const vrDrag = createVRDrag({
       canPick: () => built && !!group?.parent && interactive() && carried === -1,
       pickAt: (pose) => {
+        if (menuUnder(pose)) return null;
         const hit = pickFor(pose);
         return hit?.how === "laser" && coreUiOn(pose) ? null : hit;
       },
@@ -2136,6 +2495,11 @@ var index_default = {
       },
       carrying: () => carried !== -1,
       onPress: (pose, hand) => {
+        const id = menuUnder(pose);
+        if (id) {
+          pickerAct(id, hand);
+          return true;
+        }
         if (coreUiOn(pose)) return false;
         const k = barUnder(pose);
         if (k < 0) return false;
@@ -2143,7 +2507,7 @@ var index_default = {
         return true;
       },
       grabAt: (pose, hand) => {
-        if (coreUiOn(pose) || !globeUnder(pose)) return false;
+        if (menuUnder(pose) || coreUiOn(pose) || !globeUnder(pose)) return false;
         startHold(pose, hand);
         return true;
       },
@@ -2157,23 +2521,149 @@ var index_default = {
       ray.ray.direction.fromArray(r.dir);
       return ray;
     };
-    const barView = () => ({ level, mode, progress, running: roundUnderway(), shell: !shellUnused() });
+    const barView = () => ({ level, mode, progress, running: roundUnderway(), shell: !shellUnused(), picker: pickerOpen });
     function barAct(id, hand) {
       const cell = barCells(barView()).find((c) => c.id === id);
       if (!cell?.enabled) return;
       if (id === "prev") selectLevel(level - 1, mode);
       else if (id === "next") selectLevel(level + 1, mode);
-      else if (id === "mode") {
-        const other = mode === "3d" ? "2d" : "3d";
-        selectLevel(continueLevel(progress, other), other);
-      } else if (id === "restart") restartLevel();
+      else if (id === "mode") switchMode(mode === "3d" ? "2d" : "3d");
+      else if (id === "restart") restartLevel();
       else if (id === "level") fire("start");
+      else if (id === "levels") pickerOpen = !pickerOpen;
       lastBar = id;
       sfx.play("click", worldOf(new THREE.Vector3(0, 0, 0)));
       sfx.haptic("bump", hand);
     }
     let lastBar = "none";
-    const barUnder = (pose) => vrBar?.mesh.visible && pose && !coreUiOn(pose) ? vrBar.hit(poseRay(pose)) : -1;
+    const barUnder = (pose) => vrBar?.mesh.visible && pose && !coreUiOn(pose) && !menuUnder(pose) ? vrBar.hit(poseRay(pose)) : -1;
+    const vrMenu = makeVRMenu(THREE);
+    if (typeof api.vrPanel === "function") api.vrPanel(vrMenu.mesh);
+    const MENU_SCREEN = untangleHud().scene.screens.find((sc) => sc.id === "menu");
+    let pickerOpen = false;
+    let pickerAt = "none";
+    let pickerHover = (
+      /** @type {string | null} */
+      null
+    );
+    let lastPick = "none";
+    const PICKER_W = 1.3;
+    const corePanel = () => api.scene?.()?.children.find((o) => o.visible && o.name === "vr-game-panel") ?? null;
+    function placePicker(vr) {
+      const m = vrMenu.mesh;
+      let at = "none";
+      if (vr && interactive()) {
+        const panel = corePanel();
+        const geo = panel?.geometry?.parameters;
+        const hole = panel && geo && !api.game?.menuOpen?.() ? panelHole(MENU_SCREEN, "levels", geo.width, geo.height) : null;
+        if (hole && panel.parent) {
+          at = "panel";
+          if (m.parent !== panel.parent) panel.parent.add(m);
+          m.position.set(hole.x, hole.y, 4e-3).applyQuaternion(panel.quaternion).add(panel.position);
+          m.quaternion.copy(panel.quaternion);
+          m.scale.set(hole.w, hole.h, 1);
+        } else if (pickerOpen && group) {
+          at = "board";
+          if (m.parent !== group) group.add(m);
+          const w = PICKER_W * board.radius;
+          m.position.set(0, 0, board.radius * 0.1);
+          m.quaternion.identity();
+          m.scale.set(w, w * PX_H / PX_W, 1);
+        }
+      }
+      m.visible = at !== "none";
+      if (at !== "board" && m.parent === group && group) m.visible = false;
+      m.updateMatrixWorld(true);
+      pickerAt = at;
+    }
+    const menuUnder = (pose) => vrMenu.mesh.visible && pose ? vrMenu.hit(poseRay(pose)) : null;
+    function pickerAct(id, hand) {
+      const cell = pickerCells({ mode, level, progress }, [id])[id];
+      if (!cell?.enabled) return;
+      if (id.startsWith("mode:")) switchMode(id.slice(5));
+      else if (id.startsWith("level:")) {
+        selectLevel(Number(id.slice(6)), mode);
+        pickerOpen = false;
+      } else if (id === "continue") {
+        continueGame();
+        pickerOpen = false;
+      } else if (id === "close") pickerOpen = false;
+      lastPick = id;
+      sfx.play("click", worldOf(new THREE.Vector3(0, 0, 0)));
+      sfx.haptic("bump", hand);
+    }
+    function continueGame() {
+      selectLevel(continueLevel(progress, mode), mode);
+      fire("start");
+    }
+    const shell = { levels: 0, picks: 0, setting: false, changes: 0, error: (
+      /** @type {string | null} */
+      null
+    ) };
+    let shellKey = "";
+    let shellInit = true;
+    const choiceOf = (md) => md === "3d" ? "globe" : "2d";
+    function syncShell() {
+      if (typeof api.game?.levels !== "function") return;
+      const list = [];
+      for (let l = 1; l <= MAX_LEVEL; l++) list.push({ id: l, label: "Level " + l, locked: !isUnlocked(progress, mode, l), stars: isSolvedAny(progress, l) ? 1 : 0 });
+      const key = JSON.stringify([list, level, mode]);
+      if (key === shellKey) return;
+      shellKey = key;
+      try {
+        api.game.levels({
+          list,
+          current: level,
+          onPick: (id) => {
+            shell.picks++;
+            const l = Number(id);
+            if (isUnlocked(progress, mode, l)) selectLevel(l, mode);
+          }
+        });
+        shell.levels++;
+      } catch (e) {
+        shell.error = String(e);
+      }
+      if (shell.setting && typeof api.game.setSetting === "function") {
+        try {
+          if (api.game.setting?.("board") !== choiceOf(mode)) api.game.setSetting("board", choiceOf(mode));
+        } catch {
+        }
+      }
+    }
+    if (typeof api.game?.addSetting === "function") {
+      try {
+        api.game.addSetting({
+          id: "board",
+          label: "Board",
+          type: "choice",
+          options: ["globe", "2d"],
+          optionLabels: ["Globe", "2D board"],
+          default: choiceOf(mode),
+          onChange: (v) => {
+            if (shellInit) return;
+            shell.changes++;
+            switchMode(/globe|3d/i.test(String(v)) ? "3d" : "2d");
+          }
+        });
+        shell.setting = true;
+      } catch (e) {
+        shell.error = String(e);
+      }
+    }
+    try {
+      api.game?.setHelp?.([
+        "Drag the dots until no line crosses another \u2014 red lines cross, green ones are free.",
+        "Desktop: drag a dot (or click it, then click where it goes); on the globe, right-drag turns it.",
+        "VR: point at a dot and hold the trigger (or touch it with the controller tip), release to drop it.",
+        "VR: hold the trigger on the globe to carry and turn it, its stick scales it; the grips move and scale the world.",
+        "The bar in front of the board: previous / next level, Globe / 2D, restart, Levels.",
+        "One progress: a level you reach on the globe is open on the 2D board too."
+      ]);
+      api.game?.onRestart?.(() => restartLevel());
+    } catch {
+    }
+    shellInit = false;
     const ofBoard = (o) => {
       for (let p = o; p; p = p.parent) if (p === group) return true;
       return false;
@@ -2209,6 +2699,7 @@ var index_default = {
         else if (clock.start === null) clock.start = performance.now();
       }
       wasUnderway = underway;
+      if (frame % 120 === 0) publishSpawn();
       sfx.music(!!group?.parent && built && (!!api.isPlaying?.() || api.editorMode?.() === "interact"));
       if (!group) return;
       const t = performance.now() / 1e3;
@@ -2222,6 +2713,7 @@ var index_default = {
       }
       vrMoved = false;
       const vr = vrDragOn();
+      placePicker(vr);
       if (vr) vrDrag.update({ left: handPose("left"), right: handPose("right") });
       else if (vrDrag.carrier()) vrDrag.update({ left: null, right: null });
       if (vrBar) {
@@ -2234,6 +2726,14 @@ var index_default = {
           }
         }
         if (vrBar.mesh.visible) vrBar.draw(barCells(barView()), barHover);
+      }
+      pickerHover = null;
+      if (vrMenu.mesh.visible) {
+        for (const hand of ["right", "left"]) {
+          pickerHover = menuUnder(handPose(hand));
+          if (pickerHover) break;
+        }
+        vrMenu.draw({ mode, level, progress }, pickerHover, pickerAt === "board");
       }
       const over = carried === -1 && interactive() ? vr ? vrDrag.candidate()?.i ?? -1 : dotUnder(ray) : -1;
       if (over !== hovered) {
@@ -2416,11 +2916,8 @@ var index_default = {
       pickLevel: (l) => {
         if (isUnlocked(progress, mode, l)) selectLevel(l, mode);
       },
-      pickMode: (m) => selectLevel(continueLevel(progress, m), m),
-      continueGame: () => {
-        selectLevel(continueLevel(progress, mode), mode);
-        fire("start");
-      },
+      pickMode: (m) => switchMode(m),
+      continueGame: () => continueGame(),
       resetProgress: () => {
         progress = defaultProgress();
         saveProgress();
@@ -2449,6 +2946,7 @@ var index_default = {
         nodeOwned: nodeSeen >= 0,
         sceneClears,
         sprite: !!sprite,
+        spriteFit: sprite?.userData.fit ?? null,
         carried,
         carryMode: carried === -1 ? "none" : gesture.carryMode() === "none" ? carryHow : gesture.carryMode(),
         lastDrop,
@@ -2475,6 +2973,12 @@ var index_default = {
       vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), holder: vrDrag.holder(), lastHand: vrHandLast, on: vrDragOn() }),
       /** 30b: the LOCAL globe hold — offset (parent frame), scale, and the view quaternion */
       globeHold: () => ({ offset: hold.offset.toArray(), scale: hold.scale, quat: globeQuat.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
+      /** roadmap 31: the VR level picker — where it is drawn, open?, the hovered rect, the last press */
+      vrMenu: () => ({ at: pickerAt, open: pickerOpen, visible: vrMenu.mesh.visible, centre: vrMenu.mesh.getWorldPosition(new THREE.Vector3()).toArray(), size: [vrMenu.mesh.scale.x, vrMenu.mesh.scale.y], hover: pickerHover, last: lastPick, cells: pickerCells({ mode, level, progress }, vrMenu.ids()), renderOrder: vrMenu.mesh.renderOrder, depthTest: vrMenu.mesh.material.depthTest }),
+      /** world centre of picker rect `id` ('mode:3d', 'level:7', 'continue', 'close') */
+      vrMenuCell: (id) => vrMenu.worldOf(id),
+      /** roadmap 31 K3: what the game shell was handed (feature-detected) */
+      shell: () => ({ ...shell, hasLevels: typeof api.game?.levels === "function", hasSetting: typeof api.game?.addSetting === "function" }),
       /** 30b: the VR level bar — shown?, the hovered cell, the cells, the last action */
       vrBar: () => ({ visible: !!vrBar?.mesh.visible, hover: barHover, cells: barCells(barView()), last: lastBar }),
       /** world position of bar cell k (for the flights' aim) */
@@ -2506,6 +3010,17 @@ var index_default = {
           rimWon: crossings === 0,
           plate: !!group?.getObjectByName("untangle-plate")
         };
+      },
+      /** roadmap 31 U2: the VR spawn this board publishes ({position, yaw, vrOnly}) */
+      spawn: () => group?.userData.play?.spawn ? { ...group.userData.play.spawn } : null,
+      /** world centre of the board (the globe's centre in 3D, with its hold offset) */
+      centre: () => group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null,
+      /** U4: the VR bar's world pose (centre, the world direction its face looks along) + how it draws */
+      vrBarPose: () => {
+        if (!vrBar) return null;
+        vrBar.mesh.updateMatrixWorld(true);
+        const q = vrBar.mesh.getWorldQuaternion(new THREE.Quaternion());
+        return { centre: vrBar.mesh.getWorldPosition(new THREE.Vector3()).toArray(), normal: new THREE.Vector3(0, 0, 1).applyQuaternion(q).toArray(), depthTest: vrBar.mesh.material.depthTest, renderOrder: vrBar.mesh.renderOrder, coreOverlay: !!barPanelUndo };
       },
       /** world position of dot i (for pointer tests) */
       dotWorld: (i) => dots[i] ? dots[i].getWorldPosition(new THREE.Vector3()).toArray() : null,

@@ -70,7 +70,12 @@ heal counters arrived healed). The health module's overkill guard is what keeps 
 an exact multiple of `hp`.
 
 The wave's **start** is a replicated stamp too: the round's `startedAt` for wave 1, the
-previous wave's last killing pulse plus `interval` after that. Enemy `i` of a wave leaves
+previous wave's last killing pulse plus `interval` after that. (31) That clear is FROZEN per
+round the first time a peer sees the wave clear, and kept in the round-scoped game variable
+`waves:clock:<name>` (`{round, at: {n: seconds}}`): wave n reuses every enemy of wave n−1, so the
+counters' latest stamp moves with the next hit on any of them — read every sweep (30b), it
+dragged the running wave's start forward on every kill and the robots stood at their portals
+("they stop walking after one of them is killed"). A late joiner reads the clock, not the stamps. Enemy `i` of a wave leaves
 its spawn point `stagger × i` seconds after the start and walks straight to the goal at
 `speed` — `enemyPosition()` is pure in `(data, time)`, so every peer places it identically
 and nothing is sent. Positions are written **locally** to each peer's copy; when no run is
@@ -179,13 +184,43 @@ silent), `api.hapticPattern` (else one `api.haptic` pulse per pattern), `api.eff
 
 ## Owed on device
 
-30b: the gun's seat in the hand (`GRIP_OFFSET`), the aim, the board's reach and legibility,
+31: the frame time in a Quest (Waves, full wave), the LOD1 swap as seen, the 4000-tri robots up
+close, the robots walking on through kills. 30b: the gun's seat in the hand (`GRIP_OFFSET`), the aim, the board's reach and legibility,
 the grip ability next to core's grab, the Beam's heat read on the gun, Slow-mo and Pulse as
 felt, the music and footsteps' level, and a two-player run's breaches. Earlier: the feel of a wave arriving in VR (a sound on `wavesevent wave` is one node away), knocking
 an enemy down with a hand at a real reach, a 3+ player run, and the arena toolbox in
 non-dark themes. Object regen is not offered (see the health README); wave hp scaling
 (`hpScale` in the plan) is not: it would need per-wave `max` writes (replicated node data
 from every peer) — the size curve is the difficulty curve.
+
+## The Quest budget (31)
+
+Measured with `tests/perf-waves.cjs` (the roadmap-31 performance protocol, by hand: the template,
+VR emulated, 10 s of Play and the full wave, CDP CPU ×4). The frame time on core 1.17 (p50
+~700 ms) was CORE's: the object list's Module-content rows deep-read the whole scene on every
+refresh — fixed in core by 31-perf. The module's own share, cut in 2.2.0:
+
+- **Models** (`optimize-assets.mjs`, 0 credits, from the 30c files in git): each robot 7.2k →
+  4000 tris (the tank 5640: LOD0 keeps its UV seams — collapsing them smeared the texture) plus a
+  second skinned mesh `…_lod1` (1200 tris, seams collapsed) on the SAME skin — one skeleton, one
+  mixer; robot and crystal textures 512², the guns keep a 1024² base colour (at the eye), 512²
+  for the rest. Assets 6.6 → 3.9 MB (zip 5.8 → 3.1 MB).
+- **Quality level** (`src/quality.js`): the player's pick (`prefs.quality`), else core's
+  `api.quality` (0 → high, 1–2 → medium — where a headset starts —, 3+ → low), else the module's
+  own governor over the frames the XR loop draws. HIGH: figures cast shadows, LOD1 past 12 m.
+  MEDIUM: no figure shadows, LOD1 past 6 m, far figures posed at half rate, fewer shards. LOW: LOD1
+  past 3 m, half rate past 3 m, a kill throws 3 shards and no spark/smoke burst.
+- **Every frame**: the figures are frustum-culled again (a padded bind-pose sphere), nothing of
+  ours receives shadows, the walk and the figures allocate nothing, the engine keeps a uuid →
+  object map (it searched the scene per enemy per frame), and the gun/board place themselves
+  without forcing the module root's whole subtree (every bone tree) per hand per frame.
+- `api.lod` is not called: it skips skinned meshes; the static guns and crystal are under the
+  module root, which core's automatic LOD already covers.
+
+Tests: `test/budget.test.mjs` (pure: tris, LOD1 on the same skin, texture sizes, the levels, the
+governor), `tests/waves-quality.test.cjs` (the levels played), `tests/waves-stuck.test.cjs`
+(robots keep walking through kills and breaches). Probes: `tests/perf-waves.cjs`,
+`tests/look-waves-lod.cjs`.
 
 ## The models (30c)
 
@@ -194,9 +229,9 @@ from every peer) — the size curve is the difficulty curve.
 | `assets/gun-blaster.glb` | the Blaster: slate + brass, oak grip, cyan strips | 2.8k | 0.59 MB |
 | `assets/gun-scatter.glb` | the Scatter: a sawn-off double barrel, orange cell | 2.7k | 0.61 MB |
 | `assets/gun-beam.glb` | the Beam: coil ring emitter, magenta orb | 2.6k | 0.67 MB |
-| `assets/enemy-grunt.glb` | a stocky orange robot, cyan visor — walk / run / hit / death | 7.2k, 24 joints | 1.37 MB |
-| `assets/enemy-runner.glb` | a lean lime sprinter, red visor — runs | 7.3k, 24 joints | 1.29 MB |
-| `assets/enemy-tank.glb` | a gunmetal + brass brute, violet chest, yellow visor — walks heavy | 7.3k, 24 joints | 1.54 MB |
+| `assets/enemy-grunt.glb` | a stocky orange robot, cyan visor — walk / run / hit / death | 4k + LOD1 1.2k (31; 30c: 7.2k), 24 joints | 0.78 MB |
+| `assets/enemy-runner.glb` | a lean lime sprinter, red visor — runs | 4k + LOD1 1.2k (31; 30c: 7.3k), 24 joints | 0.72 MB |
+| `assets/enemy-tank.glb` | a gunmetal + brass brute, violet chest, yellow visor — walks heavy | 5.6k + LOD1 1.2k (31; 30c: 7.3k), 24 joints | 1.0 MB |
 | `assets/crystal.glb` | the defended crystal (its own emission map) | 0.8k | 0.57 MB |
 
 Made with Meshy.ai through the budgeted pipeline (`packs` repo `tools/meshy`, requester
@@ -213,7 +248,8 @@ hit flash paints one enemy) follows its object every frame under the module's ow
 (`waves-module`, never in objectsGroup — never saved, never sent), faces the goal, and plays its
 walk clip at `speed / clipSpeed` (figures.js `walkRate`; a shove backwards does not walk).
 While a figure shows, the object's own meshes are hidden for the length of each RENDER only: the
-scene's `onBeforeRender` hops them to layer 30 (no camera draws it), its `onAfterRender` puts them
+scene's `onBeforeRender` hops them to layer 29 (no camera draws it — 31: it was 30, which core 1.17 made
+its helper layer, so in Edit the capsules drew over the figures again), its `onAfterRender` puts them
 back. Outside a render they are exactly the authored meshes on layer 0 — which matters, because
 the `.tpscene` save and a late join are `toJSON`, and `toJSON` WRITES layers (a persistent hop
 saved 41 enemy meshes onto the helper layer in a first try). So a save, a raycast (the shot

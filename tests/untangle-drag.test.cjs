@@ -345,7 +345,15 @@ run(async () => {
 	await A.page.mouse.click(empty.x, empty.y);
 	await A.page.waitForTimeout(250);
 	check((await state(A.page)).carried === -1, '4.6 an unlocked play click with the crosshair on a dot and the cursor elsewhere picks nothing (the desktop gesture owns presses)');
+	// leave play: Escape on 1.17; on a core with the K3 game shell Escape opens the pause menu in a
+	// game (and a module that registers levels — this one — makes even the fallback board a game),
+	// so leave through the menu's Back to editor
 	await A.page.keyboard.press('Escape');
+	const shellBack = A.page.locator('#game-shell-menu [data-shell-item="editor"]');
+	if (await shellBack.waitFor({ state: 'visible', timeout: 2500 }).then(() => true, () => false)) await shellBack.click();
+	await eventually(() => A.page.evaluate(() => { let v; window.__stores.isLocked.subscribe((x) => (v = x))(); return v === true; }), (v) => v === false, '4.7 (premise) back out of play');
+	// the K3 menu's Back to editor lands in EDIT, where the board is inert by design: the globe below is played in Interact
+	await A.page.evaluate(() => window.__stores.objectActions?.setEditorMode?.('interact'));
 	await A.page.waitForTimeout(600);
 
 	// ---- 6. (P3) the GLOBE with a real mouse ----------------------------------------------------------

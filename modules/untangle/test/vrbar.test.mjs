@@ -15,11 +15,11 @@ export function run(check) {
 	let c = byId(at(1));
 	check(!c.prev.enabled && !c.next.enabled, 'a new player on level 1: no previous level, the next is still locked');
 	check(c.level.enabled && /Level 1 .*Start/.test(c.level.label), 'the menu is up (shell, not running): the middle cell starts the round ("' + c.level.label + '")');
-	check(c.mode.label === 'Globe' && byId(at(1, '3d')).mode.label === 'Flat', 'the mode cell names the OTHER mode');
+	check(c.mode.label === 'Globe' && byId(at(1, '3d')).mode.label === '2D', 'the mode cell names the OTHER mode');
 	p = recordSolve(p, '2d', 1, 20000).progress;
 	c = byId(at(1));
 	check(c.next.enabled, 'solving level 1 unlocks the ▶ to level 2');
-	check(!byId(at(1, '3d')).next.enabled, 'progress is per mode: the globe\'s level 2 is still locked');
+	check(byId(at(1, '3d')).next.enabled, 'one progress (U6): the globe\'s ▶ to level 2 is live too');
 	c = byId(at(2, '2d', { running: true }));
 	check(c.prev.enabled && !c.level.enabled && c.level.label === 'Level 2', 'mid-round: ◀ works, the middle cell is just the level');
 	check(!byId(at(2, '2d', { shell: false })).level.enabled, 'no game shell (the fallback board): nothing to start');

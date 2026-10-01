@@ -275,6 +275,15 @@ var LEGACY_HAPTIC = {
   heartbeat: [0.5, 90]
 };
 var LOG_CAP = 80;
+function burstBudget(count, level, vr) {
+  const raw = Number.isFinite(level) ? Math.max(0, Math.floor(
+    /** @type {number} */
+    level
+  )) : 0;
+  const l = Math.max(raw, vr ? 1 : 0);
+  const k = l <= 0 ? 1 : l <= 2 ? 2 / 3 : l <= 5 ? 1 / 3 : 0;
+  return Math.round(Math.max(0, Number(count) || 0) * k);
+}
 function createFx(api) {
   const calls = [];
   const note = (kind, name, opts, native) => {
@@ -312,8 +321,12 @@ function createFx(api) {
     /** C6: a pooled particle burst at a WORLD position @param {number[]} pos @param {any} opts */
     burst(pos, opts) {
       const native = typeof api.effects?.burst === "function";
-      note("burst", opts?.kind ?? "sparkle", opts, native);
-      if (native) api.effects.burst(pos, opts);
+      const q = api.quality;
+      const level = q ? typeof q.level === "function" ? q.level() : q.level : 0;
+      const count = opts && typeof opts.count === "number" ? burstBudget(opts.count, level, !!api.isVR?.()) : void 0;
+      const sized = count === void 0 ? opts : { ...opts, count };
+      note("burst", opts?.kind ?? "sparkle", sized, native);
+      if (native && (count === void 0 || count > 0)) api.effects.burst(pos, sized);
     },
     /** C4: a named haptic preset (core makes it a no-op in Edit) @param {string} name @param {'left'|'right'} [hand] */
     haptic(name, hand) {
@@ -533,7 +546,23 @@ function createGame(api) {
     const ids = liveIds().slice().sort();
     return ids[0] === me();
   }
-  const ball = () => config.ballUuid ? api.objectsGroup()?.getObjectByProperty("uuid", config.ballUuid) ?? null : null;
+  const held = /* @__PURE__ */ new Map();
+  function byUuid(uuid) {
+    if (!uuid) return null;
+    const group = api.objectsGroup();
+    if (!group) return null;
+    const hit = held.get(uuid);
+    if (hit && hit.uuid === uuid) {
+      let root = hit;
+      while (root.parent && root !== group) root = root.parent;
+      if (root === group) return hit;
+    }
+    const found = group.getObjectByProperty("uuid", uuid) ?? null;
+    if (found) held.set(uuid, found);
+    else held.delete(uuid);
+    return found;
+  }
+  const ball = () => byUuid(config.ballUuid);
   function stamp(data) {
     const at = Number(data?.at) || now();
     if (at > state.at) state.at = at;
@@ -730,7 +759,7 @@ function createGame(api) {
     api.send(data);
   }
   function localPos(uuid) {
-    const o = uuid ? api.objectsGroup()?.getObjectByProperty("uuid", uuid) : null;
+    const o = byUuid(uuid);
     return o ? o.position.toArray() : null;
   }
   function gateLocal(team) {
@@ -798,10 +827,10 @@ function createGame(api) {
     const object = ball();
     if (!object) return;
     object.getWorldPosition(_pos);
-    const group = api.objectsGroup();
     const live = matchPhase(state, now()) === "live";
-    for (const [uuid, gate] of Object.entries(config.gates)) {
-      const sensor = group?.getObjectByProperty("uuid", uuid);
+    for (const uuid in config.gates) {
+      const gate = config.gates[uuid];
+      const sensor = byUuid(uuid);
       if (!sensor) continue;
       _box.setFromObject(sensor);
       const isIn = _box.containsPoint(_pos);
@@ -826,9 +855,9 @@ function createGame(api) {
       restPos = null;
       return;
     }
-    const p = object.position.toArray();
-    if (!restPos || Math.hypot(p[0] - restPos[0], p[1] - restPos[1], p[2] - restPos[2]) > REST_DISTANCE) {
-      restPos = p;
+    const p = object.position;
+    if (!restPos || Math.hypot(p.x - restPos[0], p.y - restPos[1], p.z - restPos[2]) > REST_DISTANCE) {
+      restPos = p.toArray();
       restSince = t;
       return;
     }
@@ -1244,16 +1273,13 @@ var BLUE = 4881881;
 var LAMP_DIM = 2237998;
 var LAMPS_PER_GATE = 10;
 var GLASS = {
-  color: 15267583,
-  opacity: 0.1,
-  physical: true,
-  transmission: 1,
-  thickness: 0.02,
-  ior: 1.45,
-  // near-zero specular: the floodlights' spot highlights on the side panes read as glow blobs
-  // floating at pitch height
-  roughness: 0.2,
-  specularIntensity: 0.06,
+  // a cool, faint tint: a lit pane adds its colour over everything behind it (no transmission
+  // to clear it), so it stays light enough not to veil the stadium
+  color: 13953279,
+  opacity: 0.06,
+  // rough enough that a floodlight's highlight spreads into a sheen instead of a glow blob
+  // floating at pitch height (round 2 kept specularIntensity near zero for the same reason)
+  roughness: 0.45,
   shadow: false,
   pick: "through"
 };
@@ -2249,7 +2275,7 @@ function createKicker(api, game) {
 var index_default = {
   id: "football",
   name: "Football",
-  version: "1.2.0",
+  version: "1.3.0",
   description: "VR football on the knock: floating ball, two team gates, last-touch attribution, modes, per-player records and a saved match log \u2014 every rule a flow node.",
   /** @param {any} api the module SDK surface */
   register(api) {

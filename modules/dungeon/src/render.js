@@ -9,7 +9,7 @@
 // the Kit stays a level generator and a rule module owns what it plays with.
 
 import { FLOOR, WALL } from './gen/dungeon.js';
-import { LOOK, LIT, stoneTint, flameFlicker, pickLights, stoneTexture, bakeTorchLight, litShade, haloTexture, stepLightSlots } from './look.js';
+import { LOOK, LIT, stoneTint, flameFlicker, pickLights, stoneTexture, bakeTorchLight, litShade, haloTexture, stepLightSlots, kitQuality, nearSpots, glowFadeAt } from './look.js';
 import { torchParts, SOLID_PARTS, TORCH_SCALE, TORCH_BASE_Y, FLAME_AT, FLAME_GROW } from './torch.js';
 
 /** P4: the two stone textures, built once per page (the same bytes on every peer) @type {any} */
@@ -366,56 +366,160 @@ export function buildFloorGroup(THREE, dungeon) {
 	// the torch-lit materials' shared flicker (one uniform per material; animateFloor breathes them)
 	const torchUniforms = [];
 	group.traverse((/** @type {any} */ o) => { if (o.material?.userData?.torch) torchUniforms.push(o.material.userData.torch); });
-	group.userData._dk = { theme, flameSpots, slots, lastTime: -1, baked, torchUniforms };
+	// 31: the torch family is CULLED to the viewer's neighbourhood in a game view (animateFloor).
+	// Each mesh keeps every instance's pose; its bounding sphere is the WHOLE floor's, computed
+	// once here (a sphere computed from a culled subset would cull the mesh wrongly later)
+	const T = torches.length;
+	/** @type {any[]} */
+	const culled = [];
+	for (const o of group.children) {
+		const solid = o.name.startsWith('dk-torch-');
+		const glow = o.name === 'dk-flames' || o.name === 'dk-flame-cores' || o.name === 'dk-halos' || o.name === 'dk-pools';
+		if (!o.isInstancedMesh || (!solid && !glow)) continue;
+		o.computeBoundingSphere();
+		// solids + halos index the torches; flames, cores and pools the torches THEN the braziers
+		o.userData.cull = { space: solid || o.name === 'dk-halos' ? 'torch' : 'flame', all: o.instanceMatrix.array.slice(), shown: -1 };
+		culled.push(o);
+	}
+	const torchSpots = flameSpots.slice(0, T);
+	group.userData._dk = {
+		theme, flameSpots, torchSpots, slots, lastTime: -1, baked, torchUniforms, culled,
+		// what is drawn now: indices into the torch / flame spot lists (all of them until a game view)
+		vis: { torch: new Int32Array(T), torchN: -1, flame: new Int32Array(flameSpots.length), flameN: -1, at: null, tier: -1, cull: null },
+		quality: kitQuality(0, false),
+		activeSlots: slots
+	};
 	return group;
+}
+
+/** where the view has to move before the torch set is re-culled (metres) */
+const RECULL_STEP = 1;
+
+/**
+ * 31: pick the torches drawn now — every one in the editor (its overview), the ones within the
+ * quality's radius of the viewer in a game view — and pack their poses into the first `count`
+ * instances of each torch mesh. Only when the view moved a metre, the tier or the mode changed:
+ * a standing player costs nothing, and the solid parts' buffers upload only then.
+ * @param {any} dk @param {{x: number, z: number} | null} focus @param {boolean} cull
+ */
+function recull(dk, focus, cull) {
+	const v = dk.vis;
+	const q = dk.quality;
+	const at = cull ? focus : null;
+	if (v.torchN >= 0 && v.cull === cull && v.tier === q.tier) {
+		if (!at && !v.at) return false;
+		if (at && v.at && Math.hypot(at.x - v.at.x, at.z - v.at.z) < RECULL_STEP) return false;
+	}
+	v.at = at ? { x: at.x, z: at.z } : null;
+	v.cull = cull;
+	v.tier = q.tier;
+	v.torchN = nearSpots(dk.torchSpots, at, q.solidRadius, v.torch);
+	v.flameN = nearSpots(dk.flameSpots, at, q.glowRadius, v.flame);
+	for (const mesh of dk.culled) {
+		const c = mesh.userData.cull;
+		// halos: the torches among the lit flames (flame indices < torch count are torches)
+		const halos = mesh.name === 'dk-halos';
+		const list = c.space === 'torch' && !halos ? v.torch : v.flame;
+		let n = c.space === 'torch' && !halos ? v.torchN : v.flameN;
+		const arr = mesh.instanceMatrix.array;
+		let k = 0;
+		for (let j = 0; j < n; j++) {
+			const i = list[j];
+			if (halos && i >= dk.torchSpots.length) continue;
+			for (let e = 0; e < 16; e++) arr[k * 16 + e] = c.all[i * 16 + e];
+			k++;
+		}
+		c.shown = k;
+		mesh.count = k;
+		mesh.instanceMatrix.needsUpdate = true;
+		if (mesh.name === 'dk-halos' || mesh.name === 'dk-pools') mesh.visible = q.halos;
+	}
+	return true;
 }
 
 /**
  * Per-frame juice the Kit owns: torch light and flame flicker, the halos breathing with their
  * flames, the vault while playing, and the capped lights following the viewer.
+ * 31: allocation-free (plain loops, no closures, no fresh vectors) and it animates only the
+ * torches drawn now (recull); `view.quality` is kitQuality()'s record (absent = the best).
  * @param {any} group @param {number} time
- * @param {{playing?: boolean, player?: {x: number, z: number} | null}} [view]
+ * @param {{playing?: boolean, player?: {x: number, z: number} | null, quality?: any}} [view]
  */
 export function animateFloor(group, time, view = {}) {
 	const dk = group.userData._dk;
-	const dt = dk && dk.lastTime >= 0 ? Math.min(0.1, Math.max(0, time - dk.lastTime)) : 0;
-	if (dk) dk.lastTime = time;
+	if (!dk) return;
+	const dt = dk.lastTime >= 0 ? Math.min(0.1, Math.max(0, time - dk.lastTime)) : 0;
+	dk.lastTime = time;
+	const focus = view.player ?? null;
+	const quality = view.quality ?? dk.quality;
+	if (quality.tier !== dk.quality.tier) {
+		dk.quality = quality;
+		// fewer real lights: the slots past the budget go dark (their lights hide: a light-count
+		// change recompiles the lit materials ONCE, here — never per frame)
+		dk.activeSlots = dk.slots.slice(0, Math.max(0, Math.min(dk.slots.length, quality.lights)));
+	}
+	recull(dk, focus, !!view.playing);
 	// 30b: the budget goes to the torches nearest the VIEWER — in play and in the editor alike —
 	// and a light fades out of one torch before it fades into the next (stepLightSlots)
-	if (dk?.slots?.length && dk.flameSpots?.length) stepLightSlots(dk.slots, dk.flameSpots, view.player ?? null, dt);
+	if (dk.activeSlots.length && dk.flameSpots.length) stepLightSlots(dk.activeSlots, dk.flameSpots, focus, dt);
 	// the baked torchlight breathes a little (one global flicker — the halos carry each flame's own)
-	if (dk?.torchUniforms) for (const u of dk.torchUniforms) u.value.w = 1 + Math.sin(time * 7.3) * 0.04 + Math.sin(time * 17.9) * 0.03;
-	group.children.forEach((/** @type {any} */ child) => {
-		if (child.name === 'dk-light') {
-			const slot = dk?.slots?.[child.userData.slot];
+	const breath = 1 + Math.sin(time * 7.3) * 0.04 + Math.sin(time * 17.9) * 0.03;
+	for (let u = 0; u < dk.torchUniforms.length; u++) dk.torchUniforms[u].value.w = breath;
+	const v = dk.vis;
+	const children = group.children;
+	for (let c = 0; c < children.length; c++) {
+		const child = children[c];
+		const name = child.name;
+		if (name === 'dk-light') {
+			const index = child.userData.slot;
+			const on = index < dk.activeSlots.length;
+			if (child.visible !== on) child.visible = on;
+			if (!on) continue;
+			const slot = dk.slots[index];
 			const spot = slot && slot.torch >= 0 ? dk.flameSpots[slot.torch] : null;
 			if (spot) child.position.set(spot.x, spot.y + 0.25, spot.z);
 			const w = slot ? slot.w : 1;
 			child.intensity = LOOK.lightIntensity * w * (1 + Math.sin(time * 9 + child.position.x * 3.7) * 0.18 + Math.sin(time * 23 + child.position.z * 5.1) * 0.1);
-		} else if (child.name === 'dk-ceiling') child.visible = !!view.playing;
-		else if ((child.name === 'dk-flames' || child.name === 'dk-flame-cores') && child.userData.spots) {
-			// each flame from its OWN base pose every frame (never accumulated)
-			const m = child.userData._m ??= child.matrix.clone();
-			child.userData.spots.forEach((/** @type {any} */ p, /** @type {number} */ i) => {
+		} else if (name === 'dk-ceiling') child.visible = !!view.playing;
+		else if ((name === 'dk-flames' || name === 'dk-flame-cores') && child.userData.spots) {
+			// each flame from its OWN base pose every frame (never accumulated): scale + translate,
+			// written straight into the instance buffer (column-major)
+			const spots = child.userData.spots;
+			const arr = child.instanceMatrix.array;
+			for (let j = 0; j < v.flameN; j++) {
+				const p = spots[v.flame[j]];
 				const k = flameFlicker(time, p.x, p.z);
 				// grows from its BASE (the model flame's origin): no vertical bob needed
 				const sc = p.sc ?? 1;
-				m.makeScale(sc / Math.sqrt(k), sc * k, sc / Math.sqrt(k)).setPosition(p.x, p.by ?? p.y, p.z);
-				child.setMatrixAt(i, m);
-			});
+				const side = sc / Math.sqrt(k);
+				const o = j * 16;
+				arr[o] = side; arr[o + 1] = 0; arr[o + 2] = 0; arr[o + 3] = 0;
+				arr[o + 4] = 0; arr[o + 5] = sc * k; arr[o + 6] = 0; arr[o + 7] = 0;
+				arr[o + 8] = 0; arr[o + 9] = 0; arr[o + 10] = side; arr[o + 11] = 0;
+				arr[o + 12] = p.x; arr[o + 13] = p.by ?? p.y; arr[o + 14] = p.z; arr[o + 15] = 1;
+			}
 			child.instanceMatrix.needsUpdate = true;
-		} else if ((child.name === 'dk-halos' || child.name === 'dk-pools') && child.userData.flicker && child.instanceColor) {
-			// the halo breathes with ITS flame (the same deterministic flicker, a little softer)
+		} else if ((name === 'dk-halos' || name === 'dk-pools') && child.userData.flicker && child.instanceColor && child.visible) {
+			// the halo breathes with ITS flame (the same deterministic flicker, a little softer),
+			// and fades out toward the cull radius so a torch leaving the set never pops
 			const { spots, opacity } = child.userData.flicker;
-			const c = child.userData._c ??= child.material.color.clone().set(dk?.theme?.torchColor ?? 0xff8c3a);
+			const c3 = child.userData._c ??= child.material.color.clone().set(dk.theme?.torchColor ?? 0xff8c3a);
 			const arr = child.instanceColor.array;
-			spots.forEach((/** @type {any} */ p, /** @type {number} */ i) => {
-				const k = opacity * (0.55 + 0.45 * flameFlicker(time, p.x, p.z));
-				arr[i * 3] = c.r * k;
-				arr[i * 3 + 1] = c.g * k;
-				arr[i * 3 + 2] = c.b * k;
-			});
+			const halos = name === 'dk-halos';
+			let k = 0;
+			for (let j = 0; j < v.flameN; j++) {
+				const i = v.flame[j];
+				if (halos && i >= dk.torchSpots.length) continue;
+				const p = spots[i];
+				const dx = v.at ? p.x - v.at.x : 0, dz = v.at ? p.z - v.at.z : 0;
+				const fade = v.cull && v.at ? glowFadeAt(Math.sqrt(dx * dx + dz * dz), dk.quality.glowRadius, dk.quality.glowFade) : 1;
+				const b = opacity * (0.55 + 0.45 * flameFlicker(time, p.x, p.z)) * fade;
+				arr[k * 3] = c3.r * b;
+				arr[k * 3 + 1] = c3.g * b;
+				arr[k * 3 + 2] = c3.b * b;
+				k++;
+			}
 			child.instanceColor.needsUpdate = true;
 		}
-	});
+	}
 }

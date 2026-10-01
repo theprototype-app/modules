@@ -7,13 +7,17 @@
 import { ENEMY_LOOKS } from './look.js';
 
 /** the render layer a stood-in primitive hops to for the length of each RENDER while its figure
- * shows — no camera draws it (core's cameras draw 0, the editor adds its helper layer 1; 31 is
- * core's overload guard). Only during a render: the .tpscene save is toJSON, which WRITES
- * layers, so outside a render the meshes must be exactly the scene's (never `visible` either:
- * that is a replicated fact) */
-export const STAND_IN_LAYER = 30;
-/** core's helper layer (the editor draws it) — the stand-in must never land there */
-export const HELPER_LAYER = 1;
+ * shows — no camera draws it. Core's layers: 0 drawn, 1/2 the XR eyes, 30 the editor's helpers
+ * (since 1.17 — it was 1, three's LEFT-eye layer), 31 the overload guard. 31: this was 30, which
+ * core 1.17 made its helper layer, so in EDIT the capsules drew OVER the figures again. Only
+ * during a render: the .tpscene save is toJSON, which WRITES layers, so outside a render the
+ * meshes must be exactly the scene's (never `visible` either: that is a replicated fact) */
+export const STAND_IN_LAYER = 29;
+/** core's layers a stand-in must never land on: the XR eyes, the helper layer (30, core
+ * helperLayer.js since 1.17), the overload guard (31) */
+export const CORE_LAYERS = Object.freeze([1, 2, 30, 31]);
+/** core's helper layer (the editor draws it) — 30 since 1.17 */
+export const HELPER_LAYER = 30;
 
 /**
  * Per kind: which clip walks it, how fast that clip walks at scale 1 (metres per second of
@@ -68,10 +72,16 @@ export function turnToward(current, target, dt, rate = 6) {
  * toward the way it faces (a knockback shoves it backwards — the walk then does not play
  * forwards over a slide). Speeds are smoothed so a frame hitch never flicks the clip.
  * @param {{speed: number}} prev @param {number[]} a @param {number[]} b @param {number} dt @param {number} yaw
+ * @param {{speed: number, forward: boolean}=} out
  * @returns {{speed: number, forward: boolean}}
  */
-export function gait(prev, a, b, dt, yaw) {
-	if (!(dt > 0)) return { speed: prev.speed, forward: true };
+export function gait(prev, a, b, dt, yaw, out = { speed: 0, forward: true }) {
+	// 31: `out` may be `prev` itself (the frame task reuses one object per figure)
+	if (!(dt > 0)) {
+		out.speed = prev.speed;
+		out.forward = true;
+		return out;
+	}
 	const dx = b[0] - a[0];
 	const dz = b[2] - a[2];
 	const raw = Math.hypot(dx, dz) / dt;
@@ -79,7 +89,9 @@ export function gait(prev, a, b, dt, yaw) {
 	const speed = raw > 12 ? 0 : raw;
 	const forward = dx * Math.sin(yaw) + dz * Math.cos(yaw) >= -1e-4;
 	const k = Math.min(1, dt * 10);
-	return { speed: prev.speed + (speed - prev.speed) * k, forward };
+	out.speed = prev.speed + (speed - prev.speed) * k;
+	out.forward = forward;
+	return out;
 }
 
 /** how fast the walk clip plays for a ground speed: 0 standing, the clip's own pace at its

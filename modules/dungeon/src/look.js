@@ -319,25 +319,112 @@ export function haloTexture(size = LIT.haloTextureSize) {
 export function stepLightSlots(slots, spots, focus, dt) {
 	if (!slots.length || !spots.length) return slots;
 	const rate = Math.max(0, dt) / LIT.lightFade;
-	/** @type {number[]} */ let wanted;
+	const n = slots.length;
+	// 31: ALLOCATION-FREE (it runs every frame of a walk; round 2 mapped + sorted every torch
+	// into fresh objects and three Sets per frame — garbage the headset's GC paid for in hitches).
+	// The wanted torches are the n smallest (distance - stickiness), ties by index: an insertion
+	// into a fixed scratch list, scanning in index order, is exactly the old stable sort's head.
+	let wantN = 0;
 	if (focus) {
-		const held = new Set(slots.map((s) => s.torch));
-		wanted = spots
-			.map((p, i) => ({ i, d: Math.hypot(p.x - focus.x, p.z - focus.z) - (held.has(i) ? LIT.lightStickiness : 0) }))
-			.sort((a, b) => a.d - b.d || a.i - b.i)
-			.slice(0, slots.length)
-			.map((e) => e.i);
-	} else wanted = slots.map((s) => s.torch).filter((t) => t >= 0); // no viewer: stay put
-	const want = new Set(wanted);
-	for (const s of slots) {
-		if (s.torch >= 0 && want.has(s.torch)) s.w = Math.min(1, s.w + rate);
+		for (let i = 0; i < spots.length; i++) {
+			let held = false;
+			for (let k = 0; k < n; k++) if (slots[k].torch === i) held = true;
+			// (sqrt, not Math.hypot: V8 boxes hypot's arguments — ~240 allocations a frame here)
+			const dx = spots[i].x - focus.x, dz = spots[i].z - focus.z;
+			const d = Math.sqrt(dx * dx + dz * dz) - (held ? LIT.lightStickiness : 0);
+			if (wantN === n && !(d < _wantD[n - 1])) continue;
+			let at = wantN < n ? wantN++ : n - 1;
+			while (at > 0 && d < _wantD[at - 1]) {
+				_wantD[at] = _wantD[at - 1];
+				_want[at] = _want[at - 1];
+				at--;
+			}
+			_wantD[at] = d;
+			_want[at] = i;
+		}
+	} else for (let k = 0; k < n; k++) if (slots[k].torch >= 0) _want[wantN++] = slots[k].torch; // no viewer: stay put
+	for (let k = 0; k < n; k++) {
+		const s = slots[k];
+		if (s.torch >= 0 && isWanted(s.torch, wantN)) s.w = Math.min(1, s.w + rate);
 		else {
 			s.w = Math.max(0, s.w - rate);
 			if (s.w === 0) s.torch = -1;
 		}
 	}
-	const holding = new Set(slots.map((s) => s.torch));
-	const free = wanted.filter((t) => !holding.has(t));
-	for (const s of slots) if (s.torch < 0 && free.length) s.torch = /** @type {number} */ (free.shift());
+	// the wanted torches no slot holds go, in order, to the slots that are free now
+	let next = 0;
+	for (let k = 0; k < n; k++) {
+		if (slots[k].torch >= 0) continue;
+		while (next < wantN && isHeld(slots, _want[next])) next++;
+		if (next >= wantN) break;
+		slots[k].torch = _want[next++];
+	}
 	return slots;
+}
+/** stepLightSlots' scratch (a slot count is a light budget: a handful) */
+const _want = new Int32Array(16);
+const _wantD = new Float64Array(16);
+/** @param {number} t @param {number} count */
+function isWanted(t, count) {
+	for (let k = 0; k < count; k++) if (_want[k] === t) return true;
+	return false;
+}
+/** @param {{torch: number}[]} slots @param {number} t */
+function isHeld(slots, t) {
+	for (let k = 0; k < slots.length; k++) if (slots[k].torch === t) return true;
+	return false;
+}
+
+// ---- 31: THE QUEST ROUND — what the Kit draws, by quality ---------------------------------------
+// The user on a Quest 3: "In VR there is stuttering when I'm moving through the dungeon." Round
+// 2 drew EVERY torch of the floor every frame (~235 x a 652-triangle props-kit model, a flame,
+// a core, a halo and a pool — 150k+ triangles, most of them behind two walls and in the fog),
+// re-uploaded every flame's matrix and every halo's colour each frame, and lit Standard stone
+// with four point lights. The Kit now draws only the torches NEAR the viewer while a game view
+// is on (the editor keeps its overview: everything), animates only those, and a lower quality
+// (or a headset) trades lights and glow radius for frame time.
+
+/**
+ * What the Kit draws at a quality level — pure. `level` is core's api.quality.level (0 = best
+ * … api.quality.max, 9 on 31-perf's governor; absent = 0): tier 0 at level 0, tier 1 at 1-2,
+ * tier 2 at 3-5, tier 3 from 6. A headset is at least tier 1 (its budget: <= 2 real-time lights).
+ * @param {number | null | undefined} level @param {boolean} vr
+ * @returns {{tier: number, lights: number, solidRadius: number, glowRadius: number, glowFade: number, halos: boolean}}
+ */
+export function kitQuality(level, vr) {
+	const raw = Number.isFinite(level) ? Math.max(0, Math.floor(/** @type {number} */ (level))) : 0;
+	const tier = Math.max(raw <= 0 ? 0 : raw <= 2 ? 1 : raw <= 5 ? 2 : 3, vr ? 1 : 0);
+	if (tier === 0) return { tier, lights: LOOK.lightBudget, solidRadius: 18, glowRadius: 26, glowFade: 6, halos: true };
+	if (tier === 1) return { tier, lights: 2, solidRadius: 14, glowRadius: 22, glowFade: 6, halos: true };
+	if (tier === 2) return { tier, lights: 2, solidRadius: 10, glowRadius: 16, glowFade: 5, halos: true };
+	return { tier, lights: 1, solidRadius: 8, glowRadius: 12, glowFade: 4, halos: false };
+}
+
+/**
+ * The spots within `radius` of `focus`, in index order, written into `out` — pure and
+ * allocation-free; returns how many. No focus (the editor, no viewer yet): every spot.
+ * @param {{x: number, z: number}[]} spots @param {{x: number, z: number} | null} focus
+ * @param {number} radius @param {Int32Array} out (length >= spots.length)
+ */
+export function nearSpots(spots, focus, radius, out) {
+	let n = 0;
+	const r2 = radius * radius;
+	for (let i = 0; i < spots.length; i++) {
+		if (focus) {
+			const dx = spots[i].x - focus.x, dz = spots[i].z - focus.z;
+			if (dx * dx + dz * dz > r2) continue;
+		}
+		out[n++] = i;
+	}
+	return n;
+}
+
+/**
+ * How bright a glow (halo, pool) at distance `d` is drawn: 1 up to radius - fade, then down to
+ * 0 AT the cull radius — so a culled glow has already faded out (no pop). @param {number} d
+ * @param {number} radius @param {number} fade
+ */
+export function glowFadeAt(d, radius, fade) {
+	if (!(fade > 0)) return d <= radius ? 1 : 0;
+	return Math.max(0, Math.min(1, (radius - d) / fade));
 }

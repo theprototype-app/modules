@@ -16,7 +16,7 @@
 // falls back to the knock debug hook, which the flight has on (debugStores). Either way
 // the probe that HITS is core's feedProbe — the module never fakes a touch.
 
-const { launch, setupPage, installModule, connect, check, eventually, finish, run, GPU_ARGS } = require('./helpers.cjs');
+const { launch, setupPage, installModule, connect, check, eventually, finish, run, GPU_ARGS, leavePlay } = require('./helpers.cjs');
 
 /** the module's debug snapshot on a page */
 const snap = (page) => page.evaluate(() => window.__football?.snapshot() ?? null);
@@ -308,8 +308,7 @@ run(async () => {
 	await eventually(() => A.page.evaluate(() => new Promise((r) => window.__stores.gameState.gameState.subscribe((g) => r(g.state))())), (v) => v === 'over', '13.5 the game shell reads over (Football Event -> Set Game State)');
 
 	// ---- 14. a late joiner reads the same match ----------------------------------------------------------------
-	await A.page.keyboard.press('Escape');
-	await A.page.waitForTimeout(500);
+	check(await leavePlay(A), '(premise) A stepped out of Play (core 1.18: through the pause menu)');
 	const C = await setupPage(browser, 'C');
 	await installModule(C, 'football');
 	await connect(C, A);

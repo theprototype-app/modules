@@ -2,7 +2,7 @@
 	"kind": "game",
 	"slug": "untangle",
 	"title": "Untangle",
-	"description": "A planar-graph puzzle on a flat board or around a globe: drag the dots until no edges cross. 30 levels per mode that unlock as you solve them; every peer sees and solves the same board.",
+	"description": "A planar-graph puzzle on a flat board or around a globe: drag the dots until no edges cross. 30 levels that unlock as you solve them, one progress on the board and the globe; every peer sees and solves the same board. In VR you start in front of it.",
 	"license": "CC0-1.0",
 	"author": "theprototype",
 	"tags": [
@@ -14,7 +14,7 @@
 	"modules": [
 		{
 			"id": "untangle",
-			"version": "2.2.0"
+			"version": "2.3.1"
 		}
 	],
 	"installModules": [
@@ -57,7 +57,19 @@
 			"interaction": "click",
 			"grounded": true,
 			"simOnPlay": false,
-			"cursor": "free"
+			"cursor": "free",
+			"spawn": {
+				"position": [
+					0,
+					0.1,
+					1.35
+				],
+				"yaw": 0,
+				"vrOnly": true
+			},
+			"locomotion": {
+				"worldGrab": true
+			}
 		}
 	},
 	"post": {
@@ -112,8 +124,8 @@
 					"data": {
 						"label": "Untangle Board",
 						"level": 1,
-						"radius": 1.1,
-						"boardY": 1.6,
+						"radius": 0.85,
+						"boardY": 1.4,
 						"x": 0,
 						"z": 0,
 						"yaw": 0,
@@ -992,12 +1004,12 @@
 			"color": 3818856,
 			"roughness": 0.35,
 			"metalness": 0.3,
-			"r": 0.55,
+			"r": 0.6,
 			"r2": 0.62,
-			"h": 0.26,
+			"h": 0.02,
 			"pos": [
 				0,
-				0.23,
+				0.11,
 				0
 			]
 		},
@@ -1034,7 +1046,7 @@
 			],
 			"target": [
 				0,
-				1.6,
+				1.4,
 				0
 			],
 			"castShadow": false
@@ -1052,7 +1064,7 @@
 			],
 			"target": [
 				0,
-				1.6,
+				1.4,
 				0
 			],
 			"castShadow": false
@@ -1061,12 +1073,12 @@
 	"view": {
 		"pos": [
 			0,
-			1.75,
-			4.6
+			1.55,
+			3.6
 		],
 		"target": [
 			0,
-			1.6,
+			1.4,
 			0
 		]
 	},

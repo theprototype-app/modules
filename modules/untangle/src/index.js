@@ -22,11 +22,14 @@ import { createGesture } from './gesture.js';
 import { makeAim } from './aim.js';
 import { makeEdgeLayer, makeBackplate, makeHoverRing, makeBurst, makeGlobe, COLORS } from './look.js';
 import { generate3, edgeCrossings3, solvedSphere, arcPoints, arcSegments, normalize } from './sphere.js';
-import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, isUnlocked, bestOf, makeStorage } from './progress.js';
+import { MAX_LEVEL, PROGRESS_KEY, normalizeProgress, defaultProgress, recordSolve, continueLevel, switchLevel, isUnlocked, isSolvedAny, bestOf, makeStorage } from './progress.js';
 import { makeMenuKinds } from './menu.js';
 import { makeSfx } from './sfx.js';
 import { createVRDrag, pickDot, followPoint, handRay, raySphere, tipOf, TIP_RADIUS } from './vrdrag.js';
-import { makeVRBar, barCells, CELLS, BAR_H } from './vrbar.js';
+import { makeVRBar, barCells, barPose, CELLS } from './vrbar.js';
+import { spawnFor } from './stance.js';
+import { makeVRMenu, panelHole, pickerCells, PX_W, PX_H } from './vrmenu.js';
+import { untangleHud } from './def.js';
 
 const GROUP = 'untangle-module';
 /** the modes this build plays: the flat board and (P3) the globe */
@@ -38,8 +41,8 @@ const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defa
 export default {
 	id: 'untangle',
 	name: 'Untangle',
-	version: '2.2.0',
-	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device). In VR: grab dots with the trigger, hold/turn/scale the globe with one hand while the other moves dots, a level bar under the board. Replicated; board pose, level and readouts as flow nodes.',
+	version: '2.3.1',
+	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels that unlock as you solve them, one progress for both (it stays on your device). In VR: you start in front of the board, grab dots with the trigger, hold/turn/scale the globe, the grips scale the world, a level picker with Globe / 2D and a level bar. Replicated; board pose, level and readouts as flow nodes.',
 	/** @param {any} api */
 	register(api) {
 		const THREE = api.THREE;
@@ -97,6 +100,7 @@ export default {
 		function saveProgress() {
 			storage.set(PROGRESS_KEY, progress);
 			menus?.refreshAll();
+			syncShell();
 		}
 		function clockMs() {
 			if (clock.ms !== null) return clock.ms;
@@ -132,6 +136,36 @@ export default {
 			group.scale.setScalar(mode === '3d' ? hold.scale : 1);
 			group.rotation.set(0, board.yaw, 0);
 			group.updateMatrixWorld(true);
+			publishSpawn();
+		}
+		// ---------- roadmap 31 U2: the VR spawn IN FRONT of the board (stance.js) ----------
+		// Published as the play contract's `userData.play.spawn` on the board's group (a module
+		// publisher overrides the scene's authored play.spawn, field by field): VR-only, the feet
+		// on the floor under that spot (the template's stage top), so entering Interact/Play puts
+		// the board ~1.35 m ahead, centred, facing you — not you inside the dots.
+		const down = new THREE.Raycaster();
+		const DOWN = new THREE.Vector3(0, -1, 0);
+		/** the floor height under world point (x, z): the top of the scene's objects there, else 0 */
+		function floorAt(x, z) {
+			const root = api.objectsGroup?.();
+			if (!root) return 0;
+			down.set(new THREE.Vector3(x, board.boardY + 2, z), DOWN);
+			down.far = board.boardY + 4;
+			const hit = down.intersectObject(root, true).find((h) => h.object.isMesh && h.object.visible);
+			return hit ? Math.max(0, hit.point.y) : 0;
+		}
+		let spawnKey = '';
+		function publishSpawn() {
+			if (!group) return;
+			const probe = spawnFor(board, 0);
+			const s = spawnFor(board, floorAt(probe.position[0], probe.position[2]));
+			const key = JSON.stringify(s);
+			if (key === spawnKey && group.userData.play) return;
+			spawnKey = key;
+			// U1 (contract K1): the grips move / turn / scale the world during the game — the trigger
+			// owns the dots. Published here too, so the fallback board (no template) asks for it and a
+			// core that normalised the scene's block keeps it; an older core drops the unknown key.
+			group.userData.play = { spawn: s, locomotion: { worldGrab: true } };
 		}
 
 		// ---------- render (P1: the look — look.js) ----------
@@ -147,6 +181,8 @@ export default {
 		/** @type {any} 30b: the VR level bar (vrbar.js), rebuilt with the board */
 		let vrBar = null;
 		let barHover = -1;
+		/** @type {null | (() => void)} K2: undoes the bar's api.vrPanel registration */
+		let barPanelUndo = null;
 		let hovered = -1;
 		let lift = 0; // the carried dot's eased lift, 0..1
 		/** free every geometry/material a previous build made (rebuilds are per level) */
@@ -176,6 +212,7 @@ export default {
 			if (group) {
 				if (group.parent && attached(group, scene)) parent = group.parent;
 				group.removeFromParent();
+				if (vrMenu.mesh.parent === group) group.remove(vrMenu.mesh); // the picker outlives a rebuild
 				disposeGroup(group);
 			}
 			group = new THREE.Group();
@@ -215,10 +252,16 @@ export default {
 			burst = makeBurst(THREE);
 			group.add(burst.points, burst.wave);
 			// 30b: the level bar under the board / the globe, facing the player (VR only)
+			// (roadmap 31 U4: a console in front of the board's lower edge, drawn over the scene)
 			vrBar = makeVRBar(THREE, board.radius);
-			const below = mode === '3d' ? globeR() : board.radius;
-			vrBar.mesh.position.set(0, -below - BAR_H * board.radius * 0.5 - 0.22, mode === '3d' ? globeR() * 0.35 : 0.03);
+			const bp = barPose(mode, board.radius, globeR());
+			vrBar.mesh.position.set(0, bp.y, bp.z);
+			vrBar.mesh.rotation.set(bp.tilt, 0, 0);
 			vrBar.mesh.visible = false;
+			// K2 (31-vr-core, feature-detected): core draws a registered panel over the scene and ends
+			// the controller beam on it with its hit dot; the bar is rebuilt with the board
+			barPanelUndo?.();
+			barPanelUndo = typeof api.vrPanel === 'function' ? api.vrPanel(vrBar.mesh) ?? null : null;
 			group.add(vrBar.mesh);
 			parent.add(group);
 			placeGroup();
@@ -306,6 +349,10 @@ export default {
 			canvas.height = 96;
 			sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false }));
 			sprite.name = 'untangle-hud';
+			// a readout, never a target: THREE's Sprite.raycast THROWS on a raycaster without a
+			// `camera`, and core's VR frame raycasts module content (31-vr-core) — on the globe
+			// that throw aborted the controller update, so the grips (worldGrab) went dead
+			sprite.raycast = () => {};
 			sprite.scale.set(1.6, 0.3, 1);
 			sprite.position.set(0, board.radius + 0.45, 0);
 			sprite.userData.canvas = canvas;
@@ -316,7 +363,17 @@ export default {
 			const canvas = sprite.userData.canvas;
 			const g = canvas.getContext('2d');
 			g.clearRect(0, 0, canvas.width, canvas.height);
-			g.font = 'bold 44px monospace';
+			// fit the line to the canvas: "Level 12 · 7 crossings" at 44px is ~580 px wide on a
+			// 512 px canvas, and a centred line clipped at BOTH ends (seen in the 31 headset shots)
+			let size = 44;
+			g.font = 'bold ' + size + 'px monospace';
+			const room = canvas.width - 24;
+			const wide = g.measureText(text).width;
+			if (wide > room) {
+				size = Math.max(18, Math.floor((size * room) / wide));
+				g.font = 'bold ' + size + 'px monospace';
+			}
+			sprite.userData.fit = { size, width: g.measureText(text).width, canvas: canvas.width };
 			g.textAlign = 'center';
 			g.fillStyle = color;
 			g.fillText(text, canvas.width / 2, 62);
@@ -353,7 +410,13 @@ export default {
 			gesture?.reset();
 			build();
 			menus?.refreshAll();
+			syncShell();
 			if (announce) fire('level');
+		}
+		/** U6: globe <-> board keeps the level you had open (one progress — progress.js) */
+		function switchMode(md) {
+			if (!MODES_PLAYED.includes(md) || md === mode) return;
+			selectLevel(switchLevel(progress, level, won), md);
 		}
 		/** the SELECTOR's path: change the board for everyone (level + mode), like Restart */
 		function selectLevel(lvl, md = mode) {
@@ -715,6 +778,8 @@ export default {
 		const vrDrag = createVRDrag({
 			canPick: () => built && !!group?.parent && interactive() && carried === -1,
 			pickAt: (pose) => {
+				// the level picker (roadmap 31) takes the laser and the tip where it is drawn
+				if (menuUnder(pose)) return null;
 				// a laser that crosses the core's VR panel belongs to the panel (a tip touch does not)
 				const hit = pickFor(pose);
 				return hit?.how === 'laser' && coreUiOn(pose) ? null : hit;
@@ -737,6 +802,12 @@ export default {
 			},
 			carrying: () => carried !== -1,
 			onPress: (pose, hand) => {
+				// the picker first: over core's panel it covers the panel's hole, so it wins there
+				const id = menuUnder(pose);
+				if (id) {
+					pickerAct(id, hand);
+					return true;
+				}
 				if (coreUiOn(pose)) return false;
 				const k = barUnder(pose);
 				if (k < 0) return false;
@@ -744,7 +815,7 @@ export default {
 				return true;
 			},
 			grabAt: (pose, hand) => {
-				if (coreUiOn(pose) || !globeUnder(pose)) return false;
+				if (menuUnder(pose) || coreUiOn(pose) || !globeUnder(pose)) return false;
 				startHold(pose, hand);
 				return true;
 			},
@@ -761,25 +832,168 @@ export default {
 			ray.ray.direction.fromArray(r.dir);
 			return ray;
 		};
-		const barView = () => ({ level, mode, progress, running: roundUnderway(), shell: !shellUnused() });
+		const barView = () => ({ level, mode, progress, running: roundUnderway(), shell: !shellUnused(), picker: pickerOpen });
 		/** a press on a bar cell: the same replicated paths as the DOM menu */
 		function barAct(id, hand) {
 			const cell = barCells(barView()).find((c) => c.id === id);
 			if (!cell?.enabled) return;
 			if (id === 'prev') selectLevel(level - 1, mode);
 			else if (id === 'next') selectLevel(level + 1, mode);
-			else if (id === 'mode') {
-				const other = mode === '3d' ? '2d' : '3d';
-				selectLevel(continueLevel(progress, other), other);
-			} else if (id === 'restart') restartLevel();
+			else if (id === 'mode') switchMode(mode === '3d' ? '2d' : '3d');
+			else if (id === 'restart') restartLevel();
 			else if (id === 'level') fire('start'); // the template: Untangle Event (start) -> playing
+			else if (id === 'levels') pickerOpen = !pickerOpen;
 			lastBar = id;
 			sfx.play('click', worldOf(new THREE.Vector3(0, 0, 0)));
 			sfx.haptic('bump', hand);
 		}
 		let lastBar = 'none';
 		/** the bar cell under a hand's laser, or -1 */
-		const barUnder = (pose) => (vrBar?.mesh.visible && pose && !coreUiOn(pose) ? vrBar.hit(poseRay(pose)) : -1);
+		const barUnder = (pose) => (vrBar?.mesh.visible && pose && !coreUiOn(pose) && !menuUnder(pose) ? vrBar.hit(poseRay(pose)) : -1);
+
+		// ---------- roadmap 31 U3/U5: the VR level picker (vrmenu.js) ----------
+		// In a headset the menu's mode toggle + level grid (menu.js, module DOM) were a blank hole
+		// on core's VR panel. The picker draws the same content: OVER that hole while core's panel
+		// shows the template's menu screen, and ON the board when the bar's Levels cell opens it.
+		const vrMenu = makeVRMenu(THREE);
+		// K2: a registered panel (beam + hit dot; core undoes it when the module is disabled)
+		if (typeof api.vrPanel === 'function') api.vrPanel(vrMenu.mesh);
+		/** the template's menu screen — where core's panel leaves the level grid's hole */
+		const MENU_SCREEN = untangleHud().scene.screens.find((sc) => sc.id === 'menu');
+		/** LOCAL: the on-board picker (the bar's Levels cell); the panel placement is automatic */
+		let pickerOpen = false;
+		/** where the picker is drawn this frame: 'panel' | 'board' | 'none' */
+		let pickerAt = 'none';
+		let pickerHover = /** @type {string | null} */ (null);
+		let lastPick = 'none';
+		/** the on-board picker's width, x the board radius */
+		const PICKER_W = 1.3;
+		/** core's VR game panel when it is up (found by name, like coreUiOn) */
+		const corePanel = () => api.scene?.()?.children.find((o) => o.visible && o.name === 'vr-game-panel') ?? null;
+		function placePicker(vr) {
+			const m = vrMenu.mesh;
+			let at = 'none';
+			if (vr && interactive()) {
+				const panel = corePanel();
+				const geo = panel?.geometry?.parameters;
+				// (the shell's own pause menu, K3, draws on that panel too: never cover it)
+				const hole = panel && geo && !api.game?.menuOpen?.() ? panelHole(MENU_SCREEN, 'levels', geo.width, geo.height) : null;
+				if (hole && panel.parent) {
+					at = 'panel';
+					if (m.parent !== panel.parent) panel.parent.add(m);
+					// a sibling of the panel: its pose is the panel's, offset onto the hole, 4 mm proud
+					m.position.set(hole.x, hole.y, 0.004).applyQuaternion(panel.quaternion).add(panel.position);
+					m.quaternion.copy(panel.quaternion);
+					m.scale.set(hole.w, hole.h, 1);
+				} else if (pickerOpen && group) {
+					at = 'board';
+					if (m.parent !== group) group.add(m);
+					const w = PICKER_W * board.radius;
+					m.position.set(0, 0, board.radius * 0.1);
+					m.quaternion.identity();
+					m.scale.set(w, (w * PX_H) / PX_W, 1);
+				}
+			}
+			m.visible = at !== 'none';
+			if (at !== 'board' && m.parent === group && group) m.visible = false;
+			m.updateMatrixWorld(true);
+			pickerAt = at;
+		}
+		/** the picker rect a hand's laser is on, or null */
+		const menuUnder = (pose) => (vrMenu.mesh.visible && pose ? vrMenu.hit(poseRay(pose)) : null);
+		/** a press on the picker: the same replicated paths as the DOM grid */
+		function pickerAct(id, hand) {
+			const cell = pickerCells({ mode, level, progress }, [id])[id];
+			if (!cell?.enabled) return;
+			if (id.startsWith('mode:')) switchMode(id.slice(5));
+			else if (id.startsWith('level:')) {
+				selectLevel(Number(id.slice(6)), mode);
+				pickerOpen = false;
+			} else if (id === 'continue') {
+				continueGame();
+				pickerOpen = false;
+			} else if (id === 'close') pickerOpen = false;
+			lastPick = id;
+			sfx.play('click', worldOf(new THREE.Vector3(0, 0, 0)));
+			sfx.haptic('bump', hand);
+		}
+		function continueGame() {
+			selectLevel(continueLevel(progress, mode), mode);
+			fire('start'); // the template wires Untangle Event (start) -> Set Game State (playing)
+		}
+
+		// ---------- roadmap 31 K3: the game shell's Levels + a "Board" setting (feature-detected) ----------
+		// A core with the game shell (31-game-shell) renders a Levels picker and the settings rows in
+		// its own pause menu, desktop AND VR. Untangle hands it the 30 levels (re-called when the
+		// progress, the level or the mode change) and a "Board: Globe / 2D" choice. Both act through
+		// the same replicated paths as the grid; on an older core neither exists and the picker above
+		// does the job.
+		const shell = { levels: 0, picks: 0, setting: false, changes: 0, error: /** @type {string | null} */ (null) };
+		let shellKey = '';
+		let shellInit = true;
+		const choiceOf = (md) => (md === '3d' ? 'globe' : '2d');
+		function syncShell() {
+			if (typeof api.game?.levels !== 'function') return;
+			const list = [];
+			for (let l = 1; l <= MAX_LEVEL; l++) list.push({ id: l, label: 'Level ' + l, locked: !isUnlocked(progress, mode, l), stars: isSolvedAny(progress, l) ? 1 : 0 });
+			const key = JSON.stringify([list, level, mode]);
+			if (key === shellKey) return;
+			shellKey = key;
+			try {
+				api.game.levels({
+					list,
+					current: level,
+					onPick: (id) => {
+						shell.picks++;
+						const l = Number(id);
+						if (isUnlocked(progress, mode, l)) selectLevel(l, mode);
+					}
+				});
+				shell.levels++;
+			} catch (e) {
+				shell.error = String(e);
+			}
+			// the setting row shows the board's mode (a mode is replicated board state, not a preference)
+			if (shell.setting && typeof api.game.setSetting === 'function') {
+				try {
+					if (api.game.setting?.('board') !== choiceOf(mode)) api.game.setSetting('board', choiceOf(mode));
+				} catch {}
+			}
+		}
+		if (typeof api.game?.addSetting === 'function') {
+			try {
+				api.game.addSetting({
+					id: 'board',
+					label: 'Board',
+					type: 'choice',
+					options: ['globe', '2d'],
+					optionLabels: ['Globe', '2D board'],
+					default: choiceOf(mode),
+					onChange: (v) => {
+						// a stored choice replayed while registering must not switch the room's board
+						if (shellInit) return;
+						shell.changes++;
+						switchMode(/globe|3d/i.test(String(v)) ? '3d' : '2d');
+					}
+				});
+				shell.setting = true;
+			} catch (e) {
+				shell.error = String(e);
+			}
+		}
+		// the shell's How to play + Restart (K3): the same words as the desktop hints, the same restart
+		try {
+			api.game?.setHelp?.([
+				'Drag the dots until no line crosses another — red lines cross, green ones are free.',
+				'Desktop: drag a dot (or click it, then click where it goes); on the globe, right-drag turns it.',
+				'VR: point at a dot and hold the trigger (or touch it with the controller tip), release to drop it.',
+				'VR: hold the trigger on the globe to carry and turn it, its stick scales it; the grips move and scale the world.',
+				'The bar in front of the board: previous / next level, Globe / 2D, restart, Levels.',
+				'One progress: a level you reach on the globe is open on the 2D board too.'
+			]);
+			api.game?.onRestart?.(() => restartLevel());
+		} catch {}
+		shellInit = false;
 
 		/** is this mesh part of the board (under the module's group)? */
 		const ofBoard = (o) => {
@@ -833,6 +1047,8 @@ export default {
 				else if (clock.start === null) clock.start = performance.now();
 			}
 			wasUnderway = underway;
+			// U2: the scene's objects can arrive after the board (a scene load) — re-probe the floor
+			if (frame % 120 === 0) publishSpawn();
 			// 30b: the quiet puzzle music while the board is PLAYED (Play, or Interact — VR's
 			// play) and stands in the scene; sfx.music acts on the change only
 			sfx.music(!!group?.parent && built && (!!api.isPlaying?.() || api.editorMode?.() === 'interact'));
@@ -850,6 +1066,7 @@ export default {
 			// VR: the controllers drive the drag (a carry left over from VR drops on leaving it)
 			vrMoved = false;
 			const vr = vrDragOn();
+			placePicker(vr);
 			if (vr) vrDrag.update({ left: handPose('left'), right: handPose('right') });
 			else if (vrDrag.carrier()) vrDrag.update({ left: null, right: null });
 			// the level bar: shown in VR while the board reacts; the laser's hover lights a cell
@@ -863,6 +1080,15 @@ export default {
 					}
 				}
 				if (vrBar.mesh.visible) vrBar.draw(barCells(barView()), barHover);
+			}
+			// the picker: the laser's hover lights a rect; redrawn only when something changed
+			pickerHover = null;
+			if (vrMenu.mesh.visible) {
+				for (const hand of ['right', 'left']) {
+					pickerHover = menuUnder(handPose(hand));
+					if (pickerHover) break;
+				}
+				vrMenu.draw({ mode, level, progress }, pickerHover, pickerAt === 'board');
 			}
 			// hover: the dot under the pointer — in VR the one a trigger press would grab
 			// (none while carrying, none when inert)
@@ -1056,11 +1282,8 @@ export default {
 			pickLevel: (l) => {
 				if (isUnlocked(progress, mode, l)) selectLevel(l, mode);
 			},
-			pickMode: (m) => selectLevel(continueLevel(progress, m), m),
-			continueGame: () => {
-				selectLevel(continueLevel(progress, mode), mode);
-				fire('start'); // the template wires Untangle Event (start) -> Set Game State (playing)
-			},
+			pickMode: (m) => switchMode(m),
+			continueGame: () => continueGame(),
 			resetProgress: () => {
 				progress = defaultProgress();
 				saveProgress();
@@ -1081,7 +1304,7 @@ export default {
 		hook = {
 			state: () => ({
 				level, mode, positions, edges, board: { ...board }, won, crossings, solvedCount, built, touched,
-				nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite,
+				nodeOwned: nodeSeen >= 0, sceneClears, sprite: !!sprite, spriteFit: sprite?.userData.fit ?? null,
 				carried, carryMode: carried === -1 ? 'none' : gesture.carryMode() === 'none' ? carryHow : gesture.carryMode(),
 				lastDrop, lastUp: gesture.lastUp(), rayMode: aim.mode(), rev, syncs: { ...syncs }
 			}),
@@ -1103,6 +1326,12 @@ export default {
 			vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), holder: vrDrag.holder(), lastHand: vrHandLast, on: vrDragOn() }),
 			/** 30b: the LOCAL globe hold — offset (parent frame), scale, and the view quaternion */
 			globeHold: () => ({ offset: hold.offset.toArray(), scale: hold.scale, quat: globeQuat.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
+			/** roadmap 31: the VR level picker — where it is drawn, open?, the hovered rect, the last press */
+			vrMenu: () => ({ at: pickerAt, open: pickerOpen, visible: vrMenu.mesh.visible, centre: vrMenu.mesh.getWorldPosition(new THREE.Vector3()).toArray(), size: [vrMenu.mesh.scale.x, vrMenu.mesh.scale.y], hover: pickerHover, last: lastPick, cells: pickerCells({ mode, level, progress }, vrMenu.ids()), renderOrder: vrMenu.mesh.renderOrder, depthTest: vrMenu.mesh.material.depthTest }),
+			/** world centre of picker rect `id` ('mode:3d', 'level:7', 'continue', 'close') */
+			vrMenuCell: (id) => vrMenu.worldOf(id),
+			/** roadmap 31 K3: what the game shell was handed (feature-detected) */
+			shell: () => ({ ...shell, hasLevels: typeof api.game?.levels === 'function', hasSetting: typeof api.game?.addSetting === 'function' }),
 			/** 30b: the VR level bar — shown?, the hovered cell, the cells, the last action */
 			vrBar: () => ({ visible: !!vrBar?.mesh.visible, hover: barHover, cells: barCells(barView()), last: lastBar }),
 			/** world position of bar cell k (for the flights' aim) */
@@ -1134,6 +1363,17 @@ export default {
 					rimWon: crossings === 0,
 					plate: !!group?.getObjectByName('untangle-plate')
 				};
+			},
+			/** roadmap 31 U2: the VR spawn this board publishes ({position, yaw, vrOnly}) */
+			spawn: () => (group?.userData.play?.spawn ? { ...group.userData.play.spawn } : null),
+			/** world centre of the board (the globe's centre in 3D, with its hold offset) */
+			centre: () => (group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null),
+			/** U4: the VR bar's world pose (centre, the world direction its face looks along) + how it draws */
+			vrBarPose: () => {
+				if (!vrBar) return null;
+				vrBar.mesh.updateMatrixWorld(true);
+				const q = vrBar.mesh.getWorldQuaternion(new THREE.Quaternion());
+				return { centre: vrBar.mesh.getWorldPosition(new THREE.Vector3()).toArray(), normal: new THREE.Vector3(0, 0, 1).applyQuaternion(q).toArray(), depthTest: vrBar.mesh.material.depthTest, renderOrder: vrBar.mesh.renderOrder, coreOverlay: !!barPanelUndo };
 			},
 			/** world position of dot i (for pointer tests) */
 			dotWorld: (i) => (dots[i] ? dots[i].getWorldPosition(new THREE.Vector3()).toArray() : null),

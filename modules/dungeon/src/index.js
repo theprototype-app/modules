@@ -20,7 +20,7 @@ import { GROUP_NAME } from './contract.js';
 export default {
 	id: 'dungeon',
 	name: 'Dungeon Kit',
-	version: '2.2.1',
+	version: '2.3.0',
 	description:
 		'Level generation toolbox: a seeded multi-floor dungeon generator (rooms, corridors, decor, torches) with a toolbox, a Dungeon node and the userData.play contract the app walks in play mode. The playable game is Dungeon Realms.',
 
@@ -48,7 +48,9 @@ export default {
 
 		// test/debug hook (never serialized): the flights read the toolbox host
 		if (typeof window !== 'undefined') {
-			/** @type {any} */ (window).__dungeonKit = { kit: core.kit, toolbox, groupName: GROUP_NAME };
+			// 31: + the module's own `api`, so a flight can stand in for an SDK surface a core lacks
+			// (api.quality before 31-perf) and prove what the Kit does with it
+			/** @type {any} */ (window).__dungeonKit = { kit: core.kit, toolbox, groupName: GROUP_NAME, api };
 		}
 	}
 };

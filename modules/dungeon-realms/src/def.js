@@ -253,7 +253,7 @@ export function realmsDef(entrance) {
 		license: 'CC0-1.0',
 		author: 'theprototype',
 		tags: ['co-op', 'procedural', 'vr', 'dungeon'],
-		modules: [{ id: 'dungeon', version: '2.2.0' }, { id: 'dungeon-realms', version: '2.2.0' }],
+		modules: [{ id: 'dungeon', version: '2.3.0' }, { id: 'dungeon-realms', version: '2.3.0' }],
 		installModules: ['dungeon', 'dungeon-realms'],
 		// 30: a custom dusk — a violet gradient sky, fog that turns far corridors to depth, a cool
 		// moon and a warm-floored sky fill so the stone reads; torches, gems and portals glow

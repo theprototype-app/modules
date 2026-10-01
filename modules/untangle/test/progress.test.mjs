@@ -8,7 +8,9 @@ import {
 	recordSolve,
 	isUnlocked,
 	isSolved,
+	isSolvedAny,
 	continueLevel,
+	switchLevel,
 	bestOf,
 	formatTime,
 	makeStorage
@@ -37,7 +39,8 @@ export function run(check) {
 	check(r1.unlockedNew && r1.newBest && isUnlocked(r1.progress, '2d', 2) && !isUnlocked(r1.progress, '2d', 3), 'solving 1 opens 2 (and only 2)');
 	check(isSolved(r1.progress, '2d', 1) && bestOf(r1.progress, '2d', 1) === 32000, 'the solve and its time are banked');
 	check(p0['2d'].unlocked === 1 && !isSolved(p0, '2d', 1), 'recordSolve returns a NEW object (the input is untouched)');
-	check(!isUnlocked(r1.progress, '3d', 2) && r1.progress['3d'].unlocked === 1, 'modes are separate: a 2D solve opens nothing in 3D');
+	// U6 (roadmap 31): ONE progress — a 2D solve opens the next level on the globe too
+	check(isUnlocked(r1.progress, '3d', 2) && r1.progress['3d'].unlocked === 2 && !isSolved(r1.progress, '3d', 1), 'one progress: a 2D solve opens level 2 on the globe as well (the solve itself stays a 2D solve)');
 	const r2 = recordSolve(r1.progress, '2d', 1, 40000);
 	check(!r2.unlockedNew && !r2.newBest && bestOf(r2.progress, '2d', 1) === 32000, 'a slower re-solve keeps the best, opens nothing new');
 	const r3 = recordSolve(r2.progress, '2d', 1, 20000);
@@ -49,6 +52,23 @@ export function run(check) {
 	check(continueLevel(defaultProgress(), '2d') === 1 && continueLevel(r3.progress, '2d') === 2, 'Continue = the lowest open level not yet solved');
 	const all = recordSolve(recordSolve(defaultProgress(), '3d', 1, 1).progress, '3d', 2, 1).progress;
 	check(continueLevel(all, '3d') === 3, 'Continue after solving 1 and 2 is 3');
+
+	// ---- U6: one progress across the globe and the board ----
+	const g2 = recordSolve(recordSolve(defaultProgress(), '3d', 1, 9000).progress, '3d', 2, 9000).progress;
+	check(isUnlocked(g2, '2d', 3) && !isUnlocked(g2, '2d', 4), 'two globe solves open level 3 on the 2D board (and not 4)');
+	check(continueLevel(g2, '2d') === 3 && continueLevel(g2, '3d') === 3, 'Continue on either board after passing globe 1 and 2 is level 3');
+	check(isSolvedAny(g2, 2) && !isSolvedAny(g2, 3) && !isSolved(g2, '2d', 2), 'a level solved on the globe is done for both (isSolvedAny), the per-mode record stays');
+	check(bestOf(g2, '3d', 1) === 9000 && bestOf(g2, '2d', 1) === null, 'best times stay per mode (the two puzzles differ)');
+	check(switchLevel(g2, 3, false) === 3, 'switch mode on an unsolved level 3 -> level 3 on the other board');
+	check(switchLevel(g2, 2, true) === 3, 'switch mode on the just-SOLVED level 2 -> level 3 (moves on, as Next would)');
+	check(switchLevel(g2, 3, true) === 3, 'a solved board whose next level is still locked keeps its level');
+	check(switchLevel(g2, 1, false) === 1, 'an older open level is kept as it is');
+	check(switchLevel(defaultProgress(), 99, false) === MAX_LEVEL && switchLevel(defaultProgress(), 'x', false) === 1, 'switchLevel clamps to 1..' + MAX_LEVEL);
+	const merged = normalizeProgress({ '2d': { unlocked: 2, solved: [1] }, '3d': { unlocked: 6, solved: [1, 2, 3, 4, 5] } });
+	check(merged['2d'].unlocked === 6 && merged['3d'].unlocked === 6 && JSON.stringify(merged['2d'].solved) === '[1]', 'a 2.2 save with separate unlocks merges on read: the higher unlock (6) wins in both modes');
+	const fromSolves = normalizeProgress({ '2d': { unlocked: 1, solved: [1, 2, 3] } });
+	check(fromSolves['3d'].unlocked === 4, 'unlocks implied by solves carry across too');
+	check(recordSolve(g2, '2d', 1, 5000).unlockedNew === false, 'solving 2D level 1 after the globe opened 3 unlocks nothing new');
 
 	// ---- reset ----
 	check(JSON.stringify(normalizeProgress(defaultProgress())) === JSON.stringify(defaultProgress()), 'reset = the default, round-trips through normalize');

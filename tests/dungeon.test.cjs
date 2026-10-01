@@ -9,7 +9,7 @@
 //   npm run pack -- dungeon
 //   APP_URL=https://theprototype.app:5216/ node tests/dungeon.test.cjs
 
-const { launch, setupPage, installModule, connect, check, eventually, finish, run } = require('./helpers.cjs');
+const { launch, setupPage, installModule, connect, check, eventually, finish, run, leavePlay } = require('./helpers.cjs');
 
 /** the Kit's group + contract on a page */
 function snap(page) {
@@ -226,18 +226,18 @@ run(async () => {
 			if (stroll(raw, wx - 1.5, wz, wx + 3) > wx) through++;
 			if (tried >= 8) break;
 		}
-		return { solids: solids.length, tried, stopped, through, colliders: play.colliders?.length ?? 0, wallBoxes: (play.colliders ?? []).filter((b) => b.kind === 'wall').length, locomotion: play.locomotion };
+		return { solids: solids.length, tried, stopped, through, colliders: play.colliders?.length ?? 0, wallBoxes: (play.colliders ?? []).filter((b) => b.kind === 'wall').length, locomotion: play.locomotion, bounded: window.__dungeonKit?.api?.locomotion?.boundedTeleport === true };
 	});
 	check(walk.tried >= 2 && walk.stopped === walk.tried, 'the app\'s own walker (dungeonPlay.slideMove) is STOPPED by every solid prop it walks into (' + walk.stopped + '/' + walk.tried + ' of ' + walk.solids + ' pillars/crates/chests/braziers)');
 	check(walk.through === walk.tried, '  counterfactual: on the generator\'s raw grid it walked THROUGH them (' + walk.through + '/' + walk.tried + ')');
 	check(walk.wallBoxes > 10 && walk.colliders === walk.wallBoxes + walk.solids, 'userData.play.colliders: ' + walk.wallBoxes + ' merged wall boxes + one per solid prop (for a physics capsule)');
-	check(walk.locomotion?.teleport === false && walk.locomotion?.fly === false, 'userData.play.locomotion = {teleport: false, fly: false} — a dungeon is walked in Interact/Play');
+	// 31 (D2): teleport follows core's BOUNDED teleport (K1, api.locomotion.boundedTeleport); fly never
+	check(walk.locomotion?.teleport === walk.bounded && walk.locomotion?.fly === false, 'userData.play.locomotion = {teleport: ' + walk.bounded + ', fly: false} — walked in Interact/Play, teleport only where core bounds it');
 
 	// core reads the contract: the minimap shows in play mode (dungeonData -> userData.play)
 	await A.page.locator('#play-button').click();
 	await eventually(() => snap(A.page), (s) => s?.minimapVisible, 'A: play mode shows the core minimap off the Kit\'s contract');
-	await A.page.keyboard.press('Escape');
-	await A.page.waitForTimeout(500);
+	check(await leavePlay(A), '(premise) A stepped out of Play (core 1.18: through the pause menu)');
 
 	// the floor stepper replicates travel
 	await A.page.evaluate(() => document.getElementById('dk-floor-up').click());

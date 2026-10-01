@@ -71,8 +71,13 @@ export function buildOverlay(THREE, play, collected) {
 		group.add(portalGroup);
 	}
 
-	// runtime bookkeeping the game loop reads (scene-root only — never serialized)
-	group.userData._dr = { gemWorld, theme };
+	// runtime bookkeeping the game loop reads (scene-root only — never serialized). 31: the
+	// animated parts are held here, so a frame never searches the group by name
+	const part = (/** @type {any} */ portal, /** @type {string} */ name) => portal?.getObjectByName(name) ?? null;
+	const up = group.getObjectByName('dr-portal-up') ?? null;
+	const down = group.getObjectByName('dr-portal-down') ?? null;
+	const portals = [up, down].filter(Boolean).map((/** @type {any} */ p) => ({ group: p, ring: part(p, 'dr-portal-ring'), disc: part(p, 'dr-portal-disc'), column: part(p, 'dr-portal-column') }));
+	group.userData._dr = { gemWorld, theme, gemMesh, portalUp: up, portals };
 	applyGems(group, collected);
 	return group;
 }
@@ -117,40 +122,37 @@ export function setPortalSealed(group, sealed, theme) {
 	}
 }
 
-/** Per-frame juice: gem spin/bob and unsealed portal ring spin. */
+/** animateOverlay's scratch, made once per page @type {any} */
+let scratch = null;
+
+/** Per-frame juice: gem spin/bob and unsealed portal ring spin. 31: allocation-free — plain
+ * loops over the parts held in userData._dr, one set of scratch maths objects per page. */
 export function animateOverlay(THREE, group, collected, time) {
 	const data = group.userData._dr;
 	if (!data) return;
-	const gemMesh = group.getObjectByName('dr-gems');
+	const s = (scratch ??= { matrix: new THREE.Matrix4(), position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), scale: new THREE.Vector3(1, 1, 1), axis: new THREE.Vector3(0, 1, 0) });
+	const gemMesh = data.gemMesh;
 	if (gemMesh && data.gemWorld.length) {
-		const matrix = new THREE.Matrix4();
-		const position = new THREE.Vector3();
-		const quaternion = new THREE.Quaternion();
-		const scale = new THREE.Vector3(1, 1, 1);
-		const axis = new THREE.Vector3(0, 1, 0);
-		data.gemWorld.forEach((gem, i) => {
-			if (collected.has(gem.index)) return; // stays zero-scaled
-			position.set(gem.x, gem.y + Math.sin(time * 2 + gem.x) * 0.08, gem.z);
-			quaternion.setFromAxisAngle(axis, time * 1.6 + gem.index);
-			matrix.compose(position, quaternion, scale);
-			gemMesh.setMatrixAt(i, matrix);
-		});
+		for (let i = 0; i < data.gemWorld.length; i++) {
+			const gem = data.gemWorld[i];
+			if (collected.has(gem.index)) continue; // stays zero-scaled
+			s.position.set(gem.x, gem.y + Math.sin(time * 2 + gem.x) * 0.08, gem.z);
+			s.quaternion.setFromAxisAngle(s.axis, time * 1.6 + gem.index);
+			s.matrix.compose(s.position, s.quaternion, s.scale);
+			gemMesh.setMatrixAt(i, s.matrix);
+		}
 		gemMesh.instanceMatrix.needsUpdate = true;
 	}
-	group.children.forEach((child) => {
-		if (child.name === 'dr-portal-up' || child.name === 'dr-portal-down') {
-			const open = child.userData.portal?.sealed === false;
-			const ring = child.getObjectByName('dr-portal-ring');
-			if (ring && open) ring.rotation.z = time * 0.8;
-			// 30: an open portal breathes — the disc's opacity and the column's shimmer, both
-			// pure functions of the synced time (no accumulation)
-			const disc = child.getObjectByName('dr-portal-disc');
-			if (disc && open) disc.material.opacity = 0.6 + Math.sin(time * 2.4) * 0.15;
-			const column = child.getObjectByName('dr-portal-column');
-			if (column?.visible) {
-				column.material.opacity = 0.16 + Math.sin(time * 3.1) * 0.06;
-				column.rotation.y = time * 0.5;
-			}
+	for (let i = 0; i < data.portals.length; i++) {
+		const { group: portal, ring, disc, column } = data.portals[i];
+		const open = portal.userData.portal?.sealed === false;
+		if (ring && open) ring.rotation.z = time * 0.8;
+		// 30: an open portal breathes — the disc's opacity and the column's shimmer, both
+		// pure functions of the synced time (no accumulation)
+		if (disc && open) disc.material.opacity = 0.6 + Math.sin(time * 2.4) * 0.15;
+		if (column?.visible) {
+			column.material.opacity = 0.16 + Math.sin(time * 3.1) * 0.06;
+			column.rotation.y = time * 0.5;
 		}
-	});
+	}
 }

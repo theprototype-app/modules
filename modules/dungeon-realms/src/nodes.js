@@ -239,8 +239,9 @@ export function registerNodes(api, game) {
 			seen.menu = -1;
 			assign(game.config.menu, { ...DEFAULT_MENU });
 		}
-		for (const [name, at] of Object.entries(propSeen)) {
-			if (frame - at > EXPIRE_FRAMES) {
+		// 31: for..in — Object.entries built a fresh array of pairs every frame
+		for (const name in propSeen) {
+			if (frame - propSeen[name] > EXPIRE_FRAMES) {
 				delete propSeen[name];
 				delete game.config.props[name];
 				game.markGuiDirty();

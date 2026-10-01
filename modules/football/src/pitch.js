@@ -13,19 +13,19 @@ export const BLUE = 0x4a7dd9;
 export const LAMP_DIM = 0x22262e;
 export const LAMPS_PER_GATE = 10;
 
-/** 30: the walls and ceiling as clean glass (physical + transmission) that the editor's pick
- * passes through; `opacity` stays for the toolbox recipe, which reads only colour/opacity */
+/** 30: the walls and ceiling as glass that the editor's pick passes through. 31 (the Quest
+ * round, "heavy stuttering in VR"): PLAIN transparent glass — round 2's physical TRANSMISSION made
+ * three render the whole opaque scene a second time into a transmission target every frame (in
+ * a headset: per eye), for five panes a player stands INSIDE of, so every pixel looked through
+ * one. A faint tint + a soft sheen reads as glass for the price of one blended layer. */
 export const GLASS = {
-	color: 0xe8f6ff,
-	opacity: 0.1,
-	physical: true,
-	transmission: 1,
-	thickness: 0.02,
-	ior: 1.45,
-	// near-zero specular: the floodlights' spot highlights on the side panes read as glow blobs
-	// floating at pitch height
-	roughness: 0.2,
-	specularIntensity: 0.06,
+	// a cool, faint tint: a lit pane adds its colour over everything behind it (no transmission
+	// to clear it), so it stays light enough not to veil the stadium
+	color: 0xd4e8ff,
+	opacity: 0.06,
+	// rough enough that a floodlight's highlight spreads into a sheen instead of a glow blob
+	// floating at pitch height (round 2 kept specularIntensity near zero for the same reason)
+	roughness: 0.45,
 	shadow: false,
 	pick: 'through'
 };
@@ -132,9 +132,8 @@ export function pitchObjects(dims) {
 
 	// the floor is the pitch; the real floor when colocated
 	out.push({ type: 'box', name: NAMES.pitch, color: 0x2f7a3c, size: [d.width, wall, endZ * 2], pos: [0, -wall / 2, 0], roughness: 0.95, physics: stat({ friction: 0.6 }) });
-	// five glass walls keep the ball in play (the floor is the sixth face). 30: clean glass —
-	// physical + transmission for the template, the old faint opacity for the toolbox recipe
-	// (which only reads colour/opacity); they never cast a shadow (the floodlights shine
+	// five glass walls keep the ball in play (the floor is the sixth face). 31: plain transparent
+	// glass (GLASS — no transmission pass); they never cast a shadow (the floodlights shine
 	// through) and the editor's pick passes through them to what stands inside (fork 3)
 	const ghost = { ...GLASS };
 	out.push({ type: 'box', name: 'Wall left', ...ghost, size: [wall, d.height, endZ * 2], pos: [-hw - wall / 2, d.height / 2, 0], physics: stat() });

@@ -17,7 +17,12 @@
 // flat bottom colour. The room is a round stage (dais, plinth, ring) in front of a clear-coated
 // display wall — designed, not a grey blockout slab.
 
-export const BOARD = { level: 1, radius: 1.1, boardY: 1.6, x: 0, z: 0, yaw: 0, autoAdvance: false, apply: true };
+// Roadmap 31 (U2): a board sized and hung for a player standing IN FRONT of it — radius 0.85
+// (1.7 m across, ~64 degrees at the 1.35 m spawn) at chest height 1.4 (was 1.1 at eye height
+// 1.6, which only fit a player standing inside it, where a headset without a spawn landed)
+export const BOARD = { level: 1, radius: 0.85, boardY: 1.4, x: 0, z: 0, yaw: 0, autoAdvance: false, apply: true };
+/** Roadmap 31 U2: the VR spawn in front of the board (stance.js; the module re-publishes it from the live pose) */
+export const SPAWN = { position: [0, 0.1, 1.35], yaw: 0, vrOnly: true };
 export const NAMES = { floor: 'Floor', wall: 'Back wall', pedestal: 'Pedestal', frame: 'Board frame', lampL: 'Lamp left', lampR: 'Lamp right' };
 
 const PANEL = { bg: 'rgba(13, 17, 28, 0.92)', radius: 16, border: '1px solid rgba(251, 191, 36, 0.35)' };
@@ -34,8 +39,11 @@ export function roomObjects() {
 		// the backdrop: a deep-blue display wall with a faint self-glow and a clear coat, so the
 		// dark board and the globe read against it instead of against a grey slab
 		{ type: 'box', name: NAMES.wall, color: 0x1d2a4f, emissive: 0x1b2d63, emissiveIntensity: 0.35, roughness: 0.45, clearcoat: 0.6, clearcoatRoughness: 0.3, size: [8, 4.2, 0.2], pos: [0, 2.1, -2.1], bevel: 0.18 },
-		// a round plinth under the board (the board / globe floats above it)
-		{ type: 'cylinder', name: NAMES.pedestal, color: 0x3a4568, roughness: 0.35, metalness: 0.3, r: 0.55, r2: 0.62, h: 0.26, pos: [0, 0.23, 0] },
+		// the plinth under the board, LOWERED to a flat medallion on the stage (roadmap 31 U4: the
+		// 0.26 m drum stood through the VR level bar — "menu buttons during game covered by scene
+		// objects below untangle (like base/floor objects)"); the name stays, the board node
+		// targets it
+		{ type: 'cylinder', name: NAMES.pedestal, color: 0x3a4568, roughness: 0.35, metalness: 0.3, r: 0.6, r2: 0.62, h: 0.02, pos: [0, 0.11, 0] },
 		// the stage ring (reads in 2D and 3D)
 		{ type: 'ring', name: NAMES.frame, color: 0xfbbf24, emissive: 0xfbbf24, emissiveIntensity: 0.9, r: 1.55, inner: 1.47, pos: [0, 0.105, 0], rot: [-Math.PI / 2, 0, 0], shadow: false },
 		// two DIRECTIONAL key/fill lamps: even light, no falloff. The old coloured point lights
@@ -195,16 +203,19 @@ export function untangleDef() {
 		kind: 'game',
 		slug: 'untangle',
 		title: 'Untangle',
-		description: 'A planar-graph puzzle on a flat board or around a globe: drag the dots until no edges cross. 30 levels per mode that unlock as you solve them; every peer sees and solves the same board.',
+		description: 'A planar-graph puzzle on a flat board or around a globe: drag the dots until no edges cross. 30 levels that unlock as you solve them, one progress on the board and the globe; every peer sees and solves the same board. In VR you start in front of it.',
 		license: 'CC0-1.0',
 		author: 'theprototype',
 		tags: ['puzzle', 'co-op', 'procedural', '3d'],
-		modules: [{ id: 'untangle', version: '2.2.0' }],
+		modules: [{ id: 'untangle', version: '2.3.1' }],
 		installModules: ['untangle'],
 		env: ENV,
 		// play.cursor 'free' (30-core-flow): no pointer lock — the real cursor drags; a core
 		// without the field keeps the lock and the module aims with the crosshair instead
-		physics: { play: { interaction: 'click', grounded: true, simOnPlay: false, cursor: 'free' } },
+		// roadmap 31: `spawn` puts a headset IN FRONT of the board (U2; VR-only — desktop keeps
+		// `view`), `locomotion.worldGrab` lets the grips move / turn / SCALE the world during the
+		// game (U1, contract K1 — the trigger owns the dots, the grips are free for it)
+		physics: { play: { interaction: 'click', grounded: true, simOnPlay: false, cursor: 'free', spawn: SPAWN, locomotion: { worldGrab: true } } },
 		post: {
 			enabled: true,
 			effects: [
@@ -219,7 +230,7 @@ export function untangleDef() {
 		graphs: { scene: untangleGraph() },
 		hud: untangleHud(),
 		objects: roomObjects(),
-		view: { pos: [0, 1.75, 4.6], target: [0, BOARD.boardY, 0] },
+		view: { pos: [0, 1.55, 3.6], target: [0, BOARD.boardY, 0] },
 		thumb: { sceneGroups: ['untangle-module'] }
 	};
 }

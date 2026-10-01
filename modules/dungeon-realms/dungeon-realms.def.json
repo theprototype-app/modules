@@ -14,11 +14,11 @@
 	"modules": [
 		{
 			"id": "dungeon",
-			"version": "2.2.0"
+			"version": "2.3.0"
 		},
 		{
 			"id": "dungeon-realms",
-			"version": "2.2.0"
+			"version": "2.3.0"
 		}
 	],
 	"installModules": [

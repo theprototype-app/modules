@@ -109,6 +109,9 @@ h.run(async () => {
 	await h.eventually(() => doorYaw(B.page), (y) => y < -1.7, 'and on the peer that only received the unlock', 8000);
 
 	// --- deterministic swing: both peers land on the SAME pose -----------------
+	// read the FINAL pose: -1.7 above is still inside the ease-out tail (the swing ends at
+	// -1.75), so two reads a few frames apart differed by ~5e-4 under load
+	await h.eventually(() => Promise.all([doorYaw(A.page), doorYaw(B.page)]), ([a, b]) => a < -1.749 && b < -1.749, '(premise) the swing has finished on both peers', 8000);
 	const [yawA, yawB] = [await doorYaw(A.page), await doorYaw(B.page)];
 	h.check(
 		Math.abs(yawA - yawB) < 0.0001,
