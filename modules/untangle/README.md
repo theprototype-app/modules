@@ -10,6 +10,9 @@ level selector, locks, progress that stays on the device, and the Games-tab stan
 Roadmap 30b (2.2.0, the Quest round) made it play in a headset: a trigger drag, a globe you
 hold / turn / scale in one hand while the other moves dots, a level bar under the board,
 haptics, event sounds instead of the old drone, quiet puzzle music.
+Roadmap 31 (2.3.0, the second Quest round): you start IN FRONT of the board, the level picker
+and Globe / 2D work in the headset, nothing in the room covers the bar, the grips scale the
+world during the game, and the globe and the board share one progress.
 
 ```
 modules/untangle/

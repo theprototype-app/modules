@@ -41,7 +41,7 @@ const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defa
 export default {
 	id: 'untangle',
 	name: 'Untangle',
-	version: '2.2.0',
+	version: '2.3.0',
 	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels per mode that unlock as you solve them (progress stays on your device). In VR: grab dots with the trigger, hold/turn/scale the globe with one hand while the other moves dots, a level bar under the board. Replicated; board pose, level and readouts as flow nodes.',
 	/** @param {any} api */
 	register(api) {
@@ -349,6 +349,10 @@ export default {
 			canvas.height = 96;
 			sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, depthWrite: false }));
 			sprite.name = 'untangle-hud';
+			// a readout, never a target: THREE's Sprite.raycast THROWS on a raycaster without a
+			// `camera`, and core's VR frame raycasts module content (31-vr-core) — on the globe
+			// that throw aborted the controller update, so the grips (worldGrab) went dead
+			sprite.raycast = () => {};
 			sprite.scale.set(1.6, 0.3, 1);
 			sprite.position.set(0, board.radius + 0.45, 0);
 			sprite.userData.canvas = canvas;
@@ -1359,7 +1363,7 @@ export default {
 				if (!vrBar) return null;
 				vrBar.mesh.updateMatrixWorld(true);
 				const q = vrBar.mesh.getWorldQuaternion(new THREE.Quaternion());
-				return { centre: vrBar.mesh.getWorldPosition(new THREE.Vector3()).toArray(), normal: new THREE.Vector3(0, 0, 1).applyQuaternion(q).toArray(), depthTest: vrBar.mesh.material.depthTest, renderOrder: vrBar.mesh.renderOrder };
+				return { centre: vrBar.mesh.getWorldPosition(new THREE.Vector3()).toArray(), normal: new THREE.Vector3(0, 0, 1).applyQuaternion(q).toArray(), depthTest: vrBar.mesh.material.depthTest, renderOrder: vrBar.mesh.renderOrder, coreOverlay: !!barPanelUndo };
 			},
 			/** world position of dot i (for pointer tests) */
 			dotWorld: (i) => (dots[i] ? dots[i].getWorldPosition(new THREE.Vector3()).toArray() : null),

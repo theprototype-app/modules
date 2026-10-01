@@ -92,8 +92,55 @@ async function shot(page, name, eye, target) {
 		controls.update();
 	}, { eye, target });
 	await page.waitForTimeout(500);
+	// the load / never-saved toasts are not the game
+	await page.evaluate(() => document.querySelectorAll('button').forEach((b) => { if (b.textContent.trim() === 'Not now' || b.getAttribute('aria-label') === 'Dismiss') b.click(); }));
+	await page.addStyleTag({ content: '[class*="toast"], [role="status"] { display: none !important; }' });
+	await page.waitForTimeout(200);
 	fs.mkdirSync(process.env.SHOTS, { recursive: true });
 	await page.screenshot({ path: path.join(process.env.SHOTS, name + '.png') });
+}
+
+/**
+ * SHOTS=<dir>: what the HEADSET sees from `eye` (evidence, never asserted). With isVRMode on, the
+ * page draws from the VR rig, not the editor camera, so this renders the scene itself through a
+ * 70-degree camera at the eye into a target and writes the PNG (no post stack; sRGB-encoded here).
+ */
+async function eyeShot(page, name, eye, target) {
+	if (!process.env.SHOTS) return;
+	const png = await page.evaluate(({ eye, target }) => {
+		const s = window.__stores;
+		const THREE = s.THREE;
+		let renderer, scene;
+		s.globalRenderer.subscribe((v) => (renderer = v))();
+		s.globalScene.subscribe((v) => (scene = v))();
+		const W = 1280;
+		const H = 720;
+		const cam = new THREE.PerspectiveCamera(70, W / H, 0.05, 200);
+		cam.position.set(...eye);
+		cam.lookAt(new THREE.Vector3(...target));
+		cam.updateMatrixWorld(true);
+		const rt = new THREE.WebGLRenderTarget(W, H);
+		rt.texture.colorSpace = THREE.SRGBColorSpace;
+		const xr = renderer.xr.enabled;
+		renderer.xr.enabled = false;
+		renderer.setRenderTarget(rt);
+		renderer.render(scene, cam);
+		const px = new Uint8Array(W * H * 4);
+		renderer.readRenderTargetPixels(rt, 0, 0, W, H, px);
+		renderer.setRenderTarget(null);
+		renderer.xr.enabled = xr;
+		rt.dispose();
+		const c = document.createElement('canvas');
+		c.width = W;
+		c.height = H;
+		const g = c.getContext('2d');
+		const img = g.createImageData(W, H);
+		for (let y = 0; y < H; y++) img.data.set(px.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
+		g.putImageData(img, 0, 0);
+		return c.toDataURL('image/png').split(',')[1];
+	}, { eye, target });
+	fs.mkdirSync(process.env.SHOTS, { recursive: true });
+	fs.writeFileSync(path.join(process.env.SHOTS, name + '.png'), Buffer.from(png, 'base64'));
 }
 
 run(async () => {
@@ -128,6 +175,16 @@ run(async () => {
 	});
 	check(JSON.stringify(resolved.spawn?.position) === JSON.stringify(sp?.position), 'T.5 core resolves THAT spawn (the module publisher) (' + JSON.stringify(resolved.spawn) + ')');
 	const k1 = resolved.locomotion?.worldGrab === true;
+	// evidence: the template as a desktop player sees it (the def's view), the board and the globe
+	if (process.env.SHOTS) {
+		await A.page.evaluate(() => window.__stores.objectActions.setEditorMode('interact'));
+		await shot(A.page, 'desktop-2d', [0, 1.55, 3.6], [0, 1.4, 0]);
+		await A.page.evaluate(() => window.__untangle.select(1, '3d'));
+		await A.page.waitForTimeout(400);
+		await shot(A.page, 'desktop-globe', [0, 1.55, 3.6], [0, 1.4, 0]);
+		await A.page.evaluate(() => window.__untangle.select(1, '2d'));
+		await A.page.waitForTimeout(400);
+	}
 	console.log('  contract K1 (worldGrab) in this core: ' + k1);
 
 	// the VR scene of the rest: Interact, a headset (emulated), the hands out of the way
@@ -172,7 +229,7 @@ run(async () => {
 	check(!!fit && Math.abs(fit.size[0] - fit.wantW) < 0.005, 'L.3 ...and is the level grid\'s size (' + (fit ? fit.size[0].toFixed(3) + ' vs ' + fit.wantW.toFixed(3) : '?') + ' m wide)');
 	check(!!fit && fit.proud > 0 && fit.proud < 0.02, 'L.4 ...a few mm in front of the panel, toward the eyes (' + (fit ? (fit.proud * 1000).toFixed(1) : '?') + ' mm)');
 	check(m1.renderOrder > 1000 && m1.depthTest === false, 'L.5 drawn over the scene AND over core\'s panel (renderOrder ' + m1.renderOrder + ', depthTest off)');
-	await shot(A.page, 'vr-menu-panel', EYE, [0, EYE[1] - 0.25, 0]);
+	await eyeShot(A.page, 'vr-menu-panel', EYE, [0, EYE[1] - 0.25, 0]);
 	const at3d = await A.page.evaluate(() => window.__untangle.vrMenuCell('mode:3d'));
 	await setHands(A.page, { right: await aimPose(A.page, HAND, at3d, false) });
 	await eventually(() => menuOf(A.page), (m) => m.hover === 'mode:3d', 'L.6 the laser on "3D globe" lights it (hover)', 3000);
@@ -223,7 +280,7 @@ run(async () => {
 	const bc = await A.page.evaluate(() => window.__untangle.centre());
 	const dz = mb.centre[2] - bc[2];
 	check(dz > 0 && dz < 0.2 && Math.abs(mb.centre[0] - bc[0]) < 1e-6, 'B.3 centred on the board, just in front of it (' + dz.toFixed(3) + ' m), drawn over it');
-	await shot(A.page, 'vr-menu-board', EYE, [0, 1.3, 0]);
+	await eyeShot(A.page, 'vr-menu-board', EYE, [0, 1.3, 0]);
 	const l1 = await A.page.evaluate(() => window.__untangle.vrMenuCell('level:1'));
 	await setHands(A.page, { right: await aimPose(A.page, HAND, l1, false) });
 	await eventually(() => menuOf(A.page), (m) => m.hover === 'level:1', 'B.4 the laser lights level 1', 3000);
@@ -250,7 +307,9 @@ run(async () => {
 		const facing = bp.normal.reduce((a, v, i) => a + v * toEye[i], 0) / len;
 		check(bp.centre[1] > 0.6 && bp.centre[1] < 1.1 && bp.centre[2] > 0.3, 'U4.' + md + '.1 the bar stands at waist height in front of the board (' + bp.centre.map((v) => v.toFixed(2)) + ')');
 		check(facing > 0.85, 'U4.' + md + '.2 ...its face turned up toward the spawn\'s eyes (cos ' + facing.toFixed(2) + ')');
-		check(bp.depthTest === false && bp.renderOrder > 0 && bp.renderOrder < 1000, 'U4.' + md + '.3 ...drawn over the scene (depthTest off), under core\'s panels (renderOrder ' + bp.renderOrder + ')');
+		// on a K2 core (api.vrPanel) core's overlay pass owns the order (its PANEL_ORDER, after a depth
+		// clear); before it, the bar's own depthTest-off + an order under core's panels (1000)
+		check(bp.depthTest === false && (bp.coreOverlay ? bp.renderOrder >= 1000 : bp.renderOrder > 0 && bp.renderOrder < 1000), 'U4.' + md + '.3 ...drawn over the scene (depthTest off; renderOrder ' + bp.renderOrder + (bp.coreOverlay ? ', core\'s overlay panel' : ', under core\'s panels') + ')');
 		const blocked = await A.page.evaluate(({ eye, at }) => {
 			const THREE = window.__stores.THREE;
 			let root;
@@ -263,7 +322,7 @@ run(async () => {
 		}, { eye: EYE, at: bp.centre });
 		check(blocked.length === 0, 'U4.' + md + '.4 no room object lies between the spawn\'s eyes and the bar (' + JSON.stringify(blocked) + ')');
 	}
-	await shot(A.page, 'vr-bar-globe', EYE, [0, 1.0, 0]);
+	await eyeShot(A.page, 'vr-bar-globe', EYE, [0, 1.0, 0]);
 	// the render probe: a red box between the eye and the bar
 	const probe = await A.page.evaluate(async ({ eye }) => {
 		const s = window.__stores;
@@ -311,6 +370,25 @@ run(async () => {
 	console.log('  probe pixels: clear ' + probe.clear + ' · box ' + probe.boxed + ' · depth test on ' + probe.depthOn);
 	check(red(probe.depthOn), 'U4.5 (premise) with the depth test ON the red box in front hides the bar (' + probe.depthOn + ')');
 	check(!red(probe.boxed) && Math.abs(probe.boxed[0] - probe.clear[0]) < 40 && Math.abs(probe.boxed[2] - probe.clear[2]) < 40, 'U4.6 the shipped bar draws OVER the box: the pixel is the bar\'s, not red (' + probe.boxed + ' vs ' + probe.clear + ')');
+
+	// a raycast WITHOUT a camera over the whole board (what core's VR frame does to module content)
+	// never throws — a THREE.Sprite throws there, which aborted core's controller update (U1)
+	const thrown = await A.page.evaluate(() => {
+		const THREE = window.__stores.THREE;
+		let sc;
+		window.__stores.globalScene.subscribe((v) => (sc = v))();
+		const g = sc.getObjectByName('untangle-module');
+		const errs = [];
+		for (const y of [0.6, 1.0, 1.4, 1.8, 2.2, 2.6]) {
+			try {
+				new THREE.Raycaster(new THREE.Vector3(0, y, 2), new THREE.Vector3(0, 0, -1)).intersectObject(g, true);
+			} catch (e) {
+				errs.push(y + ': ' + String(e).slice(0, 80));
+			}
+		}
+		return { errs, sprite: !!g.getObjectByName('untangle-hud') };
+	});
+	check(thrown.sprite && thrown.errs.length === 0, 'U4.7 a camera-less raycast across the board (its VR sprite HUD up) never throws (' + JSON.stringify(thrown.errs) + ')');
 
 	// ---- U1. the world scaled: the dots still land where the tip is --------------------------------
 	await A.page.evaluate(() => window.__untangle.select(12, '2d'));
@@ -406,6 +484,35 @@ run(async () => {
 			check(a.ok, 'U2.' + md + ' entering VR (from inside the dots) the ' + (md === '3d' ? 'globe' : 'board') + ' is IN FRONT: ' + a.dist.toFixed(2) + ' m ahead, ' + a.deg.toFixed(1) + ' deg off the facing, ' + a.dy.toFixed(2) + ' m below the eyes (head ' + [head.x, head.y, head.z].map((v) => v.toFixed(2)) + ', yaw ' + head.yaw.toFixed(2) + ')');
 		}
 		check((await A.page.evaluate(() => { let v; window.__stores.editorMode.subscribe((x) => (v = x))(); return v; })) === 'interact', 'U2.1 a game session lands in Interact');
+		// U1 for real (contract K1): in Interact, two grips that start on no grabbable body scale the
+		// WORLD — the board rides it — and the trigger still drags a dot afterwards
+		if (k1) {
+			const rigNow = () => A.page.evaluate(() => { let r; window.__stores.worldRig.subscribe((v) => (r = v))(); return r.scale.x; });
+			const g0 = await rigNow();
+			await xr.pose(A.page, 'left', [-0.15, 1.3, 1.05]);
+			await xr.pose(A.page, 'right', [0.15, 1.3, 1.05]);
+			await A.page.waitForTimeout(200);
+			await xr.button(A.page, 'left', 1, true);
+			await A.page.waitForTimeout(250);
+			await xr.button(A.page, 'right', 1, true);
+			await A.page.waitForTimeout(250);
+			for (let k = 1; k <= 6; k++) {
+				await xr.pose(A.page, 'left', [-0.15 - k * 0.04, 1.3, 1.05]);
+				await xr.pose(A.page, 'right', [0.15 + k * 0.04, 1.3, 1.05]);
+				await A.page.waitForTimeout(60);
+			}
+			await A.page.waitForTimeout(250);
+			const g1 = await rigNow();
+			const grips = await A.page.evaluate(() => ({ ...window.__stores.vrControls.vrGripDebug(), hold: window.__untangle.vr() }));
+			await xr.button(A.page, 'left', 1, false);
+			await xr.button(A.page, 'right', 1, false);
+			await A.page.waitForTimeout(250);
+			const ws = await A.page.evaluate(() => { let sc; window.__stores.globalScene.subscribe((v) => (sc = v))(); return sc.getObjectByName('untangle-module').getWorldScale(new window.__stores.THREE.Vector3()).x; });
+			const mode = await A.page.evaluate(() => { let v; window.__stores.editorMode.subscribe((x) => (v = x))(); return v; });
+			check(mode === 'interact' && g1 > g0 * 1.3, 'U1.5 (K1) in Interact, spreading two grips SCALES the world during the game (x' + g0.toFixed(2) + ' -> x' + g1.toFixed(2) + ')' + (g1 > g0 * 1.3 ? '' : ' ' + JSON.stringify(grips)));
+			check(Math.abs(ws - g1) < 1e-6, 'U1.6 ...and the board scales with it (world scale ' + ws.toFixed(3) + ')');
+			check((await state(A.page)).carried === -1, 'U1.7 ...the grips grabbed no dot');
+		} else console.log('SKIP U1.5-U1.7: this core has no play.locomotion.worldGrab (contract K1, 31-vr-core P3)');
 		await xr.uninstall(A.page);
 	}
 
