@@ -203,7 +203,7 @@ export function untangleDef() {
 		kind: 'game',
 		slug: 'untangle',
 		title: 'Untangle',
-		description: 'A planar-graph puzzle on a flat board or around a globe: drag the dots until no edges cross. 30 levels per mode that unlock as you solve them; every peer sees and solves the same board.',
+		description: 'A planar-graph puzzle on a flat board or around a globe: drag the dots until no edges cross. 30 levels that unlock as you solve them, one progress on the board and the globe; every peer sees and solves the same board. In VR you start in front of it.',
 		license: 'CC0-1.0',
 		author: 'theprototype',
 		tags: ['puzzle', 'co-op', 'procedural', '3d'],
