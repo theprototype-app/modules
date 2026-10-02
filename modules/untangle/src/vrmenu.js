@@ -172,6 +172,23 @@ export function panelHole(screen, id, meshW, meshH) {
 
 // ---- the drawing ------------------------------------------------------------------------------
 
+/**
+ * Roadmap 33 G3 — why the picker was INVISIBLE in the headset over core's panel. A core with
+ * K2 (1.18) re-stamps every api.vrPanel object to its PANEL_ORDER each XR frame — the order its
+ * own 'vr-game-panel' has — so the picker's own renderOrder (1001, "over core's 1000") is gone
+ * and three breaks the tie by DEPTH — of each mesh's GEOMETRY BOUNDING-SPHERE CENTRE (three r185;
+ * not the object origin: an origin lead was tried and measured to do nothing). The hole sits ~6 cm
+ * above the panel's centre on a panel pitched back, so with the head LEVEL the picker's centre is a
+ * few mm FARTHER than the panel's: the panel drew last and its menu backdrop covered the picker
+ * (looking down past ~3 degrees it showed — the 31 eye shots looked down at the panel; raycasts
+ * ignore draw order, so every hit test passed). The fix needs no core: the picker's geometry
+ * carries a bounding sphere whose centre leads the plane by SORT_LEAD toward the eyes (radius 2,
+ * so it still encloses the plane for culling and the raycast early-out), so it always sorts
+ * nearer than the panel and draws after it, at any head pitch, on any core. Metres (the picker's
+ * z scale is 1).
+ */
+export const SORT_LEAD = 0.15;
+
 const AMBER = '#fbbf24';
 const GREEN = '#3ee08f';
 
@@ -186,9 +203,12 @@ export function makeVRMenu(THREE) {
 		texture = new THREE.CanvasTexture(canvas);
 		texture.colorSpace = THREE.SRGBColorSpace ?? texture.colorSpace;
 	}
-	// unit plane, scaled to its placement; drawn over the scene AND over core's panel (1000)
+	// unit plane, scaled to its placement; drawn over the scene AND over core's panel: its SORT
+	// key (the bounding sphere's centre) leads it SORT_LEAD toward the eyes, see SORT_LEAD
+	const plane = new THREE.PlaneGeometry(1, 1);
+	plane.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, SORT_LEAD), 2);
 	const mesh = new THREE.Mesh(
-		new THREE.PlaneGeometry(1, 1),
+		plane,
 		new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })
 	);
 	mesh.name = 'untangle-vrmenu';
