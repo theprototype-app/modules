@@ -1,0 +1,425 @@
+[
+	{
+		"number": 1,
+		"slug": "first-person-camera-possess",
+		"title": "First-person camera for `possess`",
+		"status": "open",
+		"gap": "first-person camera for `possess`",
+		"blocks": "`fps-player`",
+		"workaround": "partly — third-person walk mode ships, first person does not",
+		"file": "devx/first-person-camera-possess.md"
+	},
+	{
+		"number": 2,
+		"slug": "per-hand-vr-pose-button-state",
+		"title": "Per-hand VR pose and button state",
+		"status": "open",
+		"gap": "per-hand VR pose + button state",
+		"blocks": "`sabers`",
+		"workaround": "partly — one hand via `pointerRay()`",
+		"file": "devx/per-hand-vr-pose-button-state.md"
+	},
+	{
+		"number": 3,
+		"slug": "api-haptic-hand-intensity-ms",
+		"title": "`api.haptic(hand, intensity, ms)`",
+		"status": "open",
+		"gap": "`api.haptic(hand, intensity, ms)`",
+		"blocks": "`door-keypad`, `sabers`",
+		"workaround": "yes — silent, no feedback",
+		"file": "devx/api-haptic-hand-intensity-ms.md"
+	},
+	{
+		"number": 4,
+		"slug": "fire-flow-trigger-object",
+		"title": "Fire a flow trigger on an object",
+		"status": "open",
+		"gap": "fire a flow trigger on an object",
+		"blocks": "`door-keypad`",
+		"workaround": "yes — module ops only, flows can't react",
+		"file": "devx/fire-flow-trigger-object.md"
+	},
+	{
+		"number": 5,
+		"slug": "create-move-replicated-object-code",
+		"title": "Create or move a **replicated** object from module code",
+		"status": "open",
+		"gap": "create/move a **replicated** object from module code",
+		"blocks": "`tutorial-room`, `fps-player`",
+		"workaround": "yes — own scene-root content + own ops",
+		"file": "devx/create-move-replicated-object-code.md"
+	},
+	{
+		"number": 6,
+		"slug": "know-whether-vr",
+		"title": "Know whether we are in VR",
+		"status": "open",
+		"gap": "know whether we are in VR",
+		"blocks": "`sabers`",
+		"workaround": "yes — inferred from `pointerRay()` shape",
+		"file": "devx/know-whether-vr.md"
+	},
+	{
+		"number": 7,
+		"slug": "multi-selection-uuids",
+		"title": "Multi-selection uuids",
+		"status": "open",
+		"gap": "multi-selection uuids",
+		"blocks": "—",
+		"workaround": "yes — `selectedUuid()` is enough so far",
+		"file": "devx/multi-selection-uuids.md"
+	},
+	{
+		"number": 8,
+		"slug": "bug-api-oninput-silently-drops-keys",
+		"title": "BUG — `api.onInput` silently drops keys for the first seconds",
+		"status": "open",
+		"gap": "**BUG**: `api.onInput` misses keys for ~2s after register",
+		"blocks": "`fps-player`",
+		"workaround": "yes — edge-detect from `api.input()` in a frame task",
+		"file": "devx/bug-api-oninput-silently-drops-keys.md"
+	},
+	{
+		"number": 9,
+		"slug": "flow-nodes-effect-sinks-value-outputs",
+		"title": "Module flow nodes are effect SINKS — no value outputs, no triggers",
+		"status": "open",
+		"gap": "module flow nodes can't OUTPUT values or fire triggers",
+		"blocks": "`dungeon-realms`",
+		"workaround": "yes — rule-ownership pattern; buttons use action selects instead of trigger sockets",
+		"file": "devx/flow-nodes-effect-sinks-value-outputs.md"
+	},
+	{
+		"number": 10,
+		"slug": "seed-wired-example-graph-load",
+		"title": "No way to seed a wired example graph on module load",
+		"status": "open",
+		"gap": "seed a wired example graph on module load",
+		"blocks": "`dungeon-realms`",
+		"workaround": "no — reference graph documented in the README instead",
+		"file": "devx/seed-wired-example-graph-load.md"
+	},
+	{
+		"number": 11,
+		"slug": "play-mode-signal",
+		"title": "No play-mode signal",
+		"status": "open",
+		"gap": "play-mode signal (`api.isPlaying()` / `onPlayMode`)",
+		"blocks": "`dungeon-realms`",
+		"workaround": "yes — observes `#dungeon-minimap` visibility (brittle DOM)",
+		"file": "devx/play-mode-signal.md"
+	},
+	{
+		"number": 12,
+		"slug": "text-param-kind-nodes",
+		"title": "No `text` param kind for module nodes",
+		"status": "open",
+		"gap": "`text` param kind for module nodes",
+		"blocks": "`dungeon-realms`",
+		"workaround": "yes — button labels derive from their action select",
+		"file": "devx/text-param-kind-nodes.md"
+	},
+	{
+		"number": 13,
+		"slug": "play-contract-name-keyed-dungeon",
+		"title": "The play contract is name-keyed to `'dungeon-module'`",
+		"status": "open",
+		"gap": "play contract is name-keyed to `'dungeon-module'`",
+		"blocks": "`dungeon-realms`",
+		"workaround": "yes — squats the core module's group name",
+		"file": "devx/play-contract-name-keyed-dungeon.md"
+	},
+	{
+		"number": 14,
+		"slug": "grounded-fly-play-mode-option",
+		"title": "No grounded (no-fly) play-mode option",
+		"status": "open",
+		"gap": "grounded (no-fly) play-mode option",
+		"blocks": "`dungeon-realms`",
+		"workaround": "yes — window-capture swallows Q/E while the game runs",
+		"file": "devx/grounded-fly-play-mode-option.md"
+	},
+	{
+		"number": 15,
+		"slug": "peer-roster-disconnect-hook",
+		"title": "No peer roster or disconnect hook",
+		"status": "open",
+		"gap": "peer roster + disconnect hook",
+		"blocks": "`dungeon-realms`, `football`",
+		"workaround": "yes — `api.peerIds()` (the replicated roster) diffed each second frees a vanished peer's slot; `football` does exactly this. The name half is `api.peerNames()`",
+		"file": "devx/peer-roster-disconnect-hook.md"
+	},
+	{
+		"number": 16,
+		"slug": "api-flow-nodes-snapshots-carry-position",
+		"title": "`api.flow.nodes()` snapshots carry no POSITION — **SHIPPED**",
+		"status": "shipped",
+		"gap": "~~`api.flow.nodes()` carries no node POSITION~~",
+		"blocks": "`collectible`",
+		"workaround": "**SHIPPED** (core PR #224) — snapshots carry `x`/`y` and `api.flow.freeRegion({w, h, graphId})` answers where a block lands; the recipe uses it and falls back to its fixed rows on an older app",
+		"file": "devx/api-flow-nodes-snapshots-carry-position.md"
+	},
+	{
+		"number": 17,
+		"slug": "change-signal-graph-trigger-log-game",
+		"title": "No change signal for the graph, the trigger log or the game state — **SHIPPED**",
+		"status": "shipped",
+		"gap": "~~no change signal for the graph / game state~~",
+		"blocks": "`collectible`",
+		"workaround": "**SHIPPED** (core PR #224) — `api.flow.onChange` (graph + trigger log), `api.game.onChange`, `api.peerVars.onChange`, coalesced to one call per frame; the manager listens and polls only on an older app (the ~10Hz touch/count sweep stays: it watches positions and the clock)",
+		"file": "devx/change-signal-graph-trigger-log-game.md"
+	},
+	{
+		"number": 18,
+		"slug": "flow-trigger-log-full-state-reply",
+		"title": "The flow TRIGGER LOG has no full-state reply — **SHIPPED**",
+		"status": "shipped",
+		"gap": "~~the flow TRIGGER LOG has no handshake reply, so a late joiner never learns past pulses~~",
+		"blocks": "`collectible`",
+		"workaround": "**SHIPPED** — `gettriggers`/`triggers` carries the log; the module gained a first-sight rule so arriving history is not banked",
+		"file": "devx/flow-trigger-log-full-state-reply.md"
+	},
+	{
+		"number": 19,
+		"slug": "move-game-shell",
+		"title": "A module cannot move the game shell",
+		"status": "open",
+		"gap": "`api.game.setState(state, outcome)` — a module cannot move the game shell",
+		"blocks": "`football`",
+		"workaround": "yes — a Football Event node fires `start`/`over`/`reset` and the template wires it to Set Game State",
+		"file": "devx/move-game-shell.md"
+	},
+	{
+		"number": 20,
+		"slug": "scene-physics-block-write",
+		"title": "No scene-physics block write",
+		"status": "open",
+		"gap": "a scene-physics block write (`api.physics.setScene({gravity, knock, …})`)",
+		"blocks": "`football`",
+		"workaround": "yes — the template carries the block; the \"Build pitch\" recipe toasts the Inspector rows to set",
+		"file": "devx/scene-physics-block-write.md"
+	},
+	{
+		"number": 21,
+		"slug": "xr-room-bounds-colocation-room-anchor",
+		"title": "XR room bounds and the colocation room anchor",
+		"status": "open",
+		"gap": "the XR room bounds and the colocation `roomAnchor` on the api",
+		"blocks": "`football`",
+		"workaround": "yes — \"Fit to room\" / \"Centre on room\" feature-detect `api.xrReferenceSpace` / `api.colocation.roomAnchor` and fall back to sliders",
+		"file": "devx/xr-room-bounds-colocation-room-anchor.md"
+	},
+	{
+		"number": 22,
+		"slug": "hud-button-drive-node-input",
+		"title": "A HUD Button cannot drive a module node's input",
+		"status": "open",
+		"gap": "a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value",
+		"blocks": "`football`, `dungeon-realms` (30), `waves`",
+		"workaround": "yes — a `delay` node bridges the stamp into a numeric pulse",
+		"file": "devx/hud-button-drive-node-input.md"
+	},
+	{
+		"number": 23,
+		"slug": "play-mode-menu-surface",
+		"title": "No play-mode MENU surface",
+		"status": "answered",
+		"gap": "~~no play-mode MENU surface~~",
+		"blocks": "`dungeon-realms`",
+		"workaround": "**ANSWERED by core** — a HUD screen with `input: 'menu'` frees the pointer and core's HUD ring gives arrows/Enter/gamepad A; Dungeon Realms moved its Start/victory menu there in roadmap 30 (the DOM card stays for a graph with no HUD, `drmenu show`)",
+		"file": "devx/play-mode-menu-surface.md"
+	},
+	{
+		"number": 24,
+		"slug": "live-values-hz-pulse-count-read",
+		"title": "Live values are ~6 Hz, and a pulse's count cannot be read back synchronously",
+		"status": "open",
+		"gap": "Live values are ~6 Hz, and a pulse's count cannot be read back synchronously",
+		"blocks": "",
+		"workaround": "",
+		"file": "devx/live-values-hz-pulse-count-read.md"
+	},
+	{
+		"number": 25,
+		"slug": "two-clocks-api",
+		"title": "Two clocks on the api",
+		"status": "open",
+		"gap": "Two clocks on the api",
+		"blocks": "",
+		"workaround": "",
+		"file": "devx/two-clocks-api.md"
+	},
+	{
+		"number": 26,
+		"slug": "per-element-hud-visibility",
+		"title": "No per-element HUD visibility",
+		"status": "open",
+		"gap": "no per-element HUD **visibility** (show a list only when it has rows, a panel only while…)",
+		"blocks": "`waves`",
+		"workaround": "yes — a list with `bg: 'transparent'` draws nothing while it is empty",
+		"file": "devx/per-element-hud-visibility.md"
+	},
+	{
+		"number": 27,
+		"slug": "template-place-desktop-play-spawn",
+		"title": "A template cannot place the desktop play spawn",
+		"status": "open",
+		"gap": "a template cannot place the **desktop play spawn** (outside a dungeon it is core's fixed `[0, 2, 3]`, whatever `view` says)",
+		"blocks": "`football`, `waves`",
+		"workaround": "yes — the football lamp strip moved onto the crossbar so the spawn's eye line stays clear; the ask is #23's `teleportPlayer`, or a def/scene `play.spawn`",
+		"file": "devx/template-place-desktop-play-spawn.md"
+	},
+	{
+		"number": 28,
+		"slug": "bug-hud-text-ignores-align-wraps",
+		"title": "BUG — HUD text ignores `align` unless it wraps",
+		"status": "fixed",
+		"gap": "~~**BUG**: a HUD Text / Timer / list row ignores `style.align` unless it wraps~~",
+		"blocks": "`football`, `dungeon-realms`, `waves`, `untangle`",
+		"workaround": "**FIXED in core 1.17** — the text row takes `justify-content` from `align` (30-visuals-core); the 30 menus stay left-aligned (still right on 1.16), untangle's titles are wide centred boxes",
+		"file": "devx/bug-hud-text-ignores-align-wraps.md"
+	},
+	{
+		"number": 29,
+		"slug": "pointer-seam-dispose-hook-own-listeners",
+		"title": "No pointer seam and no dispose hook for a module's own listeners",
+		"status": "open",
+		"gap": "no **pointer seam** (pointerdown/up, click-miss) and no module **dispose hook**",
+		"blocks": "`untangle`",
+		"workaround": "yes — window CAPTURE listeners, self-detaching when a newer copy owns the module's hook",
+		"file": "devx/pointer-seam-dispose-hook-own-listeners.md"
+	},
+	{
+		"number": 30,
+		"slug": "api-game-tell-menu-over",
+		"title": "`api.game` cannot tell `menu` from `over`",
+		"status": "open",
+		"gap": "`api.game` cannot say **which** non-running state (menu vs over)",
+		"blocks": "`untangle`",
+		"workaround": "yes — the rising edge of `roundUnderway()` is enough for \"Next\"",
+		"file": "devx/api-game-tell-menu-over.md"
+	},
+	{
+		"number": 31,
+		"slug": "camera-api",
+		"title": "No camera on the api",
+		"status": "open",
+		"gap": "no **camera** on the api (the crosshair ray under a lock)",
+		"blocks": "`untangle`",
+		"workaround": "yes — `pointerRay().camera`, else the scene camera nearest `playerPosition()`",
+		"file": "devx/camera-api.md"
+	},
+	{
+		"number": 32,
+		"slug": "hud-kind-tell-editor-artboard-runtime",
+		"title": "A module HUD kind cannot tell the editor artboard from the runtime layer",
+		"status": "open",
+		"gap": "a module HUD kind's `mount` gets no **editor** flag",
+		"blocks": "`untangle`",
+		"workaround": "yes — `el.closest('#hud-layer')` tells the runtime layer from the artboard",
+		"file": "devx/hud-kind-tell-editor-artboard-runtime.md"
+	},
+	{
+		"number": 33,
+		"slug": "vr-trigger-editor-mode",
+		"title": "The VR trigger has no editor mode",
+		"status": "open",
+		"gap": "the VR trigger has no editor mode — a `{modes}` game piece still eats it in the headset editor",
+		"blocks": "every clickable module",
+		"workaround": "no — owed on device; modules already pass `modes`, so the fix is core-only",
+		"file": "devx/vr-trigger-editor-mode.md"
+	},
+	{
+		"number": 34,
+		"slug": "registerlistedgroup-ask-picked",
+		"title": "`registerListedGroup` cannot ask to be PICKED",
+		"status": "open",
+		"gap": "`registerListedGroup` cannot ask to be PICKED by the Edit select",
+		"blocks": "`dungeon`, `sabers`",
+		"workaround": "yes — the Kit registers as an INTERACTIVE group (joining every tap's raycast)",
+		"file": "devx/registerlistedgroup-ask-picked.md"
+	},
+	{
+		"number": 35,
+		"slug": "read-editor-click-mode",
+		"title": "A module cannot read the editor's click mode",
+		"status": "open",
+		"gap": "a module cannot read the editor's click mode (`api.editorMode()`)",
+		"blocks": "`car`, `essentials`",
+		"workaround": "yes — hints say \"press I (Interact)\" blind",
+		"file": "devx/read-editor-click-mode.md"
+	},
+	{
+		"number": 36,
+		"slug": "model-loader-api-glb-gun-glb",
+		"title": "No model loader on the api (a GLB gun, a GLB enemy)",
+		"status": "open",
+		"gap": "no **model loader** on the api (`api.loadModel(url)` / `api.GLTFLoader`) — the detailed ask is \"30. No model loader\" below",
+		"blocks": "`waves` (30b, 30c)",
+		"workaround": "yes (30c) — `build-gltf.mjs` bundles three's GLTFLoader + SkeletonUtils against a shim of the RUNTIME three (`globalThis.__wavesTHREE`), imported from a blob: +45 kB per module that does it, and it must track core's three version by hand",
+		"file": "devx/model-loader-api-glb-gun-glb.md"
+	},
+	{
+		"number": 37,
+		"slug": "hide-object-look-without-touching-drawn",
+		"title": "no way to hide an object's look without touching it (a module-drawn stand-in: a rigged figure over a capsule enemy)",
+		"status": "open",
+		"gap": "no way to **hide an object's look without touching it** (a module-drawn stand-in: a rigged figure over a capsule enemy)",
+		"blocks": "`waves` (30c)",
+		"workaround": "yes — the object's meshes hop off layer 0 only between the scene's `onBeforeRender` and `onAfterRender` (chained). A persistent hop is NOT safe: the .tpscene save is `toJSON`, which writes layers. The card (author script) renders a `toJSON` clone, so there the capsules show under the figures. Ask: a per-object `userData.renderHidden` core honours in its renders only",
+		"file": "devx/hide-object-look-without-touching-drawn.md"
+	},
+	{
+		"number": 38,
+		"slug": "pause-vr-snap-turn-teleport-owns",
+		"title": "A module cannot pause VR snap turn (or teleport) while it owns a stick",
+		"status": "open",
+		"gap": "A module cannot pause VR snap turn (or teleport) while it owns a stick",
+		"blocks": "",
+		"workaround": "",
+		"file": "devx/pause-vr-snap-turn-teleport-owns.md"
+	},
+	{
+		"number": 39,
+		"slug": "reseat-dynamic-body-put-ball-back",
+		"title": "A module cannot reseat a dynamic body (put the ball back on the centre spot)",
+		"status": "open",
+		"gap": "A module cannot reseat a dynamic body (put the ball back on the centre spot)",
+		"blocks": "",
+		"workaround": "",
+		"file": "devx/reseat-dynamic-body-put-ball-back.md"
+	},
+	{
+		"number": 40,
+		"slug": "squeezed-grip-silences-hand-knock",
+		"title": "A squeezed grip silences the hand's knock",
+		"status": "open",
+		"gap": "A squeezed grip silences the hand's knock",
+		"blocks": "",
+		"workaround": "",
+		"file": "devx/squeezed-grip-silences-hand-knock.md"
+	},
+	{
+		"number": 41,
+		"slug": "per-frame-reads-game-needs-allocate",
+		"title": "The per-frame reads a game needs allocate, and \"a game view\" is re-derived everywhere",
+		"status": "open",
+		"gap": "The per-frame reads a game needs allocate, and \"a game view\" is re-derived everywhere",
+		"blocks": "",
+		"workaround": "",
+		"file": "devx/per-frame-reads-game-needs-allocate.md"
+	},
+	{
+		"number": 42,
+		"slug": "move-play-mode-player",
+		"title": "No way to move the PLAY-MODE player",
+		"status": "open",
+		"gap": "No way to move the PLAY-MODE player",
+		"blocks": "",
+		"workaround": "",
+		"aliases": [
+			23
+		],
+		"file": "devx/move-play-mode-player.md"
+	}
+]
