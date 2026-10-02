@@ -1686,6 +1686,7 @@ function panelHole(screen, id, meshW, meshH) {
   const cy = r.top + r.h / 2 - crop.y;
   return { x: cx * k - meshW / 2, y: meshH / 2 - cy * k, w: r.w * k, h: r.h * k };
 }
+var SORT_LEAD = 0.15;
 var AMBER3 = "#fbbf24";
 var GREEN3 = "#3ee08f";
 function makeVRMenu(THREE) {
@@ -1698,8 +1699,10 @@ function makeVRMenu(THREE) {
     texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace ?? texture.colorSpace;
   }
+  const plane = new THREE.PlaneGeometry(1, 1);
+  plane.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, SORT_LEAD), 2);
   const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(1, 1),
+    plane,
     new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, side: THREE.DoubleSide })
   );
   mesh.name = "untangle-vrmenu";
@@ -1856,6 +1859,23 @@ function untangleHud() {
   };
 }
 
+// modules/untangle/src/reel.js
+var REEL_RATE = 0.03;
+var SCALE_RATE = 0.025;
+var DEAD = 0.15;
+var REACH2 = [0.15, 12];
+var dead = (v) => Math.abs(v) > DEAD ? v : 0;
+function heldStick({ dist, scale, x, y, range }) {
+  return {
+    dist: Math.min(Math.max(dist * (1 - dead(y) * REEL_RATE), REACH2[0]), REACH2[1]),
+    scale: Math.min(Math.max(scale * (1 + dead(x) * SCALE_RATE), range[0]), range[1])
+  };
+}
+function pointPush(dist, y) {
+  const next = Math.min(Math.max(dist * (1 - dead(y) * REEL_RATE), REACH2[0] * 2), REACH2[1]);
+  return next - dist;
+}
+
 // modules/untangle/src/index.js
 var GROUP = "untangle-module";
 var MODES_PLAYED = ["2d", "3d"];
@@ -1864,8 +1884,8 @@ var EXPIRE_FRAMES = 40;
 var index_default = {
   id: "untangle",
   name: "Untangle",
-  version: "2.3.1",
-  description: "Drag the dots until no edges cross \u2014 on a flat board or around a globe, 30 levels that unlock as you solve them, one progress for both (it stays on your device). In VR: you start in front of the board, grab dots with the trigger, hold/turn/scale the globe, the grips scale the world, a level picker with Globe / 2D and a level bar. Replicated; board pose, level and readouts as flow nodes.",
+  version: "2.4.0",
+  description: "Drag the dots until no edges cross \u2014 on a flat board or around a globe, 30 levels that unlock as you solve them, one progress for both (it stays on your device). In VR: you start in front of the board, grab dots with the trigger, hold/turn/scale the globe, the stick pushes the board or the held globe farther / pulls it closer (as Edit does to a held object), the grips scale the world, a level picker with Globe / 2D and a level bar. Replicated; board pose, level and readouts as flow nodes.",
   /** @param {any} api */
   register(api) {
     const THREE = api.THREE;
@@ -1932,7 +1952,7 @@ var index_default = {
     function placeGroup() {
       if (!group) return;
       group.position.set(board.x, board.boardY, board.z);
-      if (mode === "3d") group.position.add(hold.offset);
+      group.position.add(hold.offset);
       group.scale.setScalar(mode === "3d" ? hold.scale : 1);
       group.rotation.set(0, board.yaw, 0);
       group.updateMatrixWorld(true);
@@ -2407,6 +2427,26 @@ var index_default = {
     let vrMoved = false;
     let holdStart = null;
     const HOLD_SCALE = [0.35, 4];
+    let sticksKnown = (
+      /** @type {boolean | null} */
+      null
+    );
+    function sticksScope() {
+      if (sticksKnown === null) {
+        sticksKnown = api.claimInput?.("sticks") === true;
+        api.releaseInput?.("sticks");
+      }
+      return sticksKnown;
+    }
+    function claimSticks() {
+      const scope = sticksScope() ? "sticks" : "locomotion";
+      api.claimInput?.(scope);
+      return scope;
+    }
+    const reel = { holds: 0, reels: 0, pushes: 0, pointing: false, scope: (
+      /** @type {string | null} */
+      null
+    ), turns: 0 };
     function globeUnder(pose) {
       if (mode !== "3d" || !group) return false;
       const s = surface();
@@ -2417,15 +2457,23 @@ var index_default = {
     }
     function startHold(pose, hand) {
       group.updateMatrixWorld();
+      const p0 = new THREE.Vector3().fromArray(pose.position);
+      const c0 = group.getWorldPosition(new THREE.Vector3());
+      const off0 = c0.clone().sub(p0);
+      if (off0.length() < 0.05) off0.set(0, 0, -0.05).applyQuaternion(new THREE.Quaternion().fromArray(pose.quaternion));
       holdStart = {
-        p0: new THREE.Vector3().fromArray(pose.position),
+        p0,
         q0inv: new THREE.Quaternion().fromArray(pose.quaternion).invert(),
-        c0: group.getWorldPosition(new THREE.Vector3()),
+        c0,
+        off0,
+        dist: off0.length(),
         g0: globeQuat.clone(),
         // the group's world turn WITHOUT the view (the hold moves and scales, never turns, it)
-        w: group.getWorldQuaternion(new THREE.Quaternion())
+        w: group.getWorldQuaternion(new THREE.Quaternion()),
+        // the holding hand's stick reels + scales: it must not walk / turn / teleport
+        scope: claimSticks()
       };
-      api.claimInput?.("locomotion");
+      reel.holds++;
       sfx.play("pop", holdStart.c0.toArray());
       sfx.haptic("tap", hand);
     }
@@ -2435,10 +2483,15 @@ var index_default = {
     function holdTo(pose, hand) {
       if (!holdStart || !group) return;
       const axes = api.input?.()?.axes;
+      const x = (hand === "left" ? axes?.lx : axes?.rx) ?? 0;
       const y = (hand === "left" ? axes?.ly : axes?.ry) ?? 0;
-      if (Math.abs(y) > 0.15) hold.scale = Math.min(HOLD_SCALE[1], Math.max(HOLD_SCALE[0], hold.scale * (1 - y * 0.025)));
+      const xs = holdStart.scope === "sticks" || hand === "left" ? x : 0;
+      const next = heldStick({ dist: holdStart.dist, scale: hold.scale, x: xs, y, range: HOLD_SCALE });
+      if (next.dist !== holdStart.dist) reel.reels++;
+      holdStart.dist = next.dist;
+      hold.scale = next.scale;
       dq.fromArray(pose.quaternion).multiply(holdStart.q0inv);
-      newC.copy(holdStart.c0).sub(holdStart.p0).applyQuaternion(dq).add(handP.fromArray(pose.position));
+      newC.copy(holdStart.off0).applyQuaternion(dq).setLength(holdStart.dist).add(handP.fromArray(pose.position));
       globeQuat.copy(holdStart.w).invert().multiply(dq).multiply(holdStart.w).multiply(holdStart.g0).normalize();
       const at = group.parent ? group.parent.worldToLocal(newC.clone()) : newC.clone();
       hold.offset.set(at.x - board.x, at.y - board.boardY, at.z - board.z);
@@ -2446,8 +2499,9 @@ var index_default = {
       redraw(lastCounts);
     }
     function endHold(hand) {
+      const scope = holdStart?.scope;
       holdStart = null;
-      api.releaseInput?.("locomotion");
+      if (scope) api.releaseInput?.(scope);
       sfx.play("click", group ? group.getWorldPosition(new THREE.Vector3()).toArray() : void 0);
       sfx.haptic("bump", hand);
     }
@@ -2640,6 +2694,8 @@ var index_default = {
           options: ["globe", "2d"],
           optionLabels: ["Globe", "2D board"],
           default: choiceOf(mode),
+          // 33 G3: also the tabs above the shell's Levels grid (a 1.19 core; older ones ignore it)
+          onLevels: true,
           onChange: (v) => {
             if (shellInit) return;
             shell.changes++;
@@ -2656,7 +2712,9 @@ var index_default = {
         "Drag the dots until no line crosses another \u2014 red lines cross, green ones are free.",
         "Desktop: drag a dot (or click it, then click where it goes); on the globe, right-drag turns it.",
         "VR: point at a dot and hold the trigger (or touch it with the controller tip), release to drop it.",
-        "VR: hold the trigger on the globe to carry and turn it, its stick scales it; the grips move and scale the world.",
+        "VR: hold the trigger on the globe to carry and turn it \u2014 its stick up/down pushes it away / pulls it closer, left/right scales it.",
+        "VR: point at the board or the globe and push the right stick up/down to move it farther / closer (left/right turns the globe).",
+        "VR: the grips move and scale the world; a grip plus the stick up/down pushes the world away / pulls it closer.",
         "The bar in front of the board: previous / next level, Globe / 2D, restart, Levels.",
         "One progress: a level you reach on the globe is open on the 2D board too."
       ]);
@@ -2683,6 +2741,57 @@ var index_default = {
       },
       { modes: ["interact", "play"], sweep: false }
     );
+    const pushV = new THREE.Vector3();
+    const parentQ = new THREE.Quaternion();
+    const boardPlane = new THREE.Plane();
+    const planeHit = new THREE.Vector3();
+    function boardUnder(ray) {
+      if (mode === "3d") return globeHit(ray, false);
+      const s = surface();
+      boardPlane.setFromNormalAndCoplanarPoint(planeNormal.fromArray(s.normal), hitPoint.fromArray(s.point));
+      if (!ray.ray.intersectPlane(boardPlane, planeHit)) return null;
+      const at = group.worldToLocal(planeHit.clone());
+      const r = board.radius * 1.15;
+      return Math.abs(at.x) <= r && Math.abs(at.y) <= r ? planeHit.clone() : null;
+    }
+    function releasePoint() {
+      if (reel.scope) api.releaseInput?.(reel.scope);
+      reel.scope = null;
+      reel.pointing = false;
+    }
+    function pointStick() {
+      const pose = api.isVR?.() && carried === -1 && !vrDrag.holder() && interactive() ? handPose("right") : null;
+      const ray = pose && !menuUnder(pose) && !coreUiOn(pose) ? poseRay(pose) : null;
+      const hit = ray ? boardUnder(ray) : null;
+      reel.pointing = !!hit;
+      const axes = hit ? api.input?.()?.axes : null;
+      const rx = axes?.rx ?? 0;
+      const ry = axes?.ry ?? 0;
+      const turning = mode === "3d" && Math.abs(rx) > 0.2;
+      if (!hit || !turning && Math.abs(ry) <= 0.15) {
+        if (reel.scope) {
+          api.releaseInput?.(reel.scope);
+          reel.scope = null;
+        }
+        return;
+      }
+      if (!reel.scope && sticksScope()) reel.scope = claimSticks();
+      if (turning) {
+        rotateBy(rx * 4, 0);
+        reel.turns++;
+      }
+      const push = pointPush(hit.distanceTo(ray.ray.origin), ry);
+      if (!push) return;
+      pushV.copy(ray.ray.direction).multiplyScalar(push);
+      if (group.parent) {
+        group.parent.getWorldQuaternion(parentQ).invert();
+        pushV.applyQuaternion(parentQ).divideScalar(group.parent.getWorldScale(localHit).x || 1);
+      }
+      hold.offset.add(pushV);
+      reel.pushes++;
+      placeGroup();
+      redraw(lastCounts);
+    }
     api.registerFrameTask(() => {
       frame++;
       if (!built && nodeSeen < 0 && frame > EXPIRE_FRAMES) setLevel(level);
@@ -2705,12 +2814,7 @@ var index_default = {
       const t = performance.now() / 1e3;
       burst?.tick(t);
       const ray = aim.current();
-      if (mode === "3d" && api.isVR?.() && carried === -1 && !vrDrag.holder() && globeHit(ray, false)) {
-        const axes = api.input?.()?.axes;
-        const rx = axes?.rx ?? 0;
-        const ry = axes?.ry ?? 0;
-        if (Math.abs(rx) > 0.2 || Math.abs(ry) > 0.2) rotateBy(rx * 4, ry * 4);
-      }
+      pointStick();
       vrMoved = false;
       const vr = vrDragOn();
       placePicker(vr);
@@ -2897,6 +3001,7 @@ var index_default = {
     api.onSceneClear?.(() => {
       sceneClears++;
       resetHold();
+      releasePoint();
       level = 1;
       nodeLevel = null;
       remoteApplied = false;
@@ -2972,9 +3077,10 @@ var index_default = {
       },
       vr: () => ({ carrier: vrDrag.carrier(), candidate: vrDrag.candidate(), holder: vrDrag.holder(), lastHand: vrHandLast, on: vrDragOn() }),
       /** 30b: the LOCAL globe hold — offset (parent frame), scale, and the view quaternion */
+      reel: () => ({ ...reel, sticks: sticksScope(), holdDist: holdStart ? holdStart.dist : null, offset: hold.offset.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
       globeHold: () => ({ offset: hold.offset.toArray(), scale: hold.scale, quat: globeQuat.toArray(), centre: group ? group.getWorldPosition(new THREE.Vector3()).toArray() : null }),
       /** roadmap 31: the VR level picker — where it is drawn, open?, the hovered rect, the last press */
-      vrMenu: () => ({ at: pickerAt, open: pickerOpen, visible: vrMenu.mesh.visible, centre: vrMenu.mesh.getWorldPosition(new THREE.Vector3()).toArray(), size: [vrMenu.mesh.scale.x, vrMenu.mesh.scale.y], hover: pickerHover, last: lastPick, cells: pickerCells({ mode, level, progress }, vrMenu.ids()), renderOrder: vrMenu.mesh.renderOrder, depthTest: vrMenu.mesh.material.depthTest }),
+      vrMenu: () => ({ at: pickerAt, open: pickerOpen, visible: vrMenu.mesh.visible, centre: vrMenu.mesh.getWorldPosition(new THREE.Vector3()).toArray(), sortCentre: vrMenu.mesh.localToWorld(vrMenu.mesh.geometry.boundingSphere.center.clone()).toArray(), size: [vrMenu.mesh.scale.x, vrMenu.mesh.scale.y], hover: pickerHover, last: lastPick, cells: pickerCells({ mode, level, progress }, vrMenu.ids()), renderOrder: vrMenu.mesh.renderOrder, depthTest: vrMenu.mesh.material.depthTest }),
       /** world centre of picker rect `id` ('mode:3d', 'level:7', 'continue', 'close') */
       vrMenuCell: (id) => vrMenu.worldOf(id),
       /** roadmap 31 K3: what the game shell was handed (feature-detected) */
