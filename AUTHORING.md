@@ -28,7 +28,8 @@ be read start-to-finish by a person **or** pasted whole into an AI assistant.
   rule) · [`waves`](modules/waves/) (a mechanic COMPOSED on another module's node types,
   the wave derived from counters, a run log every peer appends identically).
 - Missing something? [DEVX-REQUESTS.md](DEVX-REQUESTS.md) tracks known SDK gaps —
-  check it before you work around one.
+  check it before you work around one. To file one, add `devx/<slug>.md` with `number: null`
+  ([devx/README.md](devx/README.md)); the integrator numbers it at merge.
 
 ---
 
