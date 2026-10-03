@@ -11,13 +11,16 @@
 // calls) never goes stale and there is no frame in which the group is missing.
 
 import { generateCampaign } from './gen/campaign.js';
-import { buildFloorGroup, animateFloor } from './render.js';
+import { buildFloorGroup, animateFloor, torchesArrived } from './render.js';
+import { loadTorch } from './torch.js';
 import { kitQuality } from './look.js';
 import { GROUP_NAME, playPayload, mergeMarkers, normalizeParams } from './contract.js';
 
 /** @param {any} api the module SDK surface */
 export function createKit(api) {
 	const THREE = api.THREE;
+	// 34 R7: the wall torch through core's loader; a floor built before it lands gets its torches then
+	loadTorch(api).then(() => torchesArrived(THREE));
 
 	const state = {
 		seed: /** @type {number | null} */ (null),

@@ -34,7 +34,7 @@ export const ROOT = MODULE_ROOT;
 export default {
 	id: 'waves',
 	name: 'Waves',
-	version: '2.2.0',
+	version: '2.3.0',
 	description:
 		'A VR wave shooter on the health module: a gun in your hand, five levels of grunts, runners and tanks walking from the portals to your crystal, a loadout of guns and abilities — every wave derived on every peer, no authority.',
 

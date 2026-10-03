@@ -45,7 +45,7 @@ promise from core.
 | 33 | the VR trigger has no editor mode — a `{modes}` game piece still eats it in the headset editor | every clickable module | no — owed on device; modules already pass `modes`, so the fix is core-only |
 | 34 | `registerListedGroup` cannot ask to be PICKED by the Edit select | `dungeon`, `sabers` | yes — the Kit registers as an INTERACTIVE group (joining every tap's raycast) |
 | 35 | a module cannot read the editor's click mode (`api.editorMode()`) | `car`, `essentials` | yes — hints say "press I (Interact)" blind |
-| 36 | no **model loader** on the api (`api.loadModel(url)` / `api.GLTFLoader`) — the detailed ask is "30. No model loader" below | `waves` (30b, 30c) | yes (30c) — `build-gltf.mjs` bundles three's GLTFLoader + SkeletonUtils against a shim of the RUNTIME three (`globalThis.__wavesTHREE`), imported from a blob: +45 kB per module that does it, and it must track core's three version by hand |
+| 36 | ~~no **model loader** on the api (`api.loadModel(url)` / `api.GLTFLoader`)~~ — the detailed ask is "30. No model loader" below | `waves` (30b, 30c), `dungeon` (torch bake) | **SHIPPED in core 1.20 (34 R7)**: `api.loadModel(url, {lod, castShadow, receiveShadow, collider, ownMaterials})` → a handle `{scene, instance(), animations, info, release(), dispose()}` on core's loader (Draco / Meshopt / KTX2 on demand), cached per URL, LOD-aware, disposed with the module. Waves 2.3.0 and Dungeon Kit 2.4.0 use it; their old-core fallbacks stay (Waves' bundled loader moved to a packaged `assets/gltf-loader.js`, the Kit reads its GLB with a small reader) |
 | 37 | no way to **hide an object's look without touching it** (a module-drawn stand-in: a rigged figure over a capsule enemy) | `waves` (30c) | yes — the object's meshes hop off layer 0 only between the scene's `onBeforeRender` and `onAfterRender` (chained). A persistent hop is NOT safe: the .tpscene save is `toJSON`, which writes layers. The card (author script) renders a `toJSON` clone, so there the capsules show under the figures. Ask: a per-object `userData.renderHidden` core honours in its renders only |
 
 ---
@@ -755,6 +755,13 @@ template's capsule groups.
 
 **30c:** worked around in the module (row #36): Waves 2.1.0 bundles three's own loader against a
 shim of `api.THREE` and ships Meshy guns, rigged walking enemies and a crystal inside its zip.
+
+**34 R7 (core 1.20): SHIPPED.** `api.loadModel('assets/x.glb', opts)` resolves to a handle:
+`scene` (the module's own copy), `instance({ownMaterials?})` (more copies — own bones when
+skinned), `animations`, `info`, `release(obj)`, `dispose()`. Parsed once per URL through core's
+loader (Draco, Meshopt, KTX2 — the transcoder fetched only for a file that needs it), automatic
+LOD by default (or `lod: false | {ratios, distances, minTriangles} | [{file, ratio}]`), released
+when the module unloads. Waves 2.3.0 and Dungeon Kit 2.4.0 load through it.
 
 <!-- 30b-integrate: the round-2 lanes each numbered from #29/#30; renumbered to #36 (model
      loader, cited as #36 by 30c), #37 (render-only hide, cited by 30c), #38 untangle, #39/#40 football. -->

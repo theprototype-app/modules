@@ -1,10 +1,12 @@
-// build the GLB loader chunk the Waves models need (run by `npm run build:waves`, before the
-// module bundle). The api hands a module THREE only — no GLTFLoader (DEVX #36) — and bundling
+// build the GLB loader an OLD core needs for the Waves models (run by `npm run build:waves`,
+// before the module bundle). 34 R7: a core with api.loadModel never fetches it. The api hands a module THREE only — no GLTFLoader (DEVX #36) — and bundling
 // three's loader the normal way would drag a SECOND three into the module, whose classes are
 // not the scene's. So three's own GLTFLoader + SkeletonUtils are bundled against a SHIM that
 // re-exports the RUNTIME three (`globalThis.__wavesTHREE`, set by src/assets.js right before
 // it imports the chunk from a blob). The shim lists exactly the names those files import.
-// Output: src/gltf/loader.chunk (text, embedded into module.js by esbuild's text loader).
+// Output: assets/gltf-loader.js — a PACKAGED file (manifest `files`), committed like module.js,
+// fetched by src/assets.js only when the core has no api.loadModel (it used to be embedded in
+// module.js as text: 45 KB every install parsed and only old cores used).
 import { build } from 'esbuild';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -47,5 +49,6 @@ const out = await build({
 	legalComments: 'none'
 });
 const code = out.outputFiles[0].text;
-writeFileSync(join(here, 'src/gltf/loader.chunk'), code);
-console.log(`loader.chunk written: ${code.length} bytes, ${names.size} three names shimmed`);
+mkdirSync(join(here, 'assets'), { recursive: true });
+writeFileSync(join(here, 'assets/gltf-loader.js'), code);
+console.log(`assets/gltf-loader.js written: ${code.length} bytes, ${names.size} three names shimmed`);
