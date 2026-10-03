@@ -353,9 +353,9 @@
 		"number": 36,
 		"slug": "model-loader-api-glb-gun-glb",
 		"title": "No model loader on the api (a GLB gun, a GLB enemy)",
-		"status": "open",
-		"gap": "no **model loader** on the api (`api.loadModel(url)` / `api.GLTFLoader`) — the detailed ask is \"30. No model loader\" below",
-		"blocks": "`waves` (30b, 30c)",
+		"status": "shipped",
+		"gap": "~~no **model loader** on the api (`api.loadModel(url)` / `api.GLTFLoader`)~~ — the detailed ask is \"30. No model loader\" below",
+		"blocks": "`waves` (30b, 30c), `dungeon` (torch bake)",
 		"workaround": "yes (30c) — `build-gltf.mjs` bundles three's GLTFLoader + SkeletonUtils against a shim of the RUNTIME three (`globalThis.__wavesTHREE`), imported from a blob: +45 kB per module that does it, and it must track core's three version by hand",
 		"file": "devx/model-loader-api-glb-gun-glb.md"
 	},

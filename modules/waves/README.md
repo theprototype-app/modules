@@ -29,10 +29,11 @@ modules/waves/
   src/vr.js        PURE (30b): aim rays, ray x board, press edges, the in-game gate
   src/prefs.js     (30b) the loadout + options, on this device (api.storage)
   src/weapon.js    (30b) the gun in the hand / the view, hitscan, damage, the beam's heat
-  src/assets.js    (30c) the GLB loader (three's, bundled on the runtime three) + the models
+  src/assets.js    (30c) the models — core's api.loadModel (34 R7), else three's bundled loader
   src/figures.js   PURE (30c): the stand-in layer, gait, walk rate, facing, the death, gun fits
   src/avatars.js   (30c) the walking figures + the crystal, following the enemy objects
-  build-gltf.mjs   (30c) builds src/gltf/loader.chunk (GLTFLoader + SkeletonUtils, three shimmed)
+  build-gltf.mjs   (30c) builds assets/gltf-loader.js (GLTFLoader + SkeletonUtils, three shimmed) —
+                   the OLD-core fallback, a packaged file only a core without api.loadModel fetches
   assets/          (30c) gun-*.glb, enemy-*.glb, crystal.glb — Meshy-made, post-processed
   src/powers.js    (30b) the ability on the free hand's grip / Q, its looks
   src/juice.js     (30b) tracers, muzzle flashes, the kill pop — pooled, LOCAL
@@ -259,9 +260,12 @@ The card renders the module root too (`thumb.sceneGroups`), over the capsules. A
 life. The Meshy crystal follows the `Goal core` and dims with it. Any model that fails to load
 leaves that thing's 30b primitive in place.
 
-**The loader.** The api hands a module THREE but no GLTFLoader (DEVX #36). `build-gltf.mjs`
-bundles three's own `GLTFLoader` + `SkeletonUtils` (three 0.185.1, core's version) against a
-generated shim that re-exports `globalThis.__wavesTHREE`; `assets.js` sets it to `api.THREE`
-and imports the chunk from a blob, so every class is the scene's own. A core with
-`api.loadModel` is used first. The GLBs are plain glTF-binary (no Draco/Meshopt/KTX2/WebP).
+**The loader.** 2.3.0 (34 R7): `assets.js` loads every model through core's `api.loadModel`
+(core 1.20+) — the app's own loader and cache, released with the module — and clones an enemy
+through the handle's `instance({ownMaterials: true})` (its own bones, its own materials for the
+hit flash). On an OLDER core (no loadModel, DEVX #36) it falls back to three's own `GLTFLoader` +
+`SkeletonUtils` bundled by `build-gltf.mjs` against a generated shim that re-exports
+`globalThis.__wavesTHREE` — now a packaged file (`assets/gltf-loader.js`, listed in `files`)
+fetched only there, so module.js is 45 kB lighter. The GLBs are plain glTF-binary (no
+Draco/Meshopt/KTX2/WebP), so both paths read them.
 

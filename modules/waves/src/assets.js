@@ -1,16 +1,22 @@
 // waves — THE MESHY MODELS (30c): the three guns, the three enemies and the crystal as GLBs
 // inside the module's own zip (`assets/…`, listed in manifest `files` for a URL install).
 //
-// The api hands a module THREE but no GLTFLoader (DEVX #36). Three's own loader is bundled at
-// build time against a shim of the RUNTIME three (build-gltf.mjs → src/gltf/loader.chunk, text
-// embedded in module.js): set `globalThis.__wavesTHREE`, import the chunk from a blob, and its
-// classes ARE the scene's. A core that grows `api.loadModel(url)` is used first.
+// 34 R7: a core with `api.loadModel` (1.20+) loads them with ITS loader — one cache, the scene's
+// own THREE, LOD, released when the module unloads — and its handle's `instance()` clones a
+// skinned enemy with its own bones. That is the path on every current core; nothing below the
+// fallback line runs there.
+//
+// THE FALLBACK for an older core (the api hands a module THREE but no GLTFLoader, DEVX #36):
+// three's own loader, bundled at build time against a shim of the RUNTIME three
+// (build-gltf.mjs → assets/gltf-loader.js, a packaged file, fetched only on such a core): set
+// `globalThis.__wavesTHREE`, import the text from a blob, and its classes ARE the scene's.
 //
 // Everything here is LOCAL and lazy: the first ask starts the load, a frame task asks `get` and
 // gets null until the model is in (the primitive look stands in meanwhile, and for good when a
 // file is missing or fails to parse — the game never waits on a model).
 
-import LOADER_SOURCE from './gltf/loader.chunk';
+/** the bundled loader an OLD core needs (not a model: the manifest lists it beside them) */
+export const LOADER_FILE = 'assets/gltf-loader.js';
 
 /** the packaged files, by key — the manifest's `files` lists every one (a test holds it) */
 export const ASSET_FILES = Object.freeze({
@@ -33,12 +39,15 @@ export function createAssets(api) {
 	/** the chunk's exports once imported @type {any} */
 	let loaded = null;
 
-	/** three's GLTFLoader + SkeletonUtils.clone, bound to the runtime three */
+	/** three's GLTFLoader + SkeletonUtils.clone, bound to the runtime three (an OLD core only) */
 	function loaderModule() {
 		if (!chunk)
 			chunk = (async () => {
+				const file = api.assetUrl?.(LOADER_FILE);
+				if (!file) throw new Error(LOADER_FILE + ' is not in the installed module');
+				const source = await (await fetch(file)).text();
 				/** @type {any} */ (globalThis).__wavesTHREE = THREE;
-				const url = URL.createObjectURL(new Blob([LOADER_SOURCE], { type: 'text/javascript' }));
+				const url = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
 				try {
 					loaded = await import(/* @vite-ignore */ url);
 					return loaded;
@@ -49,12 +58,10 @@ export function createAssets(api) {
 		return chunk;
 	}
 
-	/** @param {string} url */
-	async function parse(url) {
-		if (typeof api.loadModel === 'function') {
-			const r = await api.loadModel(url);
-			return r?.scene ? r : { scene: r, animations: r?.animations ?? [] };
-		}
+	/** @param {string} file the packaged path @param {string} url its blob URL */
+	async function parse(file, url) {
+		// 34 R7: core's loader — the handle IS the gltf here (scene, animations, instance())
+		if (typeof api.loadModel === 'function') return api.loadModel(file, { castShadow: false, receiveShadow: false });
 		const m = await loaderModule();
 		return new m.GLTFLoader().loadAsync(url);
 	}
@@ -72,7 +79,7 @@ export function createAssets(api) {
 			entry.error = file ? file + ' is not in the installed module' : 'no asset ' + key;
 			return entry;
 		}
-		parse(url).then(
+		parse(file, url).then(
 			(gltf) => {
 				gltf.scene.traverse((/** @type {any} */ o) => {
 					if (!o.isMesh) return;
@@ -109,14 +116,10 @@ export function createAssets(api) {
 	function instance(key) {
 		const gltf = get(key);
 		if (!gltf) return null;
+		// 34 R7: core's handle clones (own bones for a skinned enemy) and copies the materials
+		if (typeof gltf.instance === 'function') return { scene: gltf.instance({ ownMaterials: true }), animations: gltf.animations ?? [] };
 		let skinned = false;
 		gltf.scene.traverse((/** @type {any} */ o) => (skinned ||= !!o.isSkinnedMesh));
-		// the chunk is loaded whenever this file parsed the gltf; a core loadModel gltf still
-		// needs SkeletonUtils for a skinned clone, so ask for the chunk (it is in the bundle)
-		if (skinned && !loaded) {
-			loaderModule();
-			return null;
-		}
 		const clone = skinned ? loaded.cloneSkinned(gltf.scene) : gltf.scene.clone(true);
 		/** @type {Map<any, any>} */
 		const own = new Map();

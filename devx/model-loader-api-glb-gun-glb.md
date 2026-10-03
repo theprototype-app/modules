@@ -1,9 +1,9 @@
 ---
 number: 36
 title: "No model loader on the api (a GLB gun, a GLB enemy)"
-status: open
-gap: "no **model loader** on the api (`api.loadModel(url)` / `api.GLTFLoader`) — the detailed ask is \"30. No model loader\" below"
-blocks: "`waves` (30b, 30c)"
+status: shipped
+gap: "~~no **model loader** on the api (`api.loadModel(url)` / `api.GLTFLoader`)~~ — the detailed ask is \"30. No model loader\" below"
+blocks: "`waves` (30b, 30c), `dungeon` (torch bake)"
 workaround: "yes (30c) — `build-gltf.mjs` bundles three's GLTFLoader + SkeletonUtils against a shim of the RUNTIME three (`globalThis.__wavesTHREE`), imported from a blob: +45 kB per module that does it, and it must track core's three version by hand"
 ---
 
@@ -21,6 +21,13 @@ template's capsule groups.
 
 **30c:** worked around in the module (row #36): Waves 2.1.0 bundles three's own loader against a
 shim of `api.THREE` and ships Meshy guns, rigged walking enemies and a crystal inside its zip.
+
+**34 R7 (core 1.20): SHIPPED.** `api.loadModel('assets/x.glb', opts)` resolves to a handle:
+`scene` (the module's own copy), `instance({ownMaterials?})` (more copies — own bones when
+skinned), `animations`, `info`, `release(obj)`, `dispose()`. Parsed once per URL through core's
+loader (Draco, Meshopt, KTX2 — the transcoder fetched only for a file that needs it), automatic
+LOD by default (or `lod: false | {ratios, distances, minTriangles} | [{file, ratio}]`), released
+when the module unloads. Waves 2.3.0 and Dungeon Kit 2.4.0 load through it.
 
 <!-- 30b-integrate: the round-2 lanes each numbered from #29/#30; renumbered to #36 (model
      loader, cited as #36 by 30c), #37 (render-only hide, cited by 30c), #38 untangle, #39/#40 football. -->

@@ -7,6 +7,7 @@ import { run as campaignTests } from './campaign.test.mjs';
 import { run as contractTests } from './contract.test.mjs';
 import { run as lookTests } from './look.test.mjs';
 import { run as questTests } from './quest.test.mjs';
+import { run as torchTests } from './torch.test.mjs';
 
 let failures = 0;
 function check(ok, label) {
@@ -24,6 +25,8 @@ console.log('\n=== look.test.mjs ===');
 lookTests(check);
 console.log('\n=== quest.test.mjs ===');
 await questTests(check);
+console.log('\n=== torch.test.mjs ===');
+torchTests(check);
 
 console.log('\n' + (failures === 0 ? 'ALL PASS' : failures + ' FAILURES'));
 process.exit(failures === 0 ? 0 : 1);

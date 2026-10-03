@@ -11,11 +11,12 @@ modules/dungeon/
   src/contract.js the userData.play record (pure, node-tested)
   src/render.js   the instanced level renderer (floors, walls, decor, torches, lights)
   src/torch.js    the props-kit WallTorch (packs `props-kit/WallTorch`, CC0, made with Meshy.ai +
-                  procedural), baked from assets/wall-torch.glb by build-torch.mjs at build time
+                  procedural): assets/wall-torch.glb loaded at runtime through core's
+                  api.loadModel (1.20+; a small GLB reader covers older cores)
   src/kit.js      world state {seed, params, floorIndex}, replication, the seam
   src/toolbox.js  api.registerToolbox (+ the #dungeon-panel fallback)
   src/nodes.js    the "Dungeon" node — the recipe as a node
-  test/           gen.test / campaign.test / contract.test (no app needed)
+  test/           gen / campaign / contract / look / quest / torch tests (no app needed)
   module.js       the bundled, self-contained entry (committed)
 ```
 

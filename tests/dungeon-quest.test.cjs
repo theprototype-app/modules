@@ -77,6 +77,18 @@ run(async () => {
 	await A.page.evaluate(() => window.__dungeonKit.kit.generate(1337, {}));
 	await eventually(() => A.page.evaluate(() => !!window.__dungeonKit.kit.stats()), (v) => v, 'the Kit generated seed 1337');
 	await A.page.waitForTimeout(600);
+	// 34 R7: the torch bodies come from the GLB core's api.loadModel parses — a moment after the
+	// first floor (a cold dev server transforms the loader on first use); wait for the model,
+	// never a timer
+	await eventually(
+		() => A.page.evaluate(() => {
+			let scene;
+			window.__stores.globalScene.subscribe((v) => (scene = v))();
+			return !!scene.getObjectByName('dungeon-module')?.getObjectByName('dk-floor')?.getObjectByName('dk-torch-iron');
+		}),
+		(v) => v,
+		'the torch model landed and the floor got its torch meshes'
+	);
 
 	// ---- 1. the editor: the overview -------------------------------------------------------
 	const edit = await drawn(A.page);

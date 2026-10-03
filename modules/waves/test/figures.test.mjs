@@ -27,7 +27,7 @@ import { KINDS } from '../src/curve.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const mod = join(here, '..');
-// assets.js imports the loader chunk as text (esbuild) — read its table as source instead
+// assets.js is read as source (its table), not imported: it needs the app's api
 const ASSET_FILES = Object.fromEntries(
 	[...readFileSync(join(mod, 'src/assets.js'), 'utf8').matchAll(/^\t(\w+): '(assets\/[^']+)'/gm)].map((m) => [m[1], m[2]])
 );
@@ -102,6 +102,12 @@ export function run(check) {
 		return { k, skins: json.skins?.length ?? 0, clips: (json.animations ?? []).map((/** @type {any} */ a) => a.name) };
 	});
 	check(skinned.every((s) => s.skins === 1 && ['walk', 'run', 'hit', 'death'].every((c) => s.clips.includes(c))), 'every enemy is rigged (one skin) with walk / run / hit / death (' + skinned.map((s) => s.k + ':' + s.clips.join('/')).join(' ') + ')');
+	// 34 R7: core's api.loadModel first; the bundled loader is a PACKAGED file an old core fetches
 	const bundle = readFileSync(join(mod, 'module.js'), 'utf8');
-	check(bundle.includes('__wavesTHREE') && bundle.includes('GLTFLoader') && !/from\s*["']three["']/.test(bundle), 'module.js carries the loader chunk, bound to the runtime three (no import of a second three)');
+	const src = readFileSync(join(mod, 'src/assets.js'), 'utf8');
+	check(/typeof api\.loadModel === 'function'\) return api\.loadModel\(file/.test(src) && /typeof gltf\.instance === 'function'\) return \{ scene: gltf\.instance\(\{ ownMaterials: true \}\)/.test(src), 'assets.js loads through core\'s api.loadModel and clones through its handle (own bones, own materials) when the core has it');
+	check(!bundle.includes('KHR_draco_mesh_compression') && !/from\s*["']three["']/.test(bundle), 'module.js no longer embeds three\'s GLTFLoader (' + bundle.length + ' bytes) and imports no three');
+	const loaderFile = /export const LOADER_FILE = '([^']+)'/.exec(src)?.[1] ?? '';
+	const chunk = readFileSync(join(mod, loaderFile || 'assets/gltf-loader.js'), 'utf8');
+	check(loaderFile === 'assets/gltf-loader.js' && manifest.files.includes(loaderFile) && chunk.includes('__wavesTHREE') && chunk.includes('KHR_draco_mesh_compression') && !/from\s*["']three["']/.test(chunk), 'the old-core fallback ships as ' + loaderFile + ' (listed in files), bound to the runtime three (no second three)');
 }

@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { budgetOf, fromCoreLevel, lodFar, stepGovernor } from '../src/quality.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-// the files assets.js loads (it imports the loader chunk, which node cannot, so its list is
-// mirrored here; figures.test.mjs holds the manifest to that list)
+// the files assets.js loads (it needs the app's api, so its list is mirrored here;
+// figures.test.mjs holds the manifest to that list)
 const ASSET_FILES = {
 	blaster: 'assets/gun-blaster.glb',
 	scatter: 'assets/gun-scatter.glb',
