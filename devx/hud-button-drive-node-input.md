@@ -1,11 +1,20 @@
 ---
 number: 22
-title: "A HUD Button cannot drive a module node's input"
-status: open
-gap: "a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value"
+title: "A HUD Button cannot drive a module node's input — **SHIPPED**"
+status: shipped
+gap: "~~a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value~~"
 blocks: "`football`, `dungeon-realms` (30), `waves`"
-workaround: "yes — a `delay` node bridges the stamp into a numeric pulse"
+workaround: "**SHIPPED** (core 1.23, 36-dataflow) — `hudbutton` (and `ongamestate`) now evaluate to the `onclick` pulse window and `hudtimer` to its remaining seconds; a HUD Button wired straight into a module input reads 1 for the press. The Delay bridge still works and can go"
 ---
+
+> Delivered (core 1.23, 36-dataflow — the first ask, the smaller one): `hudbutton` evaluates to the
+> `onclick` pulse window (1 for `pulse` seconds after the replicated press stamp, else 0), so
+> `hudbutton -> mymodulenode.press` works with no Delay between them. The 36 catalog audit found two
+> more listed value sources with no evaluator and fixed them the same way: `ongamestate` (its
+> transition pulse) and `hudtimer` (remaining seconds). A unit guard (`nodeCatalogAudit`) now fails
+> for any value type without an evaluator; e2e `value-graph` asserts HUD Button → Math reads the
+> press. The original request is kept below.
+
 
 **Found in:** `modules/football` (24-B2), and it cost a red test-flight before it was
 understood — the wire LOOKS right in the editor and does nothing at runtime.
