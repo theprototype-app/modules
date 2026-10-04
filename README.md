@@ -8,7 +8,7 @@ everything installable through **Modules ▸ Install** (zip upload or URL).
 
 **Writing one?** [AUTHORING.md](AUTHORING.md) is the single entry point — the
 rules, the API digest and the testing recipe. Known SDK gaps are tracked in
-[DEVX-REQUESTS.md](DEVX-REQUESTS.md).
+[DEVX-REQUESTS.md](DEVX-REQUESTS.md) — one file each under [devx/](devx/README.md).
 
 ```bash
 npm install

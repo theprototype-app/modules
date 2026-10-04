@@ -292,27 +292,15 @@ export function buildFloorGroup(THREE, dungeon) {
 	// a bigger flame on their rim
 	const torches = byKind.torch ?? [];
 	const onWall = (/** @type {any} */ p, /** @type {number} */ out) => ({ x: worldX(p.x) + (p.fx ?? 0) * out, z: worldZ(p.y) + (p.fy ?? 0) * out });
-	const parts = torchParts(THREE);
-	const yAxis = new THREE.Vector3(0, 1, 0);
-	for (const name of SOLID_PARTS)
-		instanced('dk-torch-' + name.replace(/^WallTorch_/, ''), parts[name].geometry, parts[name].material, torches, (p) => {
-			const w = onWall(p, 0.505);
-			position.set(w.x, TORCH_BASE_Y, w.z);
-			quaternion.setFromAxisAngle(yAxis, Math.atan2(p.fx ?? 0, p.fy ?? 1));
-			scale.setScalar(TORCH_SCALE);
-		});
 	const flameOut = 0.505 + FLAME_AT[2] * TORCH_SCALE;
 	const flameBase = TORCH_BASE_Y + FLAME_AT[1] * TORCH_SCALE;
 	const torchFlame = TORCH_SCALE * FLAME_GROW;
 	// a spot is the flame's CENTRE (lights, halos' flicker); `by`/`sc` are its base and size
 	const flameSpots = torches.map((p) => ({ ...onWall(p, flameOut), y: flameBase + 0.11 * torchFlame, by: flameBase, sc: torchFlame }))
 		.concat((byKind.brazier ?? []).map((p) => ({ x: worldX(p.x), y: 0.75, z: worldZ(p.y), by: 0.55, sc: 2.4 })));
-	// the flames GLOW (emissive over 1: the bloom pass catches them) and flicker per torch
-	// (animateFloor stretches each instance from its own base pose)
-	const flames = instanced('dk-flames', parts.Flame.geometry,
-		new THREE.MeshStandardMaterial({ color: theme.torchColor, emissive: theme.torchColor, emissiveIntensity: LOOK.flameIntensity, roughness: 1 }),
-		flameSpots, (p) => { position.set(p.x, p.by, p.z); scale.setScalar(p.sc); });
-	if (flames) flames.userData.spots = flameSpots;
+	// 34 R7: the torch BODIES and the model's flames come from the GLB core loads — now, or when
+	// it lands (torchesArrived); everything else (cores, halos, pools, lights) needs only FLAME_AT
+	const torchBuild = { torches: torches.map((p) => ({ ...onWall(p, 0.505), fx: p.fx, fy: p.fy })), flameSpots, color: theme.torchColor };
 	// a white-hot core inside every flame (unlit, so it reads in VR where there is no bloom)
 	const cores = instanced('dk-flame-cores', new THREE.ConeGeometry(0.03, 0.1, 6),
 		new THREE.MeshBasicMaterial({ color: 0xfff1c8 }),
@@ -387,9 +375,87 @@ export function buildFloorGroup(THREE, dungeon) {
 		// what is drawn now: indices into the torch / flame spot lists (all of them until a game view)
 		vis: { torch: new Int32Array(T), torchN: -1, flame: new Int32Array(flameSpots.length), flameN: -1, at: null, tier: -1, cull: null },
 		quality: kitQuality(0, false),
-		activeSlots: slots
+		activeSlots: slots,
+		torchBuild
 	};
+	const parts = torchParts(THREE);
+	if (parts) addTorchMeshes(THREE, group, parts);
+	else awaitingTorch.add(group);
 	return group;
+}
+
+/** floors built before the torch model landed (render once it does) @type {Set<any>} */
+const awaitingTorch = new Set();
+
+/**
+ * 34 R7: the torch model is in — give every floor built without it its torch meshes. Called by
+ * the Kit when loadTorch resolves. @param {any} THREE
+ */
+export function torchesArrived(THREE) {
+	const parts = torchParts(THREE);
+	if (!parts) return;
+	for (const group of awaitingTorch) if (group.userData._dk) addTorchMeshes(THREE, group, parts);
+	awaitingTorch.clear();
+}
+
+/**
+ * The torch family that needs the MODEL: one InstancedMesh per solid part (its back on the wall
+ * face, facing the floor cell) and the model's own Flame per torch and brazier (it keeps the
+ * Kit's emissive glow and per-torch flicker; animateFloor stretches each instance from its own
+ * base pose). They join the cull set like the rest of the family.
+ * @param {any} THREE @param {any} group a floor group @param {any} parts torchParts()
+ */
+function addTorchMeshes(THREE, group, parts) {
+	const dk = group.userData._dk;
+	const { torches, flameSpots, color } = dk.torchBuild;
+	if (dk.torchMeshes) return;
+	dk.torchMeshes = true;
+	const matrix = new THREE.Matrix4();
+	const position = new THREE.Vector3();
+	const quaternion = new THREE.Quaternion();
+	const scale = new THREE.Vector3(1, 1, 1);
+	const yAxis = new THREE.Vector3(0, 1, 0);
+	/** @param {string} name @param {any} geometry @param {any} material @param {any[]} list @param {(p: any) => void} pose */
+	const instanced = (name, geometry, material, list, pose) => {
+		if (!list?.length) return null;
+		const mesh = new THREE.InstancedMesh(geometry, material, list.length);
+		mesh.name = name;
+		list.forEach((p, i) => {
+			position.set(0, 0, 0);
+			quaternion.identity();
+			scale.set(1, 1, 1);
+			pose(p);
+			matrix.compose(position, quaternion, scale);
+			mesh.setMatrixAt(i, matrix);
+		});
+		group.add(mesh);
+		return mesh;
+	};
+	/** @type {any[]} */
+	const made = [];
+	for (const name of SOLID_PARTS) {
+		const mesh = instanced('dk-torch-' + name.replace(/^WallTorch_/, ''), parts[name].geometry, parts[name].material, torches, (p) => {
+			// on the wall face (half a cell out from the wall cell's centre), facing the floor cell
+			position.set(p.x, TORCH_BASE_Y, p.z);
+			quaternion.setFromAxisAngle(yAxis, Math.atan2(p.fx ?? 0, p.fy ?? 1));
+			scale.setScalar(TORCH_SCALE);
+		});
+		if (mesh) made.push(mesh);
+	}
+	const flames = instanced('dk-flames', parts.Flame.geometry,
+		new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: LOOK.flameIntensity, roughness: 1 }),
+		flameSpots, (p) => { position.set(p.x, p.by, p.z); scale.setScalar(p.sc); });
+	if (flames) {
+		flames.userData.spots = flameSpots;
+		made.push(flames);
+	}
+	for (const o of made) {
+		o.computeBoundingSphere();
+		o.userData.cull = { space: o.name === 'dk-flames' ? 'flame' : 'torch', all: o.instanceMatrix.array.slice(), shown: -1 };
+		dk.culled.push(o);
+	}
+	// re-cull on the next frame so the new meshes show only what the view should
+	dk.vis.torchN = -1;
 }
 
 /** where the view has to move before the torch set is re-culled (metres) */
