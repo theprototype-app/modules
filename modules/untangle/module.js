@@ -964,6 +964,10 @@ var LOCK_SVG = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="tru
 var CHECK_SVG = '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M6.2 11.6 2.8 8.2l1.1-1.1 2.3 2.3 5.9-5.9 1.1 1.1z"/></svg>';
 var style = (el, css) => Object.assign(el.style, css);
 var inRuntimeLayer = (el) => !!el.closest?.("#hud-layer");
+function statsText(t, show) {
+  if (show === "result") return "Time " + formatTime(t.ms) + "   Best " + formatTime(t.best) + (t.newBest ? "   NEW BEST" : "");
+  return "\u23F1 " + formatTime(t.ms) + "   best " + formatTime(t.best);
+}
 function makeMenuKinds(ctx) {
   const renders = /* @__PURE__ */ new Set();
   function mountLevels(el) {
@@ -1136,7 +1140,9 @@ function makeMenuKinds(ctx) {
       defaultSize: { w: 240, h: 24 },
       defaults: { show: "play" },
       fields: [{ key: "show", kind: "select", label: "show", options: ["play", "result"] }],
-      mount: mountStats
+      mount: mountStats,
+      // core 1.24 (36 B12) draws the playing HUD in the headset; this is what the clock READS there
+      vrText: (element) => statsText(ctx.time(), element?.show === "result" ? "result" : "play")
     },
     refreshAll() {
       for (const r of renders) {
@@ -1884,7 +1890,7 @@ var EXPIRE_FRAMES = 40;
 var index_default = {
   id: "untangle",
   name: "Untangle",
-  version: "2.4.0",
+  version: "2.4.1",
   description: "Drag the dots until no edges cross \u2014 on a flat board or around a globe, 30 levels that unlock as you solve them, one progress for both (it stays on your device). In VR: you start in front of the board, grab dots with the trigger, hold/turn/scale the globe, the stick pushes the board or the held globe farther / pulls it closer (as Edit does to a held object), the grips scale the world, a level picker with Globe / 2D and a level bar. Replicated; board pose, level and readouts as flow nodes.",
   /** @param {any} api */
   register(api) {
@@ -2120,8 +2126,9 @@ var index_default = {
       /** @type {number[]} */
       []
     );
+    const coreVrHud = typeof api.hud?.vrHud === "function";
     function ensureSprite() {
-      const wantVR = typeof api.isVR === "function" && api.isVR();
+      const wantVR = !coreVrHud && typeof api.isVR === "function" && api.isVR();
       if (!wantVR) {
         if (sprite) {
           group?.remove(sprite);

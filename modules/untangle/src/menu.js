@@ -34,6 +34,16 @@ const inRuntimeLayer = (/** @type {HTMLElement} */ el) => !!el.closest?.('#hud-l
  *   time: () => {ms: number | null, best: number | null, newBest: boolean, solved: boolean}
  * }} ctx
  */
+/**
+ * The clock as one line of text — what the headset shows for the DOM readout (core's VR HUD
+ * band draws module kinds through `vrText`). Pure; tested.
+ * @param {{ms: number, best: number, newBest?: boolean}} t @param {'play' | 'result'} show
+ */
+export function statsText(t, show) {
+	if (show === 'result') return 'Time ' + formatTime(t.ms) + '   Best ' + formatTime(t.best) + (t.newBest ? '   NEW BEST' : '');
+	return '⏱ ' + formatTime(t.ms) + '   best ' + formatTime(t.best);
+}
+
 export function makeMenuKinds(ctx) {
 	/** @type {Set<() => void>} */
 	const renders = new Set();
@@ -225,7 +235,9 @@ export function makeMenuKinds(ctx) {
 			defaultSize: { w: 240, h: 24 },
 			defaults: { show: 'play' },
 			fields: [{ key: 'show', kind: 'select', label: 'show', options: ['play', 'result'] }],
-			mount: mountStats
+			mount: mountStats,
+			// core 1.24 (36 B12) draws the playing HUD in the headset; this is what the clock READS there
+			vrText: (/** @type {any} */ element) => statsText(ctx.time(), element?.show === 'result' ? 'result' : 'play')
 		},
 		refreshAll() {
 			for (const r of renders) {
