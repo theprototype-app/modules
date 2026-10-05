@@ -242,8 +242,9 @@ export function realmsHud() {
 	};
 }
 
-/** @param {{x: number, z: number}} entrance the entrance room centre (world) for SEED */
-export function realmsDef(entrance) {
+/** @param {{x: number, z: number}} entrance the entrance room centre (world) for SEED
+ * @param {{rulesCode?: string}} [opts] `rulesCode` = src/realms.rules.js (emit-def.mjs reads it) */
+export function realmsDef(entrance, opts = {}) {
 	return {
 		kind: 'game',
 		slug: 'dungeon-realms',
@@ -253,7 +254,7 @@ export function realmsDef(entrance) {
 		license: 'CC0-1.0',
 		author: 'theprototype',
 		tags: ['co-op', 'procedural', 'vr', 'dungeon'],
-		modules: [{ id: 'dungeon', version: '2.3.0' }, { id: 'dungeon-realms', version: '2.3.0' }],
+		modules: [{ id: 'dungeon', version: '2.3.0' }, { id: 'dungeon-realms', version: '2.4.0' }],
 		installModules: ['dungeon', 'dungeon-realms'],
 		// 30: a custom dusk — a violet gradient sky, fog that turns far corridors to depth, a cool
 		// moon and a warm-floored sky fill so the stone reads; torches, gems and portals glow
@@ -282,7 +283,7 @@ export function realmsDef(entrance) {
 			],
 			changedAt: 0
 		},
-		graphs: { scene: realmsGraph() },
+		graphs: { scene: opts.rulesCode ? mainGraph(realmsGraph(), opts.rulesCode) : realmsGraph() },
 		hud: realmsHud(),
 		objects: archObjects(entrance),
 		// the editor camera opens on the arch; the card renders the module's world too
@@ -290,3 +291,62 @@ export function realmsDef(entrance) {
 		thumb: { camera: NAMES.card, sceneGroups: ['dungeon-module'] }
 	};
 }
+
+/**
+ * 36 (U10, 36-games-graphs): the MAIN graph — readable at a glance. The seed builds the world
+ * (the Dungeon Kit), the Game Rules node holds the settings, the "Dungeon Realms rules" behaviour
+ * holds the DECISIONS (src/realms.rules.js) and feeds the HUD's gem line; menus, readouts, the game
+ * shell and the pause menu sit in named groups (double-click to open), a note beside each.
+ * @param {{nodes: any[], edges: any[]}} g @param {string} rulesCode
+ */
+function mainGraph(g, rulesCode) {
+	const drop = new Set(['vgems', 'vneed']); // the rules' have / need feed those HUD Texts now
+	const nodes = g.nodes.filter((n) => !drop.has(n.id)).map((n) => ({ ...n, data: { type: n.type, ...n.data } }));
+	const edges = g.edges.filter((e) => !drop.has(e.source) && !drop.has(e.target));
+	const at = (/** @type {string} */ id, /** @type {number} */ x, /** @type {number} */ y) => {
+		const n = nodes.find((m) => m.id === id);
+		if (n) n.position = { x, y };
+	};
+	/** @param {string} source @param {string} sourceHandle @param {string} target @param {string} targetHandle */
+	const wire = (source, sourceHandle, target, targetHandle) =>
+		edges.push({ id: 'e-' + source + '.' + sourceHandle + '-' + target + '.' + targetHandle, source, sourceHandle, target, targetHandle });
+	const note = (/** @type {string} */ id, /** @type {string} */ title, /** @type {string} */ text, /** @type {number} */ x, /** @type {number} */ y, /** @type {any} */ o = {}) =>
+		nodes.push({ id, type: 'note', position: { x, y }, data: { type: 'note', title, text, color: o.color ?? 'yellow', w: o.w ?? 260, h: o.h ?? 130 } });
+	const group = (/** @type {string} */ id, /** @type {string} */ label, /** @type {(n: any) => boolean} */ pick, /** @type {number} */ x, /** @type {number} */ y) =>
+		nodes.push({ id, type: 'group', position: { x, y }, data: { type: 'group', label, children: nodes.filter((n) => n.type !== 'group' && n.type !== 'note' && pick(n)).map((n) => n.id), inputs: [], outputs: [] }, class: 'w-[190px]' });
+
+	note('n-main', 'Dungeon Realms — read me first',
+		'Collect gems to unseal each floor\'s portal, stand on it together, reach the dragon\'s hoard.\n' +
+		'- **Seed → Dungeon Kit** builds the world (change the seed for a new dungeon).\n' +
+		'- **Game Rules** holds the settings — select it, ⓘ tab: the gem share, travel together, no flying.\n' +
+		'- **Dungeon Realms rules** is the code that *decides*: how many gems open a portal, when the party travels. Double-click to read or change it (Ctrl+S).',
+		-420, 0, { w: 360, h: 270, color: 'blue' });
+	at('seed', 0, 40);
+	at('dungeon', 240, 40);
+	at('selplinth', 480, 40);
+	at('rules', 240, 420);
+	note('n-world', 'The world', 'The **Dungeon Kit** module generates five floors from the seed on every peer — determinism is the netcode.', 480, 200, { w: 240, h: 120, color: 'gray' });
+	note('n-settings', 'Settings', '**Game Rules** sits on the entrance plinth; its numbers are what the rules read.', 480, 440, { w: 240, h: 100, color: 'yellow' });
+	nodes.push({ id: 'drcode', type: 'behaviour', position: { x: 800, y: 0 }, data: { type: 'behaviour', label: 'Behaviour', name: 'Dungeon Realms rules', code: rulesCode, main: 1 }, class: 'w-[250px]' });
+	nodes.push({ id: 'drengine', type: 'coderef', position: { x: 800, y: 340 }, data: { type: 'coderef', label: 'Code link', module: 'dungeon-realms', file: 'module.js', title: 'Dungeon Realms engine — gems, portals, slots, the menu', main: 1 }, class: 'w-[150px]' });
+	note('n-engine', 'The engine', 'What the rules call as **kit.realms.*** — the gems you walk over, the portal you stand on, the party slots. Double-click to read it.', 800, 560, { w: 260, h: 120, color: 'gray' });
+
+	// the rules feed the HUD's gem line: "Gems 3 / 5 needed"
+	wire('drcode', 'have', 'tgems', 'value');
+	wire('drcode', 'need', 'tneed', 'value');
+
+	const has = (/** @type {string[]} */ ids) => (/** @type {any} */ n) => ids.includes(n.id);
+	const HUD = ['tgems', 'tneed', 'vlevel', 'tlevel', 'vlevels', 'tlevels', 'vplayers', 'tplayers', 'robjective', 'rplayers', 'evgem', 'cgems', 'ttaken', 'score'];
+	const SHELL = ['evstart', 'gostart', 'evwin', 'goover', 'evreset', 'gomenu'];
+	const PAUSE = ['pkey', 'pausetoggle', 'bresume', 'resumehide', 'bquit', 'doquit', 'quithide'];
+	group('g-hud', 'HUD: gems, level, party', has(HUD), 1180, 0);
+	group('g-shell', 'Game shell (menu · play · victory)', has(SHELL), 1180, 300);
+	group('g-pause', 'Pause menu', has(PAUSE), 1180, 480);
+	const taken = new Set(nodes.filter((n) => n.type === 'group').flatMap((n) => n.data.children));
+	const top = new Set(['seed', 'dungeon', 'selplinth', 'rules', 'drcode', 'drengine']);
+	group('g-menu', 'Start menu & buttons', (n) => !taken.has(n.id) && !top.has(n.id), 1800, 0);
+	note('n-hud', 'HUD', 'The gem line reads the **rules**; the level, the party and the objective read the engine (Realms Value / Rows nodes).', 1520, 0, { w: 220, h: 130, color: 'purple' });
+	note('n-shell', 'The game shell', 'Start → playing, victory → the hoard screen, a new dungeon → the menu.', 1540, 300, { w: 220, h: 100, color: 'green' });
+	return { nodes, edges };
+}
+
