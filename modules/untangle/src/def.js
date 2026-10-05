@@ -115,6 +115,17 @@ export function untangleGraph() {
 	N('quithide', 'hudscreen', 'Close pause on quit', 520, y, { screen: 'pause', action: 'hide' });
 	E('bquit', 'doquit', 'trigger');
 	E('bquit', 'quithide', 'trigger');
+	// 36 F11: Main, readable — the board and its solved moment stay on top, the HUD readouts and
+	// the menu wiring are group cards (views: every node and wire above is unchanged), each with
+	// a note; the author script's Tidy lays it out
+	const G = (id, label, children, x, gy) => nodes.push({ id, type: 'group', position: { x, y: gy }, data: { label, type: 'group', children, inputs: [], outputs: [] }, class: 'w-[190px]' });
+	const T = (id, title, text, x, ty, color, w = 300, h = 110) => nodes.push({ id, type: 'note', position: { x, y: ty }, data: { title, text, color, w, h, type: 'note' } });
+	const GX = -2400;
+	T('n-readme', 'Untangle — read me first', 'Drag the dots on the **board** until no two lines cross. The **Untangle Board** node is the puzzle (level, size, where it floats — its rules are in the module: open its **Code link**); **On solved** counts the board and shows the solved screen. Every peer solves the same board in lockstep.', GX, -900, 'blue', 340, 180);
+	T('n-hud', 'HUD readouts', 'The level, the crossings left and the solved line — an **Untangle** value into each HUD Text.', GX, -680, 'green');
+	G('g-hud', 'HUD readouts', ['vlevel', 'tlevel', 'vcross', 'tcross', 'vclear', 'tclear'], GX, -560);
+	T('n-menus', 'Menus & buttons', 'Start / Continue / Next go to playing, Menu and Quit back to the menu, **P** toggles the pause menu.', GX, -420, 'purple');
+	G('g-menus', 'Menus & buttons', ['bstart', 'gostart', 'evstart', 'bnext', 'bmenu', 'gomenu', 'pkey', 'pausetoggle', 'bresume', 'resumehide', 'bquit', 'doquit', 'quithide'], GX, -300);
 	return { nodes, edges };
 }
 
@@ -228,6 +239,8 @@ export function untangleDef() {
 			changedAt: 0
 		},
 		graphs: { scene: untangleGraph() },
+		// 36 F11: laid out by the node editor's own Tidy
+		graphTidy: 'layout',
 		hud: untangleHud(),
 		objects: roomObjects(),
 		view: { pos: [0, 1.55, 3.6], target: [0, BOARD.boardY, 0] },

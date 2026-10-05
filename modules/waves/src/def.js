@@ -53,6 +53,58 @@ export function toGraph(spec, prefix) {
 	return { nodes, edges };
 }
 
+/**
+ * 36 F11 — WAVES' MAIN GRAPH, READABLE. It used to be every chain the recipe makes (the run, ten
+ * copies of an enemy's health chain, thirty HUD button and readout pairs) in two tall columns —
+ * "a complete mess". Now Main shows the RUN's rules (the Waves node, the goal, won / lost, the
+ * crystal's health and glow) and three group cards: Enemies (one group per enemy inside), Menus
+ * & buttons, HUD readouts — each with a note. Groups are views (N1): every node and wire is
+ * unchanged, the runtime never notices. The author script's Tidy lays the top level out.
+ * @param {{a: {nodes: any[], edges: any[]}, h: {nodes: any[], edges: any[]}, core: {nodes: any[], edges: any[]}, enemyNames: string[]}} g
+ */
+export function organizeMain({ a, h, core, enemyNames }) {
+	const nodes = [...a.nodes, ...h.nodes, ...core.nodes];
+	const edges = [...a.edges, ...h.edges, ...core.edges];
+	const group = (id, label, children, x, y) => ({ id, type: 'group', position: { x, y }, data: { label, type: 'group', children, inputs: [], outputs: [] }, class: 'w-[190px]' });
+	const note = (id, title, text, x, y, color, w = 280, hh = 130) => ({ id, type: 'note', position: { x, y }, data: { title, text, color, w, h: hh, type: 'note' } });
+	// one group per enemy (its health, heal and hit chains), all inside "Enemies": an enemy's
+	// chain is the connected piece of the arena graph around the selector naming it
+	const root = new Map(a.nodes.map((n) => [n.id, n.id]));
+	const top = (x) => (root.get(x) === x ? x : top(root.get(x)));
+	for (const e of a.edges) root.set(top(e.source), top(e.target));
+	const enemyGroups = enemyNames.map((nm, i) => {
+		const sel = a.nodes.find((n) => n.type === 'objectselector' && n.data.selected === nm);
+		const kind = kindOf(nm);
+		const members = sel ? a.nodes.filter((n) => top(n.id) === top(sel.id)).map((n) => n.id) : [];
+		return group('wg-enemy-' + String(i + 1).padStart(2, '0'), nm + ' (' + HP[kind] + ' hp)', members, 0, 200 * i);
+	});
+	// the HUD chains: a button / key that CHANGES something is a menu; a value shown is a readout
+	const comp = new Map(h.nodes.map((n) => [n.id, n.id]));
+	const find = (x) => (comp.get(x) === x ? x : find(comp.get(x)));
+	for (const e of h.edges) comp.set(find(e.source), find(e.target));
+	const isMenu = new Set();
+	for (const n of h.nodes) if (['hudbutton', 'keypress', 'hudscreen', 'setgamestate'].includes(n.type)) isMenu.add(find(n.id));
+	const menuIds = h.nodes.filter((n) => isMenu.has(find(n.id))).map((n) => n.id);
+	const readoutIds = h.nodes.filter((n) => !isMenu.has(find(n.id))).map((n) => n.id);
+	// far left of the run, in reading order: the read-me, then each group under its note
+	const X = -3000;
+	return {
+		nodes: [
+			...nodes,
+			...enemyGroups,
+			note('wn-readme', 'Waves — read me first', 'Hold the **crystal** against five levels of three waves. The **Waves** node runs it: who spawns where and when, how fast they walk, the level curve. An enemy reaching the crystal is a **breach** (it costs the crystal 2); the crystal at zero = the round is **lost**, the last wave cleared = **won**.\n\nThe guns, abilities and the menus\' logic live in the module (its **Code link**, read-only).', X, -1600, 'blue', 340, 230),
+			note('wn-enemies', 'Enemies', 'One group per enemy, in **roster order** (the Waves node uses them by NAME, a wave of n = the first n). Inside each: a shot fires **Damage** → **Counter** → the enemy\'s **Health** (hide on death, respawn); **Health Reset** starts every round fresh. Double-click to open one.', X, -1300, 'gray', 300, 140),
+			group('wg-enemies', 'Enemies (' + enemyGroups.length + ')', enemyGroups.map((g) => g.id), X, -1100),
+			note('wn-menus', 'Menus & buttons', 'Every HUD button and key: **Start**, **Again**, the pause menu (P, Resume, Restart, Quit), the menu pages and the gun / ability / option buttons the module reads (each player\'s own).', X, -900, 'purple', 300, 130),
+			group('wg-menus', 'Menus & buttons', menuIds, X, -700),
+			note('wn-hud', 'HUD readouts', 'What the play HUD shows: the wave, enemies left, the level, the crystal\'s health bar, this player\'s score, ability charge and beam heat, and the kills board.', X, -500, 'green', 300, 120),
+			group('wg-readouts', 'HUD readouts', readoutIds, X, -300),
+			note('wn-glow', 'The crystal glows', 'The crystal\'s glow follows the player\'s health (Goal Core).', core.nodes[0].position.x, core.nodes[0].position.y - 160, 'gray', 240, 90)
+		],
+		edges
+	};
+}
+
 export function wavesDef() {
 	const enemyNames = [...ROSTER];
 	const objects = [
@@ -137,7 +189,9 @@ export function wavesDef() {
 			],
 			changedAt: 0
 		},
-		graphs: { scene: { nodes: [...a.nodes, ...h.nodes, ...core.nodes], edges: [...a.edges, ...h.edges, ...core.edges] } },
+		graphs: { scene: organizeMain({ a, h, core, enemyNames }) },
+		// 36 F11: the author script lays Main out with the node editor's own Tidy (groups as blocks)
+		graphTidy: 'layout',
 		hud: arenaHud(),
 		// the editor opens high over the home end; the card is the arena's corner camera
 		view: { pos: [11, 10, 17], target: [0, 0, -2] },

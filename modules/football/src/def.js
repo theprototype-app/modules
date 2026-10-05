@@ -65,6 +65,8 @@ export function footballDef(opts = {}) {
 			changedAt: 0
 		},
 		graphs: { scene: opts.rulesCode ? mainGraph(fullGraph(), opts.rulesCode) : fullGraph() },
+		// 36 F11: the layout reads well — the author script only moves what overlaps or sits on a wire
+		graphTidy: 'repair',
 		hud: pitchHud(),
 		// the editor opens on the pitch from the blue end, above the glass; the card is the
 		// broadcast camera high in a corner
