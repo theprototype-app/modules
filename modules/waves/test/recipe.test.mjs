@@ -1,7 +1,7 @@
 // the arena recipe, the HUD graph and the def — shapes, no app
 import { arenaRecipe } from '../src/toolbox.js';
 import { hudGraph, arenaHud } from '../src/hud.js';
-import { wavesDef, toGraph } from '../src/def.js';
+import { wavesDef, toGraph, ROSTER } from '../src/def.js';
 
 /** @param {string} el @param {any} h */
 const btn0 = (el, h) => h.nodes.findIndex((/** @type {any} */ n) => n.type === 'hudbutton' && n.data.element === el);
@@ -66,7 +66,25 @@ export function run(check) {
 	check(g.edges[0].id === 'e-p0-p1.trigger' && g.edges[0].targetHandle === 'trigger' && g.edges[1].id === 'e-p1-p0' && !('targetHandle' in g.edges[1]), 'toGraph: canonical edge ids');
 	const d = wavesDef();
 	check(d.kind === 'game' && d.installModules.join() === 'health,waves' && d.objects.length === 17 && d.hud.scene.screens.length === 7, 'wavesDef: game, both modules, seventeen objects (16 rule objects + the Arena group), seven screens');
-	check(d.graphs.scene.nodes.every((n) => n.id && n.position && n.data.label) && d.graphs.scene.edges.every((e) => e.id.startsWith('e-')), 'the def graph is in the author script\'s shape');
+	check(d.graphs.scene.nodes.every((n) => n.id && n.position && (n.type === 'note' ? n.data.title : n.data.label)) && d.graphs.scene.edges.every((e) => e.id.startsWith('e-')), 'the def graph is in the author script\'s shape (a note has a title)');
+	// 36 F11: Main shows the run + three group cards; every node sits in at most one group
+	{
+		const main = d.graphs.scene;
+		const ids = new Set(main.nodes.map((n) => n.id));
+		const owner = new Map();
+		let ok = true;
+		for (const g of main.nodes.filter((n) => n.type === 'group'))
+			for (const c of g.data.children) {
+				if (!ids.has(c) || owner.has(c)) ok = false;
+				owner.set(c, g.id);
+			}
+		check(ok, 'every group child exists and belongs to one group only');
+		const top = main.nodes.filter((n) => !owner.has(n.id) && n.type !== 'note');
+		check(top.length <= 20 && top.filter((n) => n.type === 'group').length === 3, `Main's top level is the run + 3 group cards (${top.length} cards)`);
+		const enemies = main.nodes.find((n) => n.id === 'wg-enemies');
+		check(enemies?.data.children.length === ROSTER.length, 'one group per enemy inside Enemies');
+		check(d.graphTidy === 'layout', 'the author script tidies Main (graphTidy)');
+	}
 	const allNames = (/** @type {any[]} */ list) => list.flatMap((o) => [o.name, ...allNames(o.children ?? [])]);
 	check(d.graphs.scene.nodes.filter((n) => n.type === 'objectselector').every((n) => allNames(d.objects).includes(n.data.selected)), 'every selector names an object of the def (groups included)');
 	check(JSON.stringify(wavesDef()) === JSON.stringify(wavesDef()), 'the def is deterministic (byte-identical twice)');

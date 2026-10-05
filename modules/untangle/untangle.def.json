@@ -467,6 +467,107 @@
 						"action": "hide"
 					},
 					"class": "w-[150px]"
+				},
+				{
+					"id": "n-readme",
+					"type": "note",
+					"position": {
+						"x": -2400,
+						"y": -900
+					},
+					"data": {
+						"title": "Untangle — read me first",
+						"text": "Drag the dots on the **board** until no two lines cross. The **Untangle Board** node is the puzzle (level, size, where it floats — its rules are in the module: open its **Code link**); **On solved** counts the board and shows the solved screen. Every peer solves the same board in lockstep.",
+						"color": "blue",
+						"w": 340,
+						"h": 180,
+						"type": "note"
+					}
+				},
+				{
+					"id": "n-hud",
+					"type": "note",
+					"position": {
+						"x": -2400,
+						"y": -680
+					},
+					"data": {
+						"title": "HUD readouts",
+						"text": "The level, the crossings left and the solved line — an **Untangle** value into each HUD Text.",
+						"color": "green",
+						"w": 300,
+						"h": 110,
+						"type": "note"
+					}
+				},
+				{
+					"id": "g-hud",
+					"type": "group",
+					"position": {
+						"x": -2400,
+						"y": -560
+					},
+					"data": {
+						"label": "HUD readouts",
+						"type": "group",
+						"children": [
+							"vlevel",
+							"tlevel",
+							"vcross",
+							"tcross",
+							"vclear",
+							"tclear"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "n-menus",
+					"type": "note",
+					"position": {
+						"x": -2400,
+						"y": -420
+					},
+					"data": {
+						"title": "Menus & buttons",
+						"text": "Start / Continue / Next go to playing, Menu and Quit back to the menu, **P** toggles the pause menu.",
+						"color": "purple",
+						"w": 300,
+						"h": 110,
+						"type": "note"
+					}
+				},
+				{
+					"id": "g-menus",
+					"type": "group",
+					"position": {
+						"x": -2400,
+						"y": -300
+					},
+					"data": {
+						"label": "Menus & buttons",
+						"type": "group",
+						"children": [
+							"bstart",
+							"gostart",
+							"evstart",
+							"bnext",
+							"bmenu",
+							"gomenu",
+							"pkey",
+							"pausetoggle",
+							"bresume",
+							"resumehide",
+							"bquit",
+							"doquit",
+							"quithide"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
 				}
 			],
 			"edges": [
@@ -562,6 +663,7 @@
 			]
 		}
 	},
+	"graphTidy": "layout",
 	"hud": {
 		"scene": {
 			"active": "",
