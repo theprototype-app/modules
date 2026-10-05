@@ -598,7 +598,24 @@ function createGame(api) {
     return dungeon ? dungeon.props.filter((p) => p.kind === "gem").length : 0;
   };
   function gemTotals2(floor = state.floorIndex) {
-    return gemTotals(gemCount(floor), collectedSet(floor).size, config.rules.gemShare);
+    const t = gemTotals(gemCount(floor), collectedSet(floor).size, config.rules.gemShare);
+    const ruled = ruledNeed();
+    if (ruled && ruled.floor === floor && t.total) t.need = Math.max(1, Math.min(t.total, ruled.need));
+    return t;
+  }
+  let rulesId = (
+    /** @type {string | null} */
+    null
+  );
+  let rulesLookedAt = -1;
+  function ruledNeed() {
+    const t = api.now();
+    if (t - rulesLookedAt > 1 || t < rulesLookedAt) {
+      rulesLookedAt = t;
+      rulesId = api.flow?.nodes?.("behaviour")?.find((n) => /Dungeon Realms rules/.test(String(n.data?.name ?? "")))?.id ?? null;
+    }
+    const v = rulesId ? api.flow?.nodeValue?.(rulesId)?.__handles : null;
+    return v && Number.isFinite(v.need) && v.need > 0 && Number.isFinite(v.floor) ? { floor: v.floor, need: v.need } : null;
   }
   const sealed = () => {
     const { need, have } = gemTotals2();
@@ -701,6 +718,7 @@ function createGame(api) {
     state.floorIndex = p.floorIndex;
     state.checksum = p.checksum;
     rebuild();
+    engine?.emit("floorShown", floorInfo());
     placeSpawn(!newWorld && playingNow);
     guiDirty = true;
   }
@@ -745,6 +763,7 @@ function createGame(api) {
       play_("gem", { local: broadcast, color: play()?.theme?.gemColor }, gem ? toWorld(gem.x, gem.y, gem.z) : null);
     }
     guiDirty = true;
+    if (floor === state.floorIndex) engine?.emit("gemCollected", { ...floorInfo(), index });
     if (floor === state.floorIndex && topFloor() && state.started && !state.wonAt && !sealed()) {
       state.wonAt = api.now();
       play_("victory", { local: broadcast }, playerAt());
@@ -793,6 +812,7 @@ function createGame(api) {
   }
   function onStarted() {
     const p = play();
+    engine?.emit("started", floorInfo());
     placeSpawn(playingNow);
     play_("start", { floor: p?.floorIndex ?? 1, name: p?.name });
   }
@@ -941,6 +961,11 @@ function createGame(api) {
       guiDirty = true;
     }
     setMusic(playing && state.seed != null);
+    const settingsKey = JSON.stringify(config.rules);
+    if (settingsKey !== lastSettings) {
+      lastSettings = settingsKey;
+      engine?.emit("settingsChanged", { ...config.rules });
+    }
     const grounded = !!config.rules.disableFlight;
     if (grounded !== groundedSent && kit()) {
       kit().setGrounded?.(grounded);
@@ -970,8 +995,14 @@ function createGame(api) {
             state.myOnPortal = on;
             state.onPortal[me()] = on;
             api.send({ op: "onportal", peerId: me(), on });
+            engine?.emit("atPortal", portalInfo());
           }
-          if (on && canTravelTogether(state.slots, state.onPortal, me(), config.rules.allPlayersPortal)) travel(state.floorIndex + 1);
+          if (engine?.listening("atPortal")) {
+            if (on && Number(api.now()) - lastPortalAsk > 1) {
+              lastPortalAsk = Number(api.now());
+              engine.emit("atPortal", portalInfo());
+            }
+          } else if (on && canTravelTogether(state.slots, state.onPortal, me(), config.rules.allPlayersPortal)) travel(state.floorIndex + 1);
         }
       }
     }
@@ -991,6 +1022,7 @@ function createGame(api) {
       guiDirty = true;
     } else if (data.op === "onportal") {
       state.onPortal[data.peerId] = !!data.on;
+      engine?.emit("atPortal", portalInfo());
     } else if (data.op === "prop") {
       state.propValues[data.name] = data.value;
       guiDirty = true;
@@ -1026,6 +1058,39 @@ function createGame(api) {
       state.wanted = null;
     } else state.wanted = remote;
     guiDirty = true;
+  }
+  let lastSettings = "";
+  let lastPortalAsk = -10;
+  function floorInfo() {
+    const t = gemTotals(gemCount(state.floorIndex), collectedSet(state.floorIndex).size, config.rules.gemShare);
+    return { floor: state.floorIndex, total: t.total, have: t.have, topFloor: topFloor(), levelCount: state.levelCount || 1, started: state.started };
+  }
+  function portalInfo() {
+    return { floor: state.floorIndex, sealed: sealed(), onPortal: { ...state.onPortal }, slots: Object.fromEntries(Object.entries(state.slots).map(([k, v]) => [k, v?.peerId ?? null])) };
+  }
+  let engine = null;
+  if (typeof api.kit?.provide === "function") {
+    engine = api.kit.provide(
+      {
+        piece: "realms",
+        group: "Dungeon Realms (engine)",
+        calls: [
+          { name: "travel", kind: "action", label: "Travel to a floor", doc: "Shows that floor of the dungeon for everyone (the Kit replicates it).", args: [{ key: "floor", type: "number", default: 2 }], node: false },
+          { name: "settings", kind: "value", label: "Game Rules settings", vtype: "object", doc: "The Game Rules node's settings (gem share, pickup radius, travel together, flight).", node: false },
+          { name: "floor", kind: "value", label: "This floor", vtype: "object", doc: "{floor, total, have, topFloor, levelCount, started}", node: false },
+          { name: "floorShown", kind: "event", label: "On a floor shown", node: false },
+          { name: "gemCollected", kind: "event", label: "On a gem collected", node: false },
+          { name: "atPortal", kind: "event", label: "On someone at the portal", node: false },
+          { name: "started", kind: "event", label: "On the adventure started", node: false },
+          { name: "settingsChanged", kind: "event", label: "On the settings changed", node: false }
+        ]
+      },
+      {
+        travel: (f) => travel(Number(f) || state.floorIndex + 1),
+        settings: () => ({ ...config.rules }),
+        floor: () => floorInfo()
+      }
+    );
   }
   return {
     state,
@@ -1278,7 +1343,7 @@ function registerNodes(api, game) {
 var index_default = {
   id: "dungeon-realms",
   name: "Dungeon Realms",
-  version: "2.3.0",
+  version: "2.4.0",
   description: 'Co-op dungeon crawl on the Dungeon Kit: gem-gated portals, P1/P2 play, travel-together floors \u2014 every rule and readout a flow node. Requires the "dungeon" (Dungeon Kit) module.',
   /** @param {any} api the module SDK surface */
   register(api) {
