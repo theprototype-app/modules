@@ -10,6 +10,7 @@ import { run as vrbarTests } from './vrbar.test.mjs';
 import { run as stanceTests } from './stance.test.mjs';
 import { run as vrmenuTests } from './vrmenu.test.mjs';
 import { run as reelTests } from './reel.test.mjs';
+import { run as menuTests } from './menu.test.mjs';
 
 let failures = 0;
 function check(ok, label) {
@@ -26,6 +27,8 @@ console.log('\n=== sfx.test.mjs ===');
 sfxTests(check);
 console.log('\n=== vrdrag.test.mjs ===');
 vrdragTests(check);
+console.log('\n=== menu.test.mjs ===');
+menuTests(check);
 console.log('\n=== vrbar.test.mjs ===');
 vrbarTests(check);
 console.log('\n=== reel.test.mjs ===');
