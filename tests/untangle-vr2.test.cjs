@@ -428,9 +428,10 @@ run(async () => {
 				errs.push(y + ': ' + String(e).slice(0, 80));
 			}
 		}
-		return { errs, sprite: !!g.getObjectByName('untangle-hud') };
+		return { errs, sprite: !!g.getObjectByName('untangle-hud'), coreBand: typeof window.__stores.gameKit?.vrHud?.vrHudFrame === 'function' };
 	});
-	check(thrown.sprite && thrown.errs.length === 0, 'U4.7 a camera-less raycast across the board (its VR sprite HUD up) never throws (' + JSON.stringify(thrown.errs) + ')');
+	// core 1.24 (36 B12) draws the HUD in the headset, so there the sprite is never made at all
+	check(thrown.sprite === !thrown.coreBand && thrown.errs.length === 0, 'U4.7 a camera-less raycast across the board (' + (thrown.coreBand ? 'no sprite: core draws the HUD' : 'its VR sprite HUD up') + ') never throws (' + JSON.stringify(thrown.errs) + ')');
 
 	// ---- U1. the world scaled: the dots still land where the tip is --------------------------------
 	await A.page.evaluate(() => window.__untangle.select(12, '2d'));

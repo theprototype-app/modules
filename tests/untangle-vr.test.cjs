@@ -229,9 +229,18 @@ run(async () => {
 	await eventually(() => state(B.page), (s) => JSON.stringify(s.positions[0]) === JSON.stringify(v4.positions[0]), 'V.8 B lands on the IDENTICAL position (the authoritative move)');
 	// 31-integrate: the VR HUD line ("Level 12  ·  7 crossings") fits its 512 px canvas — at a fixed
 	// 44px it ran ~600 px wide and the centred text was cut at both ends in the headset
-	await eventually(() => state(A.page).then((s) => s.spriteFit), (f) => !!f, 'V.8b (premise) the drop redrew the VR HUD line', 4000);
-	const fitNow = (await state(A.page)).spriteFit;
-	check(!!fitNow && fitNow.width <= fitNow.canvas - 16, 'V.8c the VR HUD line fits its canvas (' + JSON.stringify(fitNow) + ')');
+	// core 1.24 (36 B12) draws the template's HUD in the headset itself: the sprite is only for an
+	// older core, and on a newer one there must be none (never both)
+	const coreBand = await A.page.evaluate(() => typeof window.__stores.gameKit?.vrHud?.vrHudFrame === 'function');
+	if (coreBand) {
+		await A.page.waitForTimeout(300);
+		const st = await state(A.page);
+		check(st.sprite === false && !st.spriteFit, 'V.8b this core draws the HUD in the headset: Untangle adds no sprite of its own');
+	} else {
+		await eventually(() => state(A.page).then((s) => s.spriteFit), (f) => !!f, 'V.8b (premise) the drop redrew the VR HUD line', 4000);
+		const fitNow = (await state(A.page)).spriteFit;
+		check(!!fitNow && fitNow.width <= fitNow.canvas - 16, 'V.8c the VR HUD line fits its canvas (' + JSON.stringify(fitNow) + ')');
+	}
 	// core's trailing select (it fires on the trigger RELEASE) reaches the click handler
 	const trailing = await A.page.evaluate(() => {
 		let scene;

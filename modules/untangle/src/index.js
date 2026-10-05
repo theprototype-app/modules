@@ -42,7 +42,7 @@ const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defa
 export default {
 	id: 'untangle',
 	name: 'Untangle',
-	version: '2.4.0',
+	version: '2.4.1',
 	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels that unlock as you solve them, one progress for both (it stays on your device). In VR: you start in front of the board, grab dots with the trigger, hold/turn/scale the globe, the stick pushes the board or the held globe farther / pulls it closer (as Edit does to a held object), the grips scale the world, a level picker with Globe / 2D and a level bar. Replicated; board pose, level and readouts as flow nodes.',
 	/** @param {any} api */
 	register(api) {
@@ -335,8 +335,12 @@ export default {
 		let lastCounts = /** @type {number[]} */ ([]);
 
 		// ---------- the VR sprite HUD (DOM is invisible in a headset) ----------
+		// Core 1.24 (36 B12) draws the template's playing HUD in the headset itself — the level,
+		// the crossings and (through the clock kind's vrText) the time — so this sprite is only
+		// for an older core: feature-detected, never both.
+		const coreVrHud = typeof api.hud?.vrHud === 'function';
 		function ensureSprite() {
-			const wantVR = typeof api.isVR === 'function' && api.isVR();
+			const wantVR = !coreVrHud && typeof api.isVR === 'function' && api.isVR();
 			if (!wantVR) {
 				if (sprite) {
 					group?.remove(sprite);
