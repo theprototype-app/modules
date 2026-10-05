@@ -18,7 +18,7 @@
 		},
 		{
 			"id": "dungeon-realms",
-			"version": "2.3.0"
+			"version": "2.4.0"
 		}
 	],
 	"installModules": [
@@ -101,10 +101,11 @@
 					"id": "seed",
 					"type": "number",
 					"position": {
-						"x": 40,
+						"x": 0,
 						"y": 40
 					},
 					"data": {
+						"type": "number",
 						"label": "Seed",
 						"value": 1337,
 						"step": 1
@@ -115,10 +116,11 @@
 					"id": "dungeon",
 					"type": "dkdungeon",
 					"position": {
-						"x": 280,
+						"x": 240,
 						"y": 40
 					},
 					"data": {
+						"type": "dkdungeon",
 						"label": "Dungeon Kit",
 						"seed": 1337,
 						"roomCount": 0,
@@ -133,10 +135,11 @@
 					"id": "selplinth",
 					"type": "objectselector",
 					"position": {
-						"x": 520,
+						"x": 480,
 						"y": 40
 					},
 					"data": {
+						"type": "objectselector",
 						"label": "Entrance plinth",
 						"selected": "Entrance plinth"
 					},
@@ -146,10 +149,11 @@
 					"id": "rules",
 					"type": "drrules",
 					"position": {
-						"x": 280,
-						"y": 190
+						"x": 240,
+						"y": 420
 					},
 					"data": {
+						"type": "drrules",
 						"label": "Game Rules",
 						"gemShare": 0.7,
 						"pickupRadius": 0.9,
@@ -166,6 +170,7 @@
 						"y": 340
 					},
 					"data": {
+						"type": "drmenu",
 						"label": "Start Menu",
 						"show": "never",
 						"button1": "join-p1",
@@ -183,6 +188,7 @@
 						"y": 490
 					},
 					"data": {
+						"type": "hudbutton",
 						"label": "HUD dr-join-p1",
 						"element": "dr-join-p1",
 						"perPlayer": true
@@ -197,6 +203,7 @@
 						"y": 490
 					},
 					"data": {
+						"type": "delay",
 						"label": "HUD dr-join-p1 press",
 						"seconds": 0.05,
 						"pulse": 0.3
@@ -211,6 +218,7 @@
 						"y": 490
 					},
 					"data": {
+						"type": "drbutton",
 						"label": "Realms: join-p1",
 						"action": "join-p1"
 					},
@@ -224,6 +232,7 @@
 						"y": 600
 					},
 					"data": {
+						"type": "hudbutton",
 						"label": "HUD dr-join-p2",
 						"element": "dr-join-p2",
 						"perPlayer": true
@@ -238,6 +247,7 @@
 						"y": 600
 					},
 					"data": {
+						"type": "delay",
 						"label": "HUD dr-join-p2 press",
 						"seconds": 0.05,
 						"pulse": 0.3
@@ -252,6 +262,7 @@
 						"y": 600
 					},
 					"data": {
+						"type": "drbutton",
 						"label": "Realms: join-p2",
 						"action": "join-p2"
 					},
@@ -265,6 +276,7 @@
 						"y": 710
 					},
 					"data": {
+						"type": "hudbutton",
 						"label": "HUD dr-start",
 						"element": "dr-start",
 						"perPlayer": true
@@ -279,6 +291,7 @@
 						"y": 710
 					},
 					"data": {
+						"type": "delay",
 						"label": "HUD dr-start press",
 						"seconds": 0.05,
 						"pulse": 0.3
@@ -293,6 +306,7 @@
 						"y": 710
 					},
 					"data": {
+						"type": "drbutton",
 						"label": "Realms: start",
 						"action": "start"
 					},
@@ -306,6 +320,7 @@
 						"y": 820
 					},
 					"data": {
+						"type": "hudbutton",
 						"label": "HUD dr-new-dungeon",
 						"element": "dr-new-dungeon",
 						"perPlayer": true
@@ -320,6 +335,7 @@
 						"y": 820
 					},
 					"data": {
+						"type": "delay",
 						"label": "HUD dr-new-dungeon press",
 						"seconds": 0.05,
 						"pulse": 0.3
@@ -334,6 +350,7 @@
 						"y": 820
 					},
 					"data": {
+						"type": "drbutton",
 						"label": "Realms: new-dungeon",
 						"action": "new-dungeon"
 					},
@@ -347,6 +364,7 @@
 						"y": 930
 					},
 					"data": {
+						"type": "hudbutton",
 						"label": "HUD dr-restart",
 						"element": "dr-restart",
 						"perPlayer": true
@@ -361,6 +379,7 @@
 						"y": 930
 					},
 					"data": {
+						"type": "delay",
 						"label": "HUD dr-restart press",
 						"seconds": 0.05,
 						"pulse": 0.3
@@ -375,6 +394,7 @@
 						"y": 930
 					},
 					"data": {
+						"type": "drbutton",
 						"label": "Realms: new-dungeon",
 						"action": "new-dungeon"
 					},
@@ -388,6 +408,7 @@
 						"y": 1040
 					},
 					"data": {
+						"type": "hudbutton",
 						"label": "HUD dr-play-again",
 						"element": "dr-play-again",
 						"perPlayer": true
@@ -402,6 +423,7 @@
 						"y": 1040
 					},
 					"data": {
+						"type": "delay",
 						"label": "HUD dr-play-again press",
 						"seconds": 0.05,
 						"pulse": 0.3
@@ -416,6 +438,7 @@
 						"y": 1040
 					},
 					"data": {
+						"type": "drbutton",
 						"label": "Realms: new-dungeon",
 						"action": "new-dungeon"
 					},
@@ -429,6 +452,7 @@
 						"y": 1150
 					},
 					"data": {
+						"type": "hudbutton",
 						"label": "HUD quit-btn",
 						"element": "quit-btn",
 						"perPlayer": true
@@ -443,6 +467,7 @@
 						"y": 1150
 					},
 					"data": {
+						"type": "delay",
 						"label": "HUD quit-btn press",
 						"seconds": 0.05,
 						"pulse": 0.3
@@ -457,6 +482,7 @@
 						"y": 1150
 					},
 					"data": {
+						"type": "drbutton",
 						"label": "Realms: quit",
 						"action": "quit"
 					},
@@ -470,6 +496,7 @@
 						"y": 1260
 					},
 					"data": {
+						"type": "hudbutton",
 						"label": "HUD dr-over-menu",
 						"element": "dr-over-menu",
 						"perPlayer": true
@@ -484,6 +511,7 @@
 						"y": 1260
 					},
 					"data": {
+						"type": "delay",
 						"label": "HUD dr-over-menu press",
 						"seconds": 0.05,
 						"pulse": 0.3
@@ -498,6 +526,7 @@
 						"y": 1260
 					},
 					"data": {
+						"type": "drbutton",
 						"label": "Realms: quit",
 						"action": "quit"
 					},
@@ -511,6 +540,7 @@
 						"y": 930
 					},
 					"data": {
+						"type": "hudscreen",
 						"label": "Close pause on restart",
 						"screen": "pause",
 						"action": "hide"
@@ -525,6 +555,7 @@
 						"y": 1370
 					},
 					"data": {
+						"type": "drrows",
 						"label": "Menu: the dungeon",
 						"element": "dr-menu-level",
 						"show": "level"
@@ -539,6 +570,7 @@
 						"y": 1370
 					},
 					"data": {
+						"type": "drrows",
 						"label": "Menu: the party",
 						"element": "dr-menu-players",
 						"show": "players"
@@ -553,23 +585,11 @@
 						"y": 1520
 					},
 					"data": {
+						"type": "drprop",
 						"label": "Prop Counter",
 						"prop": "score",
 						"initial": 0,
 						"showInHud": true
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "vgems",
-					"type": "drvalue",
-					"position": {
-						"x": 40,
-						"y": 1670
-					},
-					"data": {
-						"label": "Realms: gems",
-						"read": "gems"
 					},
 					"class": "w-[150px]"
 				},
@@ -581,23 +601,11 @@
 						"y": 1670
 					},
 					"data": {
+						"type": "hudtext",
 						"label": "HUD dr-gems",
 						"element": "dr-gems",
 						"format": "{v}",
 						"decimals": 0
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "vneed",
-					"type": "drvalue",
-					"position": {
-						"x": 40,
-						"y": 1780
-					},
-					"data": {
-						"label": "Realms: need",
-						"read": "need"
 					},
 					"class": "w-[150px]"
 				},
@@ -609,6 +617,7 @@
 						"y": 1780
 					},
 					"data": {
+						"type": "hudtext",
 						"label": "HUD dr-need",
 						"element": "dr-need",
 						"format": "/ {v} needed",
@@ -624,6 +633,7 @@
 						"y": 1890
 					},
 					"data": {
+						"type": "drvalue",
 						"label": "Realms: level",
 						"read": "level"
 					},
@@ -637,6 +647,7 @@
 						"y": 1890
 					},
 					"data": {
+						"type": "hudtext",
 						"label": "HUD dr-level",
 						"element": "dr-level",
 						"format": "LEVEL {v}",
@@ -652,6 +663,7 @@
 						"y": 2000
 					},
 					"data": {
+						"type": "drvalue",
 						"label": "Realms: levels",
 						"read": "levels"
 					},
@@ -665,6 +677,7 @@
 						"y": 2000
 					},
 					"data": {
+						"type": "hudtext",
 						"label": "HUD dr-levels",
 						"element": "dr-levels",
 						"format": "/ {v}",
@@ -680,6 +693,7 @@
 						"y": 2110
 					},
 					"data": {
+						"type": "drvalue",
 						"label": "Realms: players",
 						"read": "players"
 					},
@@ -693,6 +707,7 @@
 						"y": 2110
 					},
 					"data": {
+						"type": "hudtext",
 						"label": "HUD dr-player-count",
 						"element": "dr-player-count",
 						"format": "{v} in the party",
@@ -708,6 +723,7 @@
 						"y": 2220
 					},
 					"data": {
+						"type": "drrows",
 						"label": "Objective line",
 						"element": "dr-objective",
 						"show": "objective"
@@ -722,6 +738,7 @@
 						"y": 2220
 					},
 					"data": {
+						"type": "drrows",
 						"label": "Player pills",
 						"element": "dr-players",
 						"show": "players"
@@ -736,6 +753,7 @@
 						"y": 2370
 					},
 					"data": {
+						"type": "drevent",
 						"label": "On gem",
 						"event": "gem"
 					},
@@ -749,6 +767,7 @@
 						"y": 2370
 					},
 					"data": {
+						"type": "counter",
 						"label": "Gems taken",
 						"op": "up",
 						"step": 1
@@ -763,6 +782,7 @@
 						"y": 2370
 					},
 					"data": {
+						"type": "hudtext",
 						"label": "HUD dr-taken",
 						"element": "dr-taken",
 						"format": "{v} gems taken",
@@ -778,6 +798,7 @@
 						"y": 2520
 					},
 					"data": {
+						"type": "drevent",
 						"label": "On start",
 						"event": "start"
 					},
@@ -791,6 +812,7 @@
 						"y": 2520
 					},
 					"data": {
+						"type": "setgamestate",
 						"label": "Realms: playing",
 						"state": "playing",
 						"outcome": "",
@@ -806,6 +828,7 @@
 						"y": 2630
 					},
 					"data": {
+						"type": "drevent",
 						"label": "On victory",
 						"event": "victory"
 					},
@@ -819,6 +842,7 @@
 						"y": 2630
 					},
 					"data": {
+						"type": "setgamestate",
 						"label": "Realms: over",
 						"state": "over",
 						"outcome": "The hoard is yours",
@@ -834,6 +858,7 @@
 						"y": 2740
 					},
 					"data": {
+						"type": "drevent",
 						"label": "On new dungeon",
 						"event": "reset"
 					},
@@ -847,6 +872,7 @@
 						"y": 2740
 					},
 					"data": {
+						"type": "setgamestate",
 						"label": "Realms: menu",
 						"state": "menu",
 						"outcome": "",
@@ -862,6 +888,7 @@
 						"y": 2890
 					},
 					"data": {
+						"type": "keypress",
 						"label": "Press P",
 						"code": "KeyP",
 						"edge": "down",
@@ -877,6 +904,7 @@
 						"y": 2890
 					},
 					"data": {
+						"type": "hudscreen",
 						"label": "Toggle pause menu",
 						"screen": "pause",
 						"action": "toggle"
@@ -891,6 +919,7 @@
 						"y": 3000
 					},
 					"data": {
+						"type": "hudbutton",
 						"label": "Resume button",
 						"element": "resume-btn"
 					},
@@ -904,6 +933,7 @@
 						"y": 3000
 					},
 					"data": {
+						"type": "hudscreen",
 						"label": "Close pause menu",
 						"screen": "pause",
 						"action": "hide"
@@ -918,6 +948,7 @@
 						"y": 3110
 					},
 					"data": {
+						"type": "hudbutton",
 						"label": "Quit to menu button",
 						"element": "quit-btn"
 					},
@@ -931,6 +962,7 @@
 						"y": 3110
 					},
 					"data": {
+						"type": "setgamestate",
 						"label": "Quit to menu",
 						"state": "menu",
 						"outcome": "",
@@ -946,11 +978,264 @@
 						"y": 3110
 					},
 					"data": {
+						"type": "hudscreen",
 						"label": "Close pause on quit",
 						"screen": "pause",
 						"action": "hide"
 					},
 					"class": "w-[150px]"
+				},
+				{
+					"id": "n-main",
+					"type": "note",
+					"position": {
+						"x": -420,
+						"y": 0
+					},
+					"data": {
+						"type": "note",
+						"title": "Dungeon Realms — read me first",
+						"text": "Collect gems to unseal each floor's portal, stand on it together, reach the dragon's hoard.\n- **Seed → Dungeon Kit** builds the world (change the seed for a new dungeon).\n- **Game Rules** holds the settings — select it, ⓘ tab: the gem share, travel together, no flying.\n- **Dungeon Realms rules** is the code that *decides*: how many gems open a portal, when the party travels. Double-click to read or change it (Ctrl+S).",
+						"color": "blue",
+						"w": 360,
+						"h": 270
+					}
+				},
+				{
+					"id": "n-world",
+					"type": "note",
+					"position": {
+						"x": 480,
+						"y": 200
+					},
+					"data": {
+						"type": "note",
+						"title": "The world",
+						"text": "The **Dungeon Kit** module generates five floors from the seed on every peer — determinism is the netcode.",
+						"color": "gray",
+						"w": 240,
+						"h": 120
+					}
+				},
+				{
+					"id": "n-settings",
+					"type": "note",
+					"position": {
+						"x": 480,
+						"y": 440
+					},
+					"data": {
+						"type": "note",
+						"title": "Settings",
+						"text": "**Game Rules** sits on the entrance plinth; its numbers are what the rules read.",
+						"color": "yellow",
+						"w": 240,
+						"h": 100
+					}
+				},
+				{
+					"id": "drcode",
+					"type": "behaviour",
+					"position": {
+						"x": 800,
+						"y": 0
+					},
+					"data": {
+						"type": "behaviour",
+						"label": "Behaviour",
+						"name": "Dungeon Realms rules",
+						"code": "// DUNGEON REALMS — THE RULES. How many gems unseal a floor's portal, and when the party\n// travels up through it. Edit anything here and press Ctrl+S: the next floor (or the next\n// adventure) plays under your rules on every player's screen.\n//\n// How it plugs into the Main graph:\n//   the Game Rules node   the SETTINGS (gem share, pickup radius, travel together, no flying) —\n//                         select it and change them in the ⓘ panel\n//   this file             the DECISIONS made with those settings\n//   kit.realms.*          the Dungeon Realms ENGINE (the module): it tells these rules when a floor\n//                         is shown, a gem is taken, someone steps on the portal, the adventure\n//                         starts; it shows the floor they choose (kit.realms.travel). Its gems,\n//                         portals, sounds and banners all read `need` from this file's state —\n//                         every peer unseals at the same moment\n//   outputs               the floor's numbers and the moments, wired to the HUD and the shell\n//\n// The world itself is the Dungeon Kit's (the Dungeon node: seed, rooms, floors). The rules run on\n// ONE player's machine (the session's authority) and their state reaches everyone.\n\n/** gems on top of the share that a floor asks for (0 = exactly the share) */\nconst EXTRA_GEMS = 0;\n\n/** how many of a floor's gems unseal its portal: the Game Rules share, rounded up */\nfunction gemsNeeded(total, share) {\n\tif (!total) return 0;\n\tconst portion = Math.min(1, Math.max(0.05, Number(share) || 0));\n\treturn Math.min(total, Math.max(1, Math.ceil(total * portion)) + EXTRA_GEMS);\n}\n\n/** travel together: every player in a slot stands on the portal (or the setting is off) */\nfunction everyoneOnPortal(slots, onPortal, together) {\n\tif (!together) return Object.values(onPortal).some(Boolean);\n\tconst players = Object.values(slots).filter(Boolean);\n\treturn players.length > 0 ? players.every((id) => !!onPortal[id]) : Object.values(onPortal).some(Boolean);\n}\n\nexport default behaviour({\n\tname: 'Dungeon Realms rules',\n\n\tstate: {\n\t\tfloor: 0,\n\t\ttotal: 0,\n\t\tneed: 0,\n\t\thave: 0,\n\t\tunsealed: false\n\t},\n\n\toutputs: ['floor', 'total', 'need', 'have', 'unsealed', 'portalOpened', 'travelled'],\n\n\ton: {\n\t\t/** the behaviour's first run: decide for the floor that is already standing */\n\t\tstart() {\n\t\t\tthis.decide();\n\t\t},\n\t\t'realms.floorShown'() {\n\t\t\tthis.decide();\n\t\t},\n\t\t'realms.started'() {\n\t\t\tthis.decide();\n\t\t},\n\t\t'realms.settingsChanged'() {\n\t\t\tthis.decide();\n\t\t},\n\t\t/** a gem was taken: once enough are, the portal opens (the engine reads `need`) */\n\t\t'realms.gemCollected'({ floor, have }) {\n\t\t\tif (floor !== this.state.floor) this.decide();\n\t\t\tthis.state.have = have;\n\t\t\tif (!this.state.unsealed && have >= this.state.need && this.state.need > 0) {\n\t\t\t\tthis.state.unsealed = true;\n\t\t\t\tthis.emit('portalOpened');\n\t\t\t}\n\t\t},\n\t\t/** someone stepped on (or off) the open portal: up we go, together if the settings say so */\n\t\t'realms.atPortal'({ floor, sealed, onPortal, slots }) {\n\t\t\tif (sealed || floor !== this.state.floor) return;\n\t\t\tconst together = kit.realms.settings().allPlayersPortal;\n\t\t\tif (!everyoneOnPortal(slots, onPortal, together)) return;\n\t\t\tif (kit.realms.travel(floor + 1)) this.emit('travelled');\n\t\t}\n\t},\n\n\t/** what this floor asks for, from the engine's numbers and the Game Rules settings */\n\tdecide() {\n\t\tconst f = kit.realms.floor();\n\t\tconst s = kit.realms.settings();\n\t\tthis.state.floor = f.floor;\n\t\tthis.state.total = f.total;\n\t\tthis.state.have = f.have;\n\t\tthis.state.need = gemsNeeded(f.total, s.gemShare);\n\t\tthis.state.unsealed = this.state.need > 0 && f.have >= this.state.need;\n\t}\n});\n",
+						"main": 1
+					},
+					"class": "w-[250px]"
+				},
+				{
+					"id": "drengine",
+					"type": "coderef",
+					"position": {
+						"x": 800,
+						"y": 340
+					},
+					"data": {
+						"type": "coderef",
+						"label": "Code link",
+						"module": "dungeon-realms",
+						"file": "module.js",
+						"title": "Dungeon Realms engine — gems, portals, slots, the menu",
+						"main": 1
+					},
+					"class": "w-[150px]"
+				},
+				{
+					"id": "n-engine",
+					"type": "note",
+					"position": {
+						"x": 800,
+						"y": 560
+					},
+					"data": {
+						"type": "note",
+						"title": "The engine",
+						"text": "What the rules call as **kit.realms.*** — the gems you walk over, the portal you stand on, the party slots. Double-click to read it.",
+						"color": "gray",
+						"w": 260,
+						"h": 120
+					}
+				},
+				{
+					"id": "g-hud",
+					"type": "group",
+					"position": {
+						"x": 1180,
+						"y": 0
+					},
+					"data": {
+						"type": "group",
+						"label": "HUD: gems, level, party",
+						"children": [
+							"score",
+							"tgems",
+							"tneed",
+							"vlevel",
+							"tlevel",
+							"vlevels",
+							"tlevels",
+							"vplayers",
+							"tplayers",
+							"robjective",
+							"rplayers",
+							"evgem",
+							"cgems",
+							"ttaken"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "g-shell",
+					"type": "group",
+					"position": {
+						"x": 1180,
+						"y": 300
+					},
+					"data": {
+						"type": "group",
+						"label": "Game shell (menu · play · victory)",
+						"children": [
+							"evstart",
+							"gostart",
+							"evwin",
+							"goover",
+							"evreset",
+							"gomenu"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "g-pause",
+					"type": "group",
+					"position": {
+						"x": 1180,
+						"y": 480
+					},
+					"data": {
+						"type": "group",
+						"label": "Pause menu",
+						"children": [
+							"pkey",
+							"pausetoggle",
+							"bresume",
+							"resumehide",
+							"bquit",
+							"doquit",
+							"quithide"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "g-menu",
+					"type": "group",
+					"position": {
+						"x": 1800,
+						"y": 0
+					},
+					"data": {
+						"type": "group",
+						"label": "Start menu & buttons",
+						"children": [
+							"menu",
+							"hdrjoinp1",
+							"ddrjoinp1",
+							"bdrjoinp1",
+							"hdrjoinp2",
+							"ddrjoinp2",
+							"bdrjoinp2",
+							"hdrstart",
+							"ddrstart",
+							"bdrstart",
+							"hdrnewdungeon",
+							"ddrnewdungeon",
+							"bdrnewdungeon",
+							"hdrrestart",
+							"ddrrestart",
+							"bdrrestart",
+							"hdrplayagain",
+							"ddrplayagain",
+							"bdrplayagain",
+							"hquitbtn",
+							"dquitbtn",
+							"bquitbtn",
+							"hdrovermenu",
+							"ddrovermenu",
+							"bdrovermenu",
+							"restarthide",
+							"rmenulevel",
+							"rmenuplayers"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "n-hud",
+					"type": "note",
+					"position": {
+						"x": 1520,
+						"y": 0
+					},
+					"data": {
+						"type": "note",
+						"title": "HUD",
+						"text": "The gem line reads the **rules**; the level, the party and the objective read the engine (Realms Value / Rows nodes).",
+						"color": "purple",
+						"w": 220,
+						"h": 130
+					}
+				},
+				{
+					"id": "n-shell",
+					"type": "note",
+					"position": {
+						"x": 1540,
+						"y": 300
+					},
+					"data": {
+						"type": "note",
+						"title": "The game shell",
+						"text": "Start → playing, victory → the hoard screen, a new dungeon → the menu.",
+						"color": "green",
+						"w": 220,
+						"h": 100
+					}
 				}
 			],
 			"edges": [
@@ -1133,18 +1418,6 @@
 					"target": "selplinth"
 				},
 				{
-					"id": "e-vgems-tgems.value",
-					"source": "vgems",
-					"target": "tgems",
-					"targetHandle": "value"
-				},
-				{
-					"id": "e-vneed-tneed.value",
-					"source": "vneed",
-					"target": "tneed",
-					"targetHandle": "value"
-				},
-				{
 					"id": "e-vlevel-tlevel.value",
 					"source": "vlevel",
 					"target": "tlevel",
@@ -1225,6 +1498,20 @@
 					"source": "bquit",
 					"target": "quithide",
 					"targetHandle": "trigger"
+				},
+				{
+					"id": "e-drcode.have-tgems.value",
+					"source": "drcode",
+					"sourceHandle": "have",
+					"target": "tgems",
+					"targetHandle": "value"
+				},
+				{
+					"id": "e-drcode.need-tneed.value",
+					"source": "drcode",
+					"sourceHandle": "need",
+					"target": "tneed",
+					"targetHandle": "value"
 				}
 			]
 		}

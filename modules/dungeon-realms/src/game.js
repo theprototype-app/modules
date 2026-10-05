@@ -201,7 +201,26 @@ export function createGame(api) {
 		return dungeon ? dungeon.props.filter((p) => p.kind === 'gem').length : 0;
 	};
 	function gemTotals(floor = state.floorIndex) {
-		return totals(gemCount(floor), collectedSet(floor).size, config.rules.gemShare);
+		const t = totals(gemCount(floor), collectedSet(floor).size, config.rules.gemShare);
+		// 36 (U10): the "Dungeon Realms rules" node on the Main graph decides how many gems unseal
+		// a floor — its replicated state carries {floor, need}; every peer derives the same seal
+		// from it. Without the rules node, the built-in share rule above stands.
+		const ruled = ruledNeed();
+		if (ruled && ruled.floor === floor && t.total) t.need = Math.max(1, Math.min(t.total, ruled.need));
+		return t;
+	}
+	/** the rules node's id on the scene graph (looked up at most once a second) */
+	let rulesId = /** @type {string | null} */ (null);
+	let rulesLookedAt = -1;
+	/** the rules' replicated decision for the current floor, or null @returns {{floor: number, need: number} | null} */
+	function ruledNeed() {
+		const t = api.now();
+		if (t - rulesLookedAt > 1 || t < rulesLookedAt) {
+			rulesLookedAt = t;
+			rulesId = api.flow?.nodes?.('behaviour')?.find((/** @type {any} */ n) => /Dungeon Realms rules/.test(String(n.data?.name ?? '')))?.id ?? null;
+		}
+		const v = rulesId ? api.flow?.nodeValue?.(rulesId)?.__handles : null;
+		return v && Number.isFinite(v.need) && v.need > 0 && Number.isFinite(v.floor) ? { floor: v.floor, need: v.need } : null;
 	}
 	const sealed = () => {
 		const { need, have } = gemTotals();
@@ -321,6 +340,7 @@ export function createGame(api) {
 		state.floorIndex = p.floorIndex;
 		state.checksum = p.checksum;
 		rebuild();
+		engine?.emit('floorShown', floorInfo());
 		// 30b: the floor's start for core's spawn (C1): a checkpoint for a new world; for a new floor
 		// while the game view is on, everyone MOVES there (a player who did not step on the portal
 		// must not arrive inside a wall of the next floor)
@@ -376,6 +396,8 @@ export function createGame(api) {
 			play_('gem', { local: broadcast, color: play()?.theme?.gemColor }, gem ? toWorld(gem.x, gem.y, gem.z) : null);
 		}
 		guiDirty = true;
+		// 36 (U10): the rules hear every gem (on every peer; their handler runs on the authority)
+		if (floor === state.floorIndex) engine?.emit('gemCollected', { ...floorInfo(), index });
 		// victory: enough gems on the top floor
 		if (floor === state.floorIndex && topFloor() && state.started && !state.wonAt && !sealed()) {
 			state.wonAt = api.now();
@@ -436,6 +458,7 @@ export function createGame(api) {
 	 * banner, the music */
 	function onStarted() {
 		const p = play();
+		engine?.emit('started', floorInfo());
 		placeSpawn(playingNow);
 		play_('start', { floor: p?.floorIndex ?? 1, name: p?.name });
 	}
@@ -616,6 +639,12 @@ export function createGame(api) {
 
 		// Game Rules ▸ disableFlight rides the CONTRACT (userData.play.grounded, DEVX
 		// #14) instead of swallowing Q/E at window capture; sent on change only
+		// 36 (U10): the Game Rules node's settings changed — the rules recompute what they decide
+		const settingsKey = JSON.stringify(config.rules);
+		if (settingsKey !== lastSettings) {
+			lastSettings = settingsKey;
+			engine?.emit('settingsChanged', { ...config.rules });
+		}
 		const grounded = !!config.rules.disableFlight;
 		if (grounded !== groundedSent && kit()) {
 			kit().setGrounded?.(grounded);
@@ -650,8 +679,15 @@ export function createGame(api) {
 						state.myOnPortal = on;
 						state.onPortal[me()] = on;
 						api.send({ op: 'onportal', peerId: me(), on });
+						engine?.emit('atPortal', portalInfo());
 					}
-					if (on && canTravelTogether(state.slots, state.onPortal, me(), config.rules.allPlayersPortal)) travel(state.floorIndex + 1);
+					// 36 (U10): with the rules node listening, IT decides when the party travels
+					if (engine?.listening('atPortal')) {
+						if (on && Number(api.now()) - lastPortalAsk > 1) {
+							lastPortalAsk = Number(api.now());
+							engine.emit('atPortal', portalInfo());
+						}
+					} else if (on && canTravelTogether(state.slots, state.onPortal, me(), config.rules.allPlayersPortal)) travel(state.floorIndex + 1);
 				}
 			}
 		}
@@ -675,6 +711,7 @@ export function createGame(api) {
 			guiDirty = true;
 		} else if (data.op === 'onportal') {
 			state.onPortal[data.peerId] = !!data.on;
+			engine?.emit('atPortal', portalInfo());
 		} else if (data.op === 'prop') {
 			state.propValues[data.name] = data.value;
 			guiDirty = true;
@@ -713,6 +750,44 @@ export function createGame(api) {
 			state.wanted = null;
 		} else state.wanted = remote; // observe() applies it when the Kit shows this seed
 		guiDirty = true;
+	}
+
+	// ---- 36 (U10): the ENGINE piece the "Dungeon Realms rules" behaviour calls ---------------
+	let lastSettings = '';
+	let lastPortalAsk = -10;
+	/** the current floor as the rules see it */
+	function floorInfo() {
+		const t = totals(gemCount(state.floorIndex), collectedSet(state.floorIndex).size, config.rules.gemShare);
+		return { floor: state.floorIndex, total: t.total, have: t.have, topFloor: topFloor(), levelCount: state.levelCount || 1, started: state.started };
+	}
+	/** who stands on the unsealed portal */
+	function portalInfo() {
+		return { floor: state.floorIndex, sealed: sealed(), onPortal: { ...state.onPortal }, slots: Object.fromEntries(Object.entries(state.slots).map(([k, v]) => [k, v?.peerId ?? null])) };
+	}
+	/** @type {null | {emit: (event: string, payload?: any) => number, listening: (event: string) => number}} */
+	let engine = null;
+	if (typeof api.kit?.provide === 'function') {
+		engine = api.kit.provide(
+			{
+				piece: 'realms',
+				group: 'Dungeon Realms (engine)',
+				calls: [
+					{ name: 'travel', kind: 'action', label: 'Travel to a floor', doc: 'Shows that floor of the dungeon for everyone (the Kit replicates it).', args: [{ key: 'floor', type: 'number', default: 2 }], node: false },
+					{ name: 'settings', kind: 'value', label: 'Game Rules settings', vtype: 'object', doc: "The Game Rules node's settings (gem share, pickup radius, travel together, flight).", node: false },
+					{ name: 'floor', kind: 'value', label: 'This floor', vtype: 'object', doc: '{floor, total, have, topFloor, levelCount, started}', node: false },
+					{ name: 'floorShown', kind: 'event', label: 'On a floor shown', node: false },
+					{ name: 'gemCollected', kind: 'event', label: 'On a gem collected', node: false },
+					{ name: 'atPortal', kind: 'event', label: 'On someone at the portal', node: false },
+					{ name: 'started', kind: 'event', label: 'On the adventure started', node: false },
+					{ name: 'settingsChanged', kind: 'event', label: 'On the settings changed', node: false }
+				]
+			},
+			{
+				travel: (/** @type {any} */ f) => travel(Number(f) || state.floorIndex + 1),
+				settings: () => ({ ...config.rules }),
+				floor: () => floorInfo()
+			}
+		);
 	}
 
 	return {

@@ -82,21 +82,21 @@
 	{
 		"number": 9,
 		"slug": "flow-nodes-effect-sinks-value-outputs",
-		"title": "Module flow nodes are effect SINKS — no value outputs, no triggers",
-		"status": "open",
-		"gap": "module flow nodes can't OUTPUT values or fire triggers",
+		"title": "Module flow nodes are effect SINKS — no value outputs, no triggers — **SHIPPED**",
+		"status": "shipped",
+		"gap": "~~module flow nodes can't OUTPUT values or fire triggers~~",
 		"blocks": "`dungeon-realms`",
-		"workaround": "yes — rule-ownership pattern; buttons use action selects instead of trigger sockets",
+		"workaround": "**SHIPPED** (core 21-A1 + R3a; verified by 36-dataflow) — `api.registerValueNode(type, fn, {vtype, inputs})` outputs values (incl. `vtype: 'event'`), `api.fireNodeTrigger(type, match, opts)` fires pulses, module effects get `{id, graphId, trigger}` as a 5th arg; the 1.23 value graph memoizes them once per tick",
 		"file": "devx/flow-nodes-effect-sinks-value-outputs.md"
 	},
 	{
 		"number": 10,
 		"slug": "seed-wired-example-graph-load",
-		"title": "No way to seed a wired example graph on module load",
-		"status": "open",
-		"gap": "seed a wired example graph on module load",
+		"title": "No way to seed a wired example graph on module load — **SHIPPED**",
+		"status": "shipped",
+		"gap": "~~seed a wired example graph on module load~~",
 		"blocks": "`dungeon-realms`",
-		"workaround": "no — reference graph documented in the README instead",
+		"workaround": "**SHIPPED** (core 1.23, 36-dataflow) — `api.flow.seedGraph({key, graphId?, nodes, edges})`: `addNodes` (replicated, one undo entry) but ABSENT-ONLY — nothing is added once any node carries the seed mark `data.seed = '<module>:<key>'` or is one of the module's own node types",
 		"file": "devx/seed-wired-example-graph-load.md"
 	},
 	{
@@ -212,11 +212,11 @@
 	{
 		"number": 22,
 		"slug": "hud-button-drive-node-input",
-		"title": "A HUD Button cannot drive a module node's input",
-		"status": "open",
-		"gap": "a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value",
+		"title": "A HUD Button cannot drive a module node's input — **SHIPPED**",
+		"status": "shipped",
+		"gap": "~~a **HUD Button cannot drive a module node's input** — `hudbutton` has no runtime value~~",
 		"blocks": "`football`, `dungeon-realms` (30), `waves`",
-		"workaround": "yes — a `delay` node bridges the stamp into a numeric pulse",
+		"workaround": "**SHIPPED** (core 1.23, 36-dataflow) — `hudbutton` (and `ongamestate`) now evaluate to the `onclick` pulse window and `hudtimer` to its remaining seconds; a HUD Button wired straight into a module input reads 1 for the press. The Delay bridge still works and can go",
 		"file": "devx/hud-button-drive-node-input.md"
 	},
 	{

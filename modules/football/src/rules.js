@@ -201,9 +201,11 @@ export function attributeGoal({ gateTeam, lastTouch, slots, mode, ownGoals }) {
 }
 
 /** @param {{red: number, blue: number}} score @param {Attribution} a */
-export function applyGoal(score, a) {
+export function applyGoal(score, a, points = 1) {
 	if (!a.counts || !a.team) return { ...score };
-	return { ...score, [a.team]: (score[a.team] ?? 0) + 1 };
+	// 36 (U10): the rules on the Main graph may make a goal worth more (default 1)
+	const n = Number.isFinite(Number(points)) ? Math.max(0, Math.round(Number(points))) : 1;
+	return { ...score, [a.team]: (score[a.team] ?? 0) + n };
 }
 
 // ---- modes end the match ------------------------------------------------------------

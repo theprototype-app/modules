@@ -2,7 +2,7 @@
 // def (run by `npm run build:dungeon-realms`). The entrance arch is placed at the entrance
 // room the SEED produces, computed here with the Kit's own generator (node-side only: the
 // module entry never imports across modules; this emitter is a build step).
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { generateCampaign } from '../dungeon/src/gen/campaign.js';
@@ -13,6 +13,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const { seed, apply, ...params } = RECIPE;
 const play = playPayload(generateCampaign(seed, params), 1);
 const entrance = play.rooms[0];
-const def = realmsDef({ x: Math.round(entrance.cx * 100) / 100, z: Math.round(entrance.cz * 100) / 100 });
+// 36 (U10): the def's Main graph carries the RULES behaviour — the file beside the source
+const rulesCode = readFileSync(join(here, 'src', 'realms.rules.js'), 'utf8');
+const def = realmsDef({ x: Math.round(entrance.cx * 100) / 100, z: Math.round(entrance.cz * 100) / 100 }, { rulesCode });
 writeFileSync(join(here, 'dungeon-realms.def.json'), JSON.stringify(def, null, '\t') + '\n');
 console.log('dungeon-realms.def.json written — entrance at', entrance.cx, entrance.cz, '(' + play.name + ', ' + play.rooms.length + ' rooms, floor checksum ' + play.checksum + ')');
