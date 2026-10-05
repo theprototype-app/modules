@@ -115,9 +115,10 @@ function attributeGoal({ gateTeam, lastTouch, slots, mode, ownGoals }) {
   if (ownGoals === "ignore") return { team: scoring, by, own: true, counts: false, credit: null, reason: "own goal ignored" };
   return { team: scoring, by, own: true, counts: true, credit: "owngoals", reason: "own goal" };
 }
-function applyGoal(score, a) {
+function applyGoal(score, a, points = 1) {
   if (!a.counts || !a.team) return { ...score };
-  return { ...score, [a.team]: (score[a.team] ?? 0) + 1 };
+  const n = Number.isFinite(Number(points)) ? Math.max(0, Math.round(Number(points))) : 1;
+  return { ...score, [a.team]: (score[a.team] ?? 0) + n };
 }
 function matchOutcome({ score, rules, elapsed, playerGoals }) {
   const r = normalizeRules(rules);
@@ -630,16 +631,18 @@ function createGame(api) {
     if (!state.started) return false;
     const at = stamp(data);
     const a = { team: data.team ?? null, by: data.by ?? null, own: !!data.own, counts: !!data.counts, credit: data.credit ?? null, reason: "" };
-    state.score = applyGoal(state.score, a);
-    if (a.counts && a.by && rules().mode === "freeforall") state.playerGoals[a.by] = (state.playerGoals[a.by] ?? 0) + 1;
+    const points = data.points === void 0 ? 1 : Math.max(0, Math.round(Number(data.points) || 0));
+    state.score = applyGoal(state.score, a, points);
+    if (a.counts && a.by && rules().mode === "freeforall") state.playerGoals[a.by] = (state.playerGoals[a.by] ?? 0) + points;
     if (a.counts) state.goals++;
     if (a.by === me() && a.credit && api.peerVars?.setMine) api.peerVars.setMine(a.credit, api.peerVars.mine(a.credit, 0) + 1);
     state.lastTouch = null;
     if (state.liveSince) state.clockBase += Math.max(0, at - state.liveSince);
     state.liveSince = 0;
-    state.celebrateUntil = at + CELEBRATE_SECONDS;
+    const celebrate = Number(data.celebrate);
+    state.celebrateUntil = at + (Number.isFinite(celebrate) ? Math.max(0.5, Math.min(10, celebrate)) : CELEBRATE_SECONDS);
     state.goalGate = String(data.gate ?? "");
-    state.kickTeam = data.gateTeam === "blue" ? "blue" : "red";
+    state.kickTeam = data.kickTeam === "red" || data.kickTeam === "blue" ? data.kickTeam : data.gateTeam === "blue" ? "blue" : "red";
     state.serveAt = rules().serve === "auto" ? state.celebrateUntil + rules().serveDelay : 0;
     const gate = api.objectsGroup()?.getObjectByProperty("uuid", data.gate);
     const where = gate ? gate.getWorldPosition(new THREE.Vector3()).toArray() : void 0;
@@ -837,6 +840,9 @@ function createGame(api) {
       const was = !!inside[uuid];
       inside[uuid] = isIn;
       if (!isIn || was || !live) continue;
+      const toucher = state.lastTouch?.by ?? null;
+      const asked = engine ? engine.emit("ballInGate", { gate: uuid, gateTeam: gate.team, toucher, toucherTeam: toucher ? teamOf(state.slots, toucher) : null, mode: rules().mode }) : 0;
+      if (asked) continue;
       const r = rules();
       const a = attributeGoal({ gateTeam: gate.team, lastTouch: state.lastTouch, slots: state.slots, mode: r.mode, ownGoals: r.ownGoals });
       const data = { op: "goal", gate: uuid, gateTeam: gate.team, team: a.team, by: a.by, own: a.own, counts: a.counts, credit: a.credit, at: now() };
@@ -866,9 +872,16 @@ function createGame(api) {
       if (rules().serve === "auto") serve("rest");
     }
   }
+  let lastClock = 0;
+  let rulesOwnEnd = false;
   function watchEnd() {
     if (!state.started) return;
     if (matchPhase(state, now()) === "celebrate") return;
+    if (engine && now() - lastClock >= 1) {
+      lastClock = now();
+      rulesOwnEnd = engine.emit("clock", { elapsed: elapsed() ?? 0, left: left(), score: { ...state.score } }) > 0;
+    }
+    if (rulesOwnEnd) return;
     const outcome = matchOutcome({ score: state.score, rules: rules(), elapsed: elapsed() ?? 0, playerGoals: state.playerGoals });
     if (!outcome) return;
     const data = { op: "over", at: now(), ...outcome };
@@ -1224,6 +1237,48 @@ function createGame(api) {
   const left = () => state.started ? secondsLeft(rules(), elapsed() ?? 0) : null;
   const golden = () => state.started && goldenGoal({ score: state.score, rules: rules(), elapsed: elapsed() ?? 0, playerGoals: state.playerGoals });
   const phase = () => matchPhase(state, now());
+  let engine = null;
+  if (typeof api.kit?.provide === "function") {
+    engine = api.kit.provide(
+      {
+        piece: "football",
+        group: "Football (engine)",
+        calls: [
+          { name: "goal", kind: "action", label: "Score a goal", doc: "Records the goal the rules decided ({gate, gateTeam, team, by, own, counts, credit, points, celebrate, kickTeam}) on every peer: the score, the sheet, the celebration, the kick-off.", args: [{ key: "goal", type: "object" }], node: false },
+          { name: "endMatch", kind: "action", label: "Final whistle", doc: "Ends the match ({winner, reason}) on every peer and saves it to the match log.", args: [{ key: "result", type: "object" }], node: false },
+          { name: "settings", kind: "value", label: "Match settings", vtype: "object", doc: "The Match Rules node's settings (mode, win by, goals to win, match length, own goals, tie).", node: false },
+          { name: "score", kind: "value", label: "Score", vtype: "object", node: false },
+          { name: "elapsed", kind: "value", label: "Seconds played", vtype: "number", node: false },
+          { name: "playerGoals", kind: "value", label: "Goals per player (free for all)", vtype: "object", node: false },
+          { name: "ballInGate", kind: "event", label: "On ball into a gate", node: false },
+          { name: "clock", kind: "event", label: "Every second of play", node: false }
+        ]
+      },
+      {
+        /** @param {any} g */
+        goal: (g) => {
+          if (!isAuthority() || !state.started || !g) return false;
+          const data = { op: "goal", at: now(), gate: String(g.gate ?? ""), gateTeam: g.gateTeam === "blue" ? "blue" : "red", team: g.team ?? null, by: g.by ?? null, own: !!g.own, counts: !!g.counts, credit: g.credit ?? null, points: g.points, celebrate: g.celebrate, kickTeam: g.kickTeam };
+          applyGoalOp(data);
+          api.send(data);
+          return true;
+        },
+        /** @param {any} r */
+        endMatch: (r) => {
+          if (!isAuthority() || !state.started) return false;
+          const data = { op: "over", at: now(), winner: String(r?.winner ?? "draw"), reason: String(r?.reason ?? "") };
+          applyOver(data);
+          api.send(data);
+          writeMatchLog();
+          return true;
+        },
+        settings: () => rules(),
+        score: () => ({ ...state.score }),
+        elapsed: () => elapsed() ?? 0,
+        playerGoals: () => ({ ...state.playerGoals })
+      }
+    );
+  }
   return {
     state,
     config,
@@ -1263,7 +1318,9 @@ function createGame(api) {
     onChange: (fn) => {
       listeners.add(fn);
       return () => listeners.delete(fn);
-    }
+    },
+    /** 36 (U10): is a rules behaviour deciding the match (the engine piece has listeners) */
+    rulesDecide: () => !!engine && rulesOwnEnd
   };
 }
 
@@ -2275,8 +2332,8 @@ function createKicker(api, game) {
 var index_default = {
   id: "football",
   name: "Football",
-  version: "1.3.0",
-  description: "VR football on the knock: floating ball, two team gates, last-touch attribution, modes, per-player records and a saved match log \u2014 every rule a flow node.",
+  version: "1.4.0",
+  description: 'VR football on the knock: floating ball, two team gates, last-touch attribution, modes, per-player records and a saved match log. The match decisions are the "Football rules" node on the Main graph; this module is the engine.',
   /** @param {any} api the module SDK surface */
   register(api) {
     const game = createGame(api);
