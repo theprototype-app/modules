@@ -2088,6 +2088,440 @@
 						"selected": "Goal core"
 					},
 					"class": "w-[150px]"
+				},
+				{
+					"id": "wg-enemy-01",
+					"type": "group",
+					"position": {
+						"x": 0,
+						"y": 0
+					},
+					"data": {
+						"label": "Enemy 01 (3 hp)",
+						"type": "group",
+						"children": [
+							"wa12",
+							"wa13",
+							"wa14",
+							"wa15",
+							"wa16",
+							"wa17",
+							"wa18"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wg-enemy-02",
+					"type": "group",
+					"position": {
+						"x": 0,
+						"y": 200
+					},
+					"data": {
+						"label": "Enemy 02 (3 hp)",
+						"type": "group",
+						"children": [
+							"wa19",
+							"wa20",
+							"wa21",
+							"wa22",
+							"wa23",
+							"wa24",
+							"wa25"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wg-enemy-03",
+					"type": "group",
+					"position": {
+						"x": 0,
+						"y": 400
+					},
+					"data": {
+						"label": "Enemy 03 (3 hp)",
+						"type": "group",
+						"children": [
+							"wa26",
+							"wa27",
+							"wa28",
+							"wa29",
+							"wa30",
+							"wa31",
+							"wa32"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wg-enemy-04",
+					"type": "group",
+					"position": {
+						"x": 0,
+						"y": 600
+					},
+					"data": {
+						"label": "Enemy 04 (3 hp)",
+						"type": "group",
+						"children": [
+							"wa33",
+							"wa34",
+							"wa35",
+							"wa36",
+							"wa37",
+							"wa38",
+							"wa39"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wg-enemy-05",
+					"type": "group",
+					"position": {
+						"x": 0,
+						"y": 800
+					},
+					"data": {
+						"label": "Enemy 05 Runner (2 hp)",
+						"type": "group",
+						"children": [
+							"wa40",
+							"wa41",
+							"wa42",
+							"wa43",
+							"wa44",
+							"wa45",
+							"wa46"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wg-enemy-06",
+					"type": "group",
+					"position": {
+						"x": 0,
+						"y": 1000
+					},
+					"data": {
+						"label": "Enemy 06 Runner (2 hp)",
+						"type": "group",
+						"children": [
+							"wa47",
+							"wa48",
+							"wa49",
+							"wa50",
+							"wa51",
+							"wa52",
+							"wa53"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wg-enemy-07",
+					"type": "group",
+					"position": {
+						"x": 0,
+						"y": 1200
+					},
+					"data": {
+						"label": "Enemy 07 (3 hp)",
+						"type": "group",
+						"children": [
+							"wa54",
+							"wa55",
+							"wa56",
+							"wa57",
+							"wa58",
+							"wa59",
+							"wa60"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wg-enemy-08",
+					"type": "group",
+					"position": {
+						"x": 0,
+						"y": 1400
+					},
+					"data": {
+						"label": "Enemy 08 Tank (8 hp)",
+						"type": "group",
+						"children": [
+							"wa61",
+							"wa62",
+							"wa63",
+							"wa64",
+							"wa65",
+							"wa66",
+							"wa67"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wg-enemy-09",
+					"type": "group",
+					"position": {
+						"x": 0,
+						"y": 1600
+					},
+					"data": {
+						"label": "Enemy 09 Runner (2 hp)",
+						"type": "group",
+						"children": [
+							"wa68",
+							"wa69",
+							"wa70",
+							"wa71",
+							"wa72",
+							"wa73",
+							"wa74"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wg-enemy-10",
+					"type": "group",
+					"position": {
+						"x": 0,
+						"y": 1800
+					},
+					"data": {
+						"label": "Enemy 10 Tank (8 hp)",
+						"type": "group",
+						"children": [
+							"wa75",
+							"wa76",
+							"wa77",
+							"wa78",
+							"wa79",
+							"wa80",
+							"wa81"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wn-readme",
+					"type": "note",
+					"position": {
+						"x": -3000,
+						"y": -1600
+					},
+					"data": {
+						"title": "Waves — read me first",
+						"text": "Hold the **crystal** against five levels of three waves. The **Waves** node runs it: who spawns where and when, how fast they walk, the level curve. An enemy reaching the crystal is a **breach** (it costs the crystal 2); the crystal at zero = the round is **lost**, the last wave cleared = **won**.\n\nThe guns, abilities and the menus' logic live in the module (its **Code link**, read-only).",
+						"color": "blue",
+						"w": 340,
+						"h": 230,
+						"type": "note"
+					}
+				},
+				{
+					"id": "wn-enemies",
+					"type": "note",
+					"position": {
+						"x": -3000,
+						"y": -1300
+					},
+					"data": {
+						"title": "Enemies",
+						"text": "One group per enemy, in **roster order** (the Waves node uses them by NAME, a wave of n = the first n). Inside each: a shot fires **Damage** → **Counter** → the enemy's **Health** (hide on death, respawn); **Health Reset** starts every round fresh. Double-click to open one.",
+						"color": "gray",
+						"w": 300,
+						"h": 140,
+						"type": "note"
+					}
+				},
+				{
+					"id": "wg-enemies",
+					"type": "group",
+					"position": {
+						"x": -3000,
+						"y": -1100
+					},
+					"data": {
+						"label": "Enemies (10)",
+						"type": "group",
+						"children": [
+							"wg-enemy-01",
+							"wg-enemy-02",
+							"wg-enemy-03",
+							"wg-enemy-04",
+							"wg-enemy-05",
+							"wg-enemy-06",
+							"wg-enemy-07",
+							"wg-enemy-08",
+							"wg-enemy-09",
+							"wg-enemy-10"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wn-menus",
+					"type": "note",
+					"position": {
+						"x": -3000,
+						"y": -900
+					},
+					"data": {
+						"title": "Menus & buttons",
+						"text": "Every HUD button and key: **Start**, **Again**, the pause menu (P, Resume, Restart, Quit), the menu pages and the gun / ability / option buttons the module reads (each player's own).",
+						"color": "purple",
+						"w": 300,
+						"h": 130,
+						"type": "note"
+					}
+				},
+				{
+					"id": "wg-menus",
+					"type": "group",
+					"position": {
+						"x": -3000,
+						"y": -700
+					},
+					"data": {
+						"label": "Menus & buttons",
+						"type": "group",
+						"children": [
+							"wh0",
+							"wh1",
+							"wh2",
+							"wh3",
+							"wh11",
+							"wh12",
+							"wh13",
+							"wh14",
+							"wh15",
+							"wh16",
+							"wh17",
+							"wh18",
+							"wh19",
+							"wh20",
+							"wh21",
+							"wh22",
+							"wh31",
+							"wh32",
+							"wh33",
+							"wh34",
+							"wh35",
+							"wh36",
+							"wh37",
+							"wh38",
+							"wh39",
+							"wh40",
+							"wh41",
+							"wh42",
+							"wh43",
+							"wh44",
+							"wh45",
+							"wh46",
+							"wh47",
+							"wh48",
+							"wh49",
+							"wh50",
+							"wh51",
+							"wh52"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wn-hud",
+					"type": "note",
+					"position": {
+						"x": -3000,
+						"y": -500
+					},
+					"data": {
+						"title": "HUD readouts",
+						"text": "What the play HUD shows: the wave, enemies left, the level, the crystal's health bar, this player's score, ability charge and beam heat, and the kills board.",
+						"color": "green",
+						"w": 300,
+						"h": 120,
+						"type": "note"
+					}
+				},
+				{
+					"id": "wg-readouts",
+					"type": "group",
+					"position": {
+						"x": -3000,
+						"y": -300
+					},
+					"data": {
+						"label": "HUD readouts",
+						"type": "group",
+						"children": [
+							"wh4",
+							"wh5",
+							"wh6",
+							"wh7",
+							"wh8",
+							"wh9",
+							"wh10",
+							"wh23",
+							"wh24",
+							"wh25",
+							"wh26",
+							"wh27",
+							"wh28",
+							"wh29",
+							"wh30"
+						],
+						"inputs": [],
+						"outputs": []
+					},
+					"class": "w-[190px]"
+				},
+				{
+					"id": "wn-glow",
+					"type": "note",
+					"position": {
+						"x": 60,
+						"y": 5480
+					},
+					"data": {
+						"title": "The crystal glows",
+						"text": "The crystal's glow follows the player's health (Goal Core).",
+						"color": "gray",
+						"w": 240,
+						"h": 90,
+						"type": "note"
+					}
 				}
 			],
 			"edges": [
@@ -2705,6 +3139,7 @@
 			]
 		}
 	},
+	"graphTidy": "layout",
 	"hud": {
 		"scene": {
 			"active": "",

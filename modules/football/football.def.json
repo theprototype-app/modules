@@ -2306,6 +2306,7 @@
 			]
 		}
 	},
+	"graphTidy": "repair",
 	"hud": {
 		"scene": {
 			"active": "",

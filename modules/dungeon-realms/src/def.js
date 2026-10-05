@@ -284,6 +284,8 @@ export function realmsDef(entrance, opts = {}) {
 			changedAt: 0
 		},
 		graphs: { scene: opts.rulesCode ? mainGraph(realmsGraph(), opts.rulesCode) : realmsGraph() },
+		// 36 F11: the layout reads well — the author script only moves what overlaps or sits on a wire
+		graphTidy: 'repair',
 		hud: realmsHud(),
 		objects: archObjects(entrance),
 		// the editor camera opens on the arch; the card renders the module's world too
