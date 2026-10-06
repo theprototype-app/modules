@@ -14,10 +14,24 @@
 		]
 	},
 	{
+		"id": "blocks",
+		"name": "Blocks",
+		"version": "1.0.0",
+		"description": "Drop 100 blocks that tumble and pile up: one instanced draw call and a local physics world — a performance showcase.",
+		"author": "theprototype-app",
+		"source": "modules/blocks",
+		"zip": "blocks.zip",
+		"category": "example",
+		"tags": [
+			"physics",
+			"performance"
+		]
+	},
+	{
 		"id": "car",
 		"name": "Drivable Car",
-		"version": "1.2.1",
-		"description": "Spawn a jointed demo car; click its body in Interact mode (I) to claim it, then drive with WASD in Play mode while a simulation runs.",
+		"version": "1.3.0",
+		"description": "Spawn a jointed demo car with steered front wheels; click its body in Interact mode (I) to claim it, then drive with WASD in Play mode while a simulation runs.",
 		"author": "theprototype-app",
 		"source": "modules/car",
 		"zip": "car.zip",
