@@ -81,7 +81,8 @@ h.run(async () => {
 	await A.page.evaluate(() => window.__stores.physics.warmup().catch(() => {}));
 	await pressMenu(A, 'car', 'Car: spawn demo car');
 	const jointsOf = () => A.page.evaluate(() => new Promise((r) => window.__stores.joints.sceneJoints.subscribe(r)()));
-	const js = await h.eventually(jointsOf, (j) => j.length >= 6, 'the car spawns 6 joints (2 axles, 2 knuckles, 2 knuckle axles)', 20000);
+	await h.eventually(jointsOf, (j) => j.length >= 6, 'the car spawns 6 joints (2 axles, 2 knuckles, 2 knuckle axles)', 20000);
+	const js = await jointsOf(); // this helper's eventually() returns the CHECK, not the value
 	const steer = (js ?? []).filter((d) => Math.abs(d.axisA?.[1] ?? 0) > 0.5);
 	h.check(
 		steer.length === 2 && steer.every((d) => d.contacts === false && Array.isArray(d.limits) && d.motor?.pos === 0),
