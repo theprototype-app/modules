@@ -1,10 +1,10 @@
 ---
 number: 11
-title: "No play-mode signal"
-status: open
-gap: "play-mode signal (`api.isPlaying()` / `onPlayMode`)"
+title: "No play-mode signal — **SHIPPED**"
+status: shipped
+gap: "~~play-mode signal (`api.isPlaying()` / `onPlayMode`)~~"
 blocks: "`dungeon-realms`"
-workaround: "yes — observes `#dungeon-minimap` visibility (brittle DOM)"
+workaround: "**SHIPPED** (`api.isPlaying()` since 17-A; core 1.26, 37-slipped: `api.onPlayMode(fn)` + `api.inGame()` — Play OR a headset game in Interact). dungeon-realms keeps its own rule (desktop Interact is a game view too) and no longer reaches the minimap sniff on any core with `api.isPlaying`"
 ---
 
 **Found in:** `modules/dungeon-realms` — the GUI must appear "only after the

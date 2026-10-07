@@ -1,10 +1,10 @@
 ---
 number: 29
-title: "No pointer seam and no dispose hook for a module's own listeners"
-status: open
-gap: "no **pointer seam** (pointerdown/up, click-miss) and no module **dispose hook**"
+title: "No pointer seam and no dispose hook for a module's own listeners — **SHIPPED**"
+status: shipped
+gap: "~~no **pointer seam** (pointerdown/up, click-miss) and no module **dispose hook**~~"
 blocks: "`untangle`"
-workaround: "yes — window CAPTURE listeners, self-detaching when a newer copy owns the module's hook"
+workaround: "**SHIPPED** (dispose: `api.onUnload` 34 R6; core 1.26, 37-slipped: `api.registerPointerHandler({down, move, up}, {modes})` — `down` returning true OWNS the gesture, orbit/select/carry stand down — and `api.onClickMiss(fn)`). untangle still runs its own capture-phase gesture (tap-to-pick, two-finger rotate, menu suppression); porting it onto the seam is a follow-up"
 ---
 
 **Found in:** `modules/untangle` (roadmap 30, P0). A real drag needs the PRESS: core

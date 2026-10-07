@@ -1,10 +1,10 @@
 ---
 number: 31
-title: "No camera on the api"
-status: open
-gap: "no **camera** on the api (the crosshair ray under a lock)"
+title: "No camera on the api — **SHIPPED**"
+status: shipped
+gap: "~~no **camera** on the api (the crosshair ray under a lock)~~"
 blocks: "`untangle`"
-workaround: "yes — `pointerRay().camera`, else the scene camera nearest `playerPosition()`"
+workaround: "**SHIPPED** (core 1.26, 37-slipped: `api.camera()` — the camera the user looks through, the XR camera in a headset). untangle 2.4.2 asks it first and keeps its inference for older cores"
 ---
 
 **Found in:** `modules/untangle` (P0). Under a pointer lock the carry must follow the
