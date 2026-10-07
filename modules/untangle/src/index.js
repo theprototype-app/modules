@@ -42,7 +42,7 @@ const EXPIRE_FRAMES = 40; // a node gone from the graph -> the module's own defa
 export default {
 	id: 'untangle',
 	name: 'Untangle',
-	version: '2.4.1',
+	version: '2.4.2',
 	description: 'Drag the dots until no edges cross — on a flat board or around a globe, 30 levels that unlock as you solve them, one progress for both (it stays on your device). In VR: you start in front of the board, grab dots with the trigger, hold/turn/scale the globe, the stick pushes the board or the held globe farther / pulls it closer (as Edit does to a held object), the grips scale the world, a level picker with Globe / 2D and a level bar. Replicated; board pose, level and readouts as flow nodes.',
 	/** @param {any} api */
 	register(api) {

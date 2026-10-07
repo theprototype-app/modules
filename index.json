@@ -264,7 +264,7 @@
 	{
 		"id": "untangle",
 		"name": "Untangle",
-		"version": "2.4.1",
+		"version": "2.4.2",
 		"description": "Untangle the graph: drag the dots until no edges cross, on a flat 2D board or around a 3D globe (great-circle arcs). 30 levels with ONE progress across both modes (switching keeps your level), best times kept on your device, reset any time. In VR: you start in front of the board, grab dots with the trigger (laser or tip), hold, turn and scale the globe, the stick pushes the board or the held globe farther and pulls it closer like an object in the editor, the grips move and scale the world, a level picker with Globe / 2D in the headset and a waist-height level bar, haptics. Procedural and replicated, with game sounds and quiet puzzle music - board pose, level and readouts as flow nodes.",
 		"author": "theprototype-app",
 		"source": "modules/untangle",

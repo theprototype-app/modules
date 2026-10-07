@@ -13,7 +13,8 @@
 //   camera's forward: equal -> trust the api ('api'), otherwise build the NDC (0,0) ray
 //   from the same camera ('crosshair').
 //
-// The camera: a Raycaster remembers the camera it was set from (`ray.camera`), so the
+// The camera: `api.camera()` on a core that has it (DEVX #31, 1.26). Before that, a
+// Raycaster remembers the camera it was set from (`ray.camera`), so the
 // api's own ray names the active camera; before the first pointer event (api ray null) we
 // fall back to the scene camera nearest `api.playerPosition()`, which core reads off that
 // same active camera.
@@ -48,6 +49,10 @@ export function makeAim(api, THREE) {
 	}
 
 	function camera() {
+		// core 1.26+ (DEVX #31): the camera the user looks through, asked directly; the two
+		// inferences below stay for older cores
+		const direct = typeof api.camera === 'function' ? api.camera() : null;
+		if (direct) return direct;
 		const r = api.pointerRay?.();
 		return r?.camera ?? sceneCamera();
 	}
