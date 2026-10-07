@@ -3,8 +3,11 @@
 // Sync model = AUTHORITATIVE (golden rule 8, never mixed): whoever started the
 // physics sim steps the world; the DRIVER (whoever claimed the car by clicking
 // its body) broadcasts {op:'drive', throttle, steer} at ~20Hz and ONLY the
-// initiator applies wheel motors (differential/tank steering v1 — steered
-// front knuckles are a backlog item). Claims live in module state (late
+// initiator applies wheel motors. 1.3.0 (roadmap 37 R17): STEERED FRONT
+// KNUCKLES — each front wheel hangs off a small knuckle on a revolute about the
+// body's Y, driven to an ANGLE (api.physics.setJointMotorPosition), with the wheel
+// spinning on a second revolute about the knuckle's X. A core without the angle
+// motor (before 1.27) gets the 1.2 car: differential (tank) steering. Claims live in module state (late
 // joiners adopt them) and free when the claimant disconnects (pong's paddle
 // pattern). Driver != initiator adds ~150-250ms input latency — acceptable
 // for a prototype toy, by design.
@@ -16,7 +19,7 @@
 export default {
 	id: 'car',
 	name: 'Drivable Car',
-	version: '1.2.1',
+	version: '1.3.0',
 	description: 'Spawn a jointed demo car; click its body in Interact mode (I) to claim it, then drive with WASD in Play mode while a simulation runs.',
 	/** @param {any} api */
 	register(api) {
@@ -28,7 +31,14 @@ export default {
 		const MAX_VEL = 10; // rad/s wheel speed at full throttle
 		const STEER_VEL = 6;
 		const FORCE = 120;
+		const MAX_STEER = 0.55; // rad (~31°) — the knuckle's travel each way
+		const STEER_STIFFNESS = 900;
+		const STEER_DAMPING = 90;
+		// W drives toward +Z (a wheel spinning about +X pushes the contact patch to -Z),
+		// so +Z is the FRONT and the knuckles go on the +Z axle
+		const FRONT_Z = 1;
 		let lastDrive = 0;
+		const knuckled = () => typeof api.physics.setJointMotorPosition === 'function';
 
 		api.registerBindings([
 			{ label: 'Drive claimed car (Play mode + running sim)', keys: 'W / S' },
@@ -77,6 +87,8 @@ export default {
 			geometry.translate(0, 0.3, 0); // rest on y=0 like the other builders
 			return geometry;
 		});
+		// 1.3.0: the steering knuckle (a hub the wheel turns on), centred on its own origin
+		api.registerPrimitive('Carknuckle', () => new THREE.BoxGeometry(0.22, 0.22, 0.22));
 
 		const spawnDemoCar = async () => {
 			// api.create runs the SAME replicated /create the sidebar does and hands
@@ -85,8 +97,11 @@ export default {
 			const bodyIds = await api.create('/create Carbody');
 			/** @type {string[]} */ const wheelIds = [];
 			for (let i = 0; i < 4; i++) wheelIds.push(...(await api.create('/create Cylinder 0.4 0.4 0.3')));
+			const steered = knuckled();
+			/** @type {string[]} */ const knuckleIds = [];
+			if (steered) for (let i = 0; i < 2; i++) knuckleIds.push(...(await api.create('/create Carknuckle')));
 			const bodyId = bodyIds[0];
-			if (!bodyId || wheelIds.length !== 4) {
+			if (!bodyId || wheelIds.length !== 4 || (steered && knuckleIds.length !== 2)) {
 				api.toast('Car spawn failed — try again');
 				return;
 			}
@@ -105,8 +120,29 @@ export default {
 				api.moveObject(uuid, { pos: [corners[index][0], 0.4, corners[index][1]], rot: [0, 0, Math.PI / 2] });
 				api.physics.set(uuid, { mode: 'dynamic', mass: 2, collider: 'hull', friction: 1.1 });
 			});
-			// axle hinges: revolute about the BODY's local X, anchored at each wheel
-			wheelIds.forEach((uuid) => api.physics.createJoint('revolute', bodyId, uuid, 'x', { vel: 0, maxForce: FORCE }));
+			if (!steered) {
+				// axle hinges: revolute about the BODY's local X, anchored at each wheel
+				wheelIds.forEach((uuid) => api.physics.createJoint('revolute', bodyId, uuid, 'x', { vel: 0, maxForce: FORCE }));
+			} else {
+				let k = 0;
+				wheelIds.forEach((uuid, index) => {
+					const [x, z] = corners[index];
+					if (Math.sign(z) !== FRONT_Z) {
+						api.physics.createJoint('revolute', bodyId, uuid, 'x', { vel: 0, maxForce: FORCE });
+						return;
+					}
+					// the knuckle sits at the wheel centre (the kingpin runs through it), turns
+					// about the body's Y within its travel, and does not collide with the body or
+					// the wheel it carries
+					const knuckle = knuckleIds[k++];
+					api.moveObject(knuckle, { pos: [x, 0.4, z] });
+					api.physics.set(knuckle, { mode: 'dynamic', mass: 2, friction: 0.3 });
+					api.physics.createJoint('revolute', bodyId, knuckle, 'y',
+						{ pos: 0, stiffness: STEER_STIFFNESS, damping: STEER_DAMPING },
+						{ limits: [-MAX_STEER, MAX_STEER], contacts: false });
+					api.physics.createJoint('revolute', knuckle, uuid, 'x', { vel: 0, maxForce: FORCE }, { contacts: false });
+				});
+			}
 			api.toast('Car spawned — press I (Interact) and click the body to claim it, then Play + a running simulation to drive');
 		};
 
@@ -142,12 +178,35 @@ export default {
 			syncEngagement(); // C3: my claim appearing/vanishing (incl. remote release)
 		};
 
-		/** the initiator turns a drive op into wheel motor velocities */
+		/**
+		 * Which joints of a car do what — DERIVED from the replicated joint list, so whichever
+		 * peer is stepping the world (it need not be the one that spawned the car) can drive it.
+		 * A joint about Y from the body is a knuckle; anything spinning about X (off the body or
+		 * off one of its knuckles) is an axle.
+		 * @param {any[]} defs @param {string} carId
+		 */
+		const carJoints = (defs, carId) => {
+			const isY = (/** @type {any} */ d) => Math.abs(d.axisA?.[1] ?? 0) > 0.5;
+			const steer = defs.filter((d) => d.kind === 'revolute' && d.a === carId && isY(d));
+			const knuckles = new Set(steer.map((d) => d.b));
+			const axles = defs.filter((d) => d.kind === 'revolute' && !isY(d) && (d.a === carId || knuckles.has(d.a)));
+			return { steer, axles };
+		};
+
+		/** the initiator turns a drive op into wheel motors (and knuckle angles) */
 		const applyDrive = (/** @type {string} */ carId, /** @type {number} */ throttle, /** @type {number} */ steer) => {
 			if (!api.physics.isInitiator()) return;
 			api.physics.joints().then((/** @type {any[]} */ defs) => {
-				for (const def of defs) {
-					if (def.a !== carId || def.kind !== 'revolute') continue;
+				const joints = carJoints(defs, carId);
+				if (joints.steer.length && knuckled()) {
+					// facing +Z, right is -X: a right turn swings the wheels' fronts toward -X,
+					// which is a NEGATIVE angle about +Y
+					for (const def of joints.steer)
+						api.physics.setJointMotorPosition(def.id, -steer * MAX_STEER, STEER_STIFFNESS, STEER_DAMPING);
+					for (const def of joints.axles) api.physics.setJointMotor(def.id, throttle * MAX_VEL, FORCE);
+					return;
+				}
+				for (const def of joints.axles) {
 					// differential steering: the axle side comes from the attach-time
 					// body-local anchor's X sign
 					const side = (def.anchorA?.[0] ?? 0) >= 0 ? 1 : -1;
