@@ -24,7 +24,8 @@
 		"build:health": "esbuild modules/health/src/index.js --bundle --format=esm --outfile=modules/health/module.js",
 		"test:health": "node modules/health/test/run.mjs",
 		"build:waves": "node modules/waves/build-gltf.mjs && esbuild modules/waves/src/index.js --bundle --format=esm --outfile=modules/waves/module.js && node modules/waves/emit-def.mjs",
-		"test:waves": "node modules/waves/test/run.mjs"
+		"test:waves": "node modules/waves/test/run.mjs",
+		"test:smart-unwrap": "node modules/smart-unwrap/test/run.mjs"
 	},
 	"devDependencies": {
 		"esbuild": "0.28.2",

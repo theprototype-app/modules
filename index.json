@@ -262,6 +262,22 @@
 		]
 	},
 	{
+		"id": "smart-unwrap",
+		"name": "Smart unwrap (xatlas)",
+		"version": "1.0.0",
+		"description": "Adds \"Smart (xatlas)\" to the UV editor's Unwrap menu: automatic seams, flattened charts and an overlap-free packed atlas, from xatlas compiled to WebAssembly (the .wasm ships in the zip).",
+		"author": "theprototype-app",
+		"source": "modules/smart-unwrap",
+		"zip": "smart-unwrap.zip",
+		"category": "tool",
+		"tags": [
+			"uv",
+			"unwrap",
+			"texturing",
+			"wasm"
+		]
+	},
+	{
 		"id": "tutorial-room",
 		"name": "Tutorial Room",
 		"version": "1.1.0",
