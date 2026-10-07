@@ -1,0 +1,82 @@
+Smart unwrap (xatlas) — third-party software
+=============================================
+
+This module ships, unmodified except as noted, a WebAssembly build of xatlas and the
+JavaScript glue that drives it:
+
+  assets/xatlas.wasm   the xatlas-wasm 0.1.3 binary, decoded byte-for-byte from the
+                       package's inline (SINGLE_FILE) copy
+  module.js            the xatlas-wasm 0.1.3 emscripten glue + wrapper, between the
+                       "VENDORED xatlas-wasm glue" markers; two edits: the inline binary
+                       is dropped (the .wasm above is loaded through
+                       Module.instantiateWasm instead) and the ES `export {...}` block is
+                       removed
+
+Source package: https://www.npmjs.com/package/xatlas-wasm (version 0.1.3,
+  sha512-LGWvSyHryDda9+a3+le2bd+QWPTDMFjfu3CPlVauTm8Liqd+S9wIjQScBzlOChFTyL8OpzZ4AI0tE0zoF3kc6g==)
+Repository:     https://github.com/mode777/xatlas-wasm
+
+
+-------------------------------------------------------------------------------
+xatlas-wasm
+-------------------------------------------------------------------------------
+Copyright (c) Alexander Klingenbeck (alexander.klingenbeck@gmx.de)
+
+xatlas-wasm declares the MIT license (package.json "license": "MIT"); the package and
+repository carry no separate license text, so the standard MIT terms are reproduced
+here:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+-------------------------------------------------------------------------------
+xatlas — https://github.com/jpcy/xatlas
+-------------------------------------------------------------------------------
+MIT License
+
+Copyright (c) 2018-2020 Jonathan Young
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+-------------------------------------------------------------------------------
+Code inside xatlas (notices from source/xatlas/xatlas.cpp, all MIT, terms as above)
+-------------------------------------------------------------------------------
+thekla_atlas — https://github.com/Thekla/thekla_atlas
+  Copyright (c) 2013 Thekla, Inc
+  Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
+
+Fast-BVH — https://github.com/brandonpelfrey/Fast-BVH
+  Copyright (c) 2012 Brandon Pelfrey
