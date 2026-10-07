@@ -1,0 +1,9 @@
+{
+	"id": "blocks",
+	"name": "Blocks",
+	"version": "1.0.0",
+	"format": 1,
+	"description": "Drop 100 blocks that tumble and pile up: one instanced draw call and a local physics world — a performance showcase.",
+	"entry": "module.js",
+	"files": ["module.js"]
+}
