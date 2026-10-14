@@ -64,7 +64,12 @@ async function setupPage(browser, name, options = {}) {
 	page.on('pageerror', (err) => console.log(`[${name} pageerror] ` + err.stack));
 	await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
 	await page.waitForTimeout(4000);
-	await page.waitForFunction(() => window.__stores && !!window.__stores.moduleSDK, { timeout: 30000 });
+	// core 43-tests: a THIRD page in one browser boots in ~50 s on a loaded e2e box (the two
+	// already rendering software GL starve it — no error, just slow), so a 30 s cap killed every
+	// three-peer flight (untangle, dungeon-realms) at its late joiner. Same state, longer wait.
+	// (the options are the THIRD argument — passed second they were the page function's `arg`
+	// and Playwright's default 30 s applied whatever the number said)
+	await page.waitForFunction(() => window.__stores && !!window.__stores.moduleSDK, null, { timeout: 90000 });
 	const id = await page.evaluate(
 		() => new Promise((r) => window.__stores.peers.subscribe((p) => r(p?.peer?.id))())
 	);
