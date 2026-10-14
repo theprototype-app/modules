@@ -414,6 +414,22 @@ async function leavePlay(peer) {
 	return (await locked()) !== true;
 }
 
+/**
+ * `setupPage` for a LATE page while `others` are already up (core 43-tests): every page in one
+ * headless browser draws software GL continuously, and on a loaded e2e box the two already
+ * drawing starve a third page's boot. Their DRAWING is paused through the app's own overload-guard
+ * pause for the length of the boot and resumed after — sessions, sockets and stores keep running.
+ * Only where the flight asserts nothing about what those pages draw during the boot.
+ */
+async function setupPageQuiet(browser, name, others, options = {}) {
+	for (const peer of others) await peer.page.evaluate(() => window.__stores.overloadGuard.pauseRendering('e2e: another page boots'));
+	try {
+		return await setupPage(browser, name, options);
+	} finally {
+		for (const peer of others) await peer.page.evaluate(() => window.__stores.overloadGuard.resumeRendering()).catch(() => {});
+	}
+}
+
 module.exports = {
 	leavePlay,
 	URL,
@@ -424,6 +440,7 @@ module.exports = {
 	check,
 	launch,
 	setupPage,
+	setupPageQuiet,
 	installModule,
 	loadedIds,
 	connect,
