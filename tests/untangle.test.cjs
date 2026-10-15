@@ -24,7 +24,7 @@
 //   npm run pack -- untangle
 //   APP_URL=https://theprototype.app:5216/ node tests/untangle.test.cjs
 
-const { launch, setupPage, installModule, connect, check, eventually, finish, run, toasts } = require('./helpers.cjs');
+const { launch, setupPage, setupPageQuiet, installModule, connect, check, eventually, finish, run, toasts } = require('./helpers.cjs');
 
 const snap = (page) =>
 	page.evaluate(() => {
@@ -104,7 +104,7 @@ run(async () => {
 		return window.__untangle.move(2, [p[0] + 0.01, p[1]]);
 	}), 'A nudges dot 2 before the joiner arrives');
 	check((await snap(A.page)).crossings > 0, '(premise) the board is still tangled');
-	const C = await setupPage(browser, 'C');
+	const C = await setupPageQuiet(browser, 'C', [A, B]);
 	await installModule(C, 'untangle');
 	await connect(C, A);
 	const aEnd = await snap(A.page);

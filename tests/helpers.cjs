@@ -64,7 +64,12 @@ async function setupPage(browser, name, options = {}) {
 	page.on('pageerror', (err) => console.log(`[${name} pageerror] ` + err.stack));
 	await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
 	await page.waitForTimeout(4000);
-	await page.waitForFunction(() => window.__stores && !!window.__stores.moduleSDK, { timeout: 30000 });
+	// core 43-tests: a THIRD page in one browser boots in ~50 s on a loaded e2e box (the two
+	// already rendering software GL starve it — no error, just slow), so a 30 s cap killed every
+	// three-peer flight (untangle, dungeon-realms) at its late joiner. Same state, longer wait.
+	// (the options are the THIRD argument — passed second they were the page function's `arg`
+	// and Playwright's default 30 s applied whatever the number said)
+	await page.waitForFunction(() => window.__stores && !!window.__stores.moduleSDK, null, { timeout: 90000 });
 	const id = await page.evaluate(
 		() => new Promise((r) => window.__stores.peers.subscribe((p) => r(p?.peer?.id))())
 	);
@@ -409,6 +414,22 @@ async function leavePlay(peer) {
 	return (await locked()) !== true;
 }
 
+/**
+ * `setupPage` for a LATE page while `others` are already up (core 43-tests): every page in one
+ * headless browser draws software GL continuously, and on a loaded e2e box the two already
+ * drawing starve a third page's boot. Their DRAWING is paused through the app's own overload-guard
+ * pause for the length of the boot and resumed after — sessions, sockets and stores keep running.
+ * Only where the flight asserts nothing about what those pages draw during the boot.
+ */
+async function setupPageQuiet(browser, name, others, options = {}) {
+	for (const peer of others) await peer.page.evaluate(() => window.__stores.overloadGuard.pauseRendering('e2e: another page boots'));
+	try {
+		return await setupPage(browser, name, options);
+	} finally {
+		for (const peer of others) await peer.page.evaluate(() => window.__stores.overloadGuard.resumeRendering()).catch(() => {});
+	}
+}
+
 module.exports = {
 	leavePlay,
 	URL,
@@ -419,6 +440,7 @@ module.exports = {
 	check,
 	launch,
 	setupPage,
+	setupPageQuiet,
 	installModule,
 	loadedIds,
 	connect,
