@@ -1,0 +1,6 @@
+# The toolchain the module zips and test flights run with — the same pins as core
+# (core 45 D2): Node exact, npm = the one that Node release bundles, pinned again in
+# package.json (packageManager + devEngines). Bump together with core's .nvmrc / .mise.toml.
+# .nvmrc carries the same Node for nvm/fnm/volta.
+[tools]
+node = "24.19.0"
