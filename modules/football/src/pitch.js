@@ -242,16 +242,15 @@ export function createCommand(o) {
  * Layout: one row per binding, the Towers `N`/`E` conventions.
  * @param {Record<string, string>} [names] name -> uuid; absent = keep the name
  * @param {{hudButtons?: boolean}} [opts] also wire the DOM HUD's buttons (the def does)
- * (each through a Delay — see THE HUD-BUTTON BRIDGE above)
+ * (each straight into its Match Button's `press` — see THE HUD-BUTTON WIRES above)
  */
-// THE HUD-BUTTON BRIDGE, and it is not decoration. A `hudbutton` node has NO value in
-// core's evaluator (flowRuntime: "hudbutton contributes no runtime value") — core's own
-// consumers read it as a trigger STAMP through triggerStampFor, which a MODULE effect
-// cannot reach (its inputs are resolved as VALUES). So a HUD Button wired straight into
-// a module node's input reads `undefined` and nothing ever happens. A `delay` node is the
-// bridge core already ships: it consumes the wired stamp and EMITS a numeric pulse
-// (`pulseAt(stamp + seconds, …)`), so the module sees an ordinary rising edge. Filed as
-// DEVX #22; the physical buttons need none of this — a click reaches the module directly.
+// THE HUD-BUTTON WIRES. A HUD Button wired straight into a module input reads the onclick
+// pulse window (core 1.23, DEVX #22), so the module sees an ordinary rising edge on `press`;
+// and several HUD Buttons wired into ONE `press` OR their pulses (core 1.39, roadmap 48 D2).
+// Up to 1.38 this template put a Delay between every HUD Button and its Match Button (the
+// "bridge") and gave each extra New match button its own Match Button node (two edges into
+// one `press` let the last one win): 7 bridges and 2 duplicate nodes, all gone now.
+// The physical buttons never needed any of it — a click reaches the module directly.
 export function pitchGraph(names, opts = {}) {
 	const sel = (/** @type {string} */ name) => names?.[name] ?? name;
 	/** @type {any[]} */ const nodes = [];
@@ -309,12 +308,10 @@ export function pitchGraph(names, opts = {}) {
 		N('sel' + id, 'objectselector', name, 520, y, { selected: sel(name) });
 		E(id, 'sel' + id);
 		if (opts.hudButtons) {
-			// the DOM HUD's button of the same action, pulsed LOCALLY (perPlayer) and
-			// bridged by a Delay so the module sees a value — see THE HUD-BUTTON BRIDGE
+			// the DOM HUD's button of the same action, pulsed LOCALLY (perPlayer), wired
+			// straight into `press` — see THE HUD-BUTTON WIRES
 			N('h' + id, 'hudbutton', 'HUD ' + action, 40, y, { element: 'fb-' + action, perPlayer: true });
-			N('d' + id, 'delay', 'HUD ' + action + ' press', 160, y, { seconds: 0.05, pulse: 0.3 });
-			E('h' + id, 'd' + id, 'trigger');
-			E('d' + id, id, 'press');
+			E('h' + id, id, 'press');
 		}
 		row();
 	}
@@ -331,20 +328,21 @@ export function pitchGraph(names, opts = {}) {
 		row();
 	}
 	if (opts.hudButtons) {
-		// the over screen's and the pause menu's New match buttons: their own Match Button
-		// nodes (two edges into one `press` handle would not OR — the last wins)
-		// 30b: the results panel's Rematch (same sides, straight to the kick-off) beside its Menu
-		for (const [id, element, action] of [['bnewover', 'fb-new-match', 'new-match'], ['bnewpause', 'fb-new-match-pause', 'new-match'], ['brematch', 'fb-rematch', 'rematch']]) {
-			// `physical: false`: this node is its HUD button's, not the object's — the object it
-			// targets (New match) keeps ITS own action on a click (30b: Rematch shares it)
-			N(id, 'fbbutton', 'Button: ' + action + ' (' + element + ')', 280, y, { action, physical: false });
-			E(id, 'selbnew');
+		// the over screen's and the pause menu's New match buttons: two more HUD Buttons into
+		// the New match Match Button's `press` (they OR — see THE HUD-BUTTON WIRES)
+		for (const [id, element] of [['bnewover', 'fb-new-match'], ['bnewpause', 'fb-new-match-pause']]) {
 			N('h' + id, 'hudbutton', 'HUD ' + element, 40, y, { element, perPlayer: true });
-			N('d' + id, 'delay', 'HUD ' + element + ' press', 160, y, { seconds: 0.05, pulse: 0.3 });
-			E('h' + id, 'd' + id, 'trigger');
-			E('d' + id, id, 'press');
+			E('h' + id, 'bnew', 'press');
 			row();
 		}
+		// 30b: the results panel's Rematch (same sides, straight to the kick-off) beside its Menu.
+		// `physical: false`: this node is its HUD button's, not the object's — the object it
+		// targets (New match) keeps ITS own action on a click
+		N('brematch', 'fbbutton', 'Button: rematch (fb-rematch)', 280, y, { action: 'rematch', physical: false });
+		E('brematch', 'selbnew');
+		N('hbrematch', 'hudbutton', 'HUD fb-rematch', 40, y, { element: 'fb-rematch', perPlayer: true });
+		E('hbrematch', 'brematch', 'press');
+		row();
 		// pause / resume / quit while playing: Towers' rows verbatim (P toggles the menu)
 		N('pkey', 'keypress', 'Press P', 40, y, { code: 'KeyP', edge: 'down', pulse: 0.3 });
 		N('pausetoggle', 'hudscreen', 'Toggle pause menu', 280, y, { screen: 'pause', action: 'toggle' });

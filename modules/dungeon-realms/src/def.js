@@ -87,15 +87,21 @@ export function realmsGraph() {
 	N('menu', 'drmenu', 'Start Menu', 280, y, { show: 'never', button1: 'join-p1', button2: 'join-p2', button3: 'start', button4: 'new-dungeon' });
 	E('menu', 'selplinth');
 	y += 150;
-	// ---- the HUD menu's buttons: HUD Button (perPlayer) -> Delay -> Realms Button -------------
+	// ---- the HUD menu's buttons: HUD Button (perPlayer) -> Realms Button, ONE per action ------
+	// A HUD Button reads as a pulse in a module input (core 1.23, DEVX #22) and several wired
+	// into one `press` OR (core 1.39, roadmap 48 D2). Up to 1.38 every button went through a
+	// Delay "bridge" and every button had its own Realms Button: 8 bridges, 3 duplicate nodes.
+	/** @type {Map<string, string>} action -> its Realms Button's id (the first button's) */
+	const realmsButton = new Map();
 	for (const [element, action] of MENU_BUTTONS) {
 		const id = element.replace(/[^a-z0-9]/g, '');
 		N('h' + id, 'hudbutton', 'HUD ' + element, 40, y, { element, perPlayer: true });
-		N('d' + id, 'delay', 'HUD ' + element + ' press', 160, y, { seconds: 0.05, pulse: 0.3 });
-		N('b' + id, 'drbutton', 'Realms: ' + action, 280, y, { action });
-		E('h' + id, 'd' + id, 'trigger');
-		E('d' + id, 'b' + id, 'press');
-		E('b' + id, 'selplinth');
+		if (!realmsButton.has(action)) {
+			realmsButton.set(action, 'b' + id);
+			N('b' + id, 'drbutton', 'Realms: ' + action, 280, y, { action });
+			E('b' + id, 'selplinth');
+		}
+		E('h' + id, /** @type {string} */ (realmsButton.get(action)), 'press');
 		y += 110;
 	}
 	// a restart from the pause menu also closes it (the shell goes to menu on the reset event)

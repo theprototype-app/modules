@@ -1554,9 +1554,7 @@ function pitchGraph(names, opts = {}) {
     E(id, "sel" + id);
     if (opts.hudButtons) {
       N("h" + id, "hudbutton", "HUD " + action, 40, y, { element: "fb-" + action, perPlayer: true });
-      N("d" + id, "delay", "HUD " + action + " press", 160, y, { seconds: 0.05, pulse: 0.3 });
-      E("h" + id, "d" + id, "trigger");
-      E("d" + id, id, "press");
+      E("h" + id, id, "press");
     }
     row();
   }
@@ -1572,15 +1570,16 @@ function pitchGraph(names, opts = {}) {
     row();
   }
   if (opts.hudButtons) {
-    for (const [id, element, action] of [["bnewover", "fb-new-match", "new-match"], ["bnewpause", "fb-new-match-pause", "new-match"], ["brematch", "fb-rematch", "rematch"]]) {
-      N(id, "fbbutton", "Button: " + action + " (" + element + ")", 280, y, { action, physical: false });
-      E(id, "selbnew");
+    for (const [id, element] of [["bnewover", "fb-new-match"], ["bnewpause", "fb-new-match-pause"]]) {
       N("h" + id, "hudbutton", "HUD " + element, 40, y, { element, perPlayer: true });
-      N("d" + id, "delay", "HUD " + element + " press", 160, y, { seconds: 0.05, pulse: 0.3 });
-      E("h" + id, "d" + id, "trigger");
-      E("d" + id, id, "press");
+      E("h" + id, "bnew", "press");
       row();
     }
+    N("brematch", "fbbutton", "Button: rematch (fb-rematch)", 280, y, { action: "rematch", physical: false });
+    E("brematch", "selbnew");
+    N("hbrematch", "hudbutton", "HUD fb-rematch", 40, y, { element: "fb-rematch", perPlayer: true });
+    E("hbrematch", "brematch", "press");
+    row();
     N("pkey", "keypress", "Press P", 40, y, { code: "KeyP", edge: "down", pulse: 0.3 });
     N("pausetoggle", "hudscreen", "Toggle pause menu", 280, y, { screen: "pause", action: "toggle" });
     E("pkey", "pausetoggle", "trigger");
