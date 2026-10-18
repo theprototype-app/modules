@@ -275,21 +275,6 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "dbjoinr",
-					"type": "delay",
-					"position": {
-						"x": 160,
-						"y": 640
-					},
-					"data": {
-						"type": "delay",
-						"label": "HUD join-red press",
-						"seconds": 0.05,
-						"pulse": 0.3
-					},
-					"class": "w-[150px]"
-				},
-				{
 					"id": "bjoinb",
 					"type": "fbbutton",
 					"position": {
@@ -329,21 +314,6 @@
 						"label": "HUD join-blue",
 						"element": "fb-join-blue",
 						"perPlayer": true
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "dbjoinb",
-					"type": "delay",
-					"position": {
-						"x": 160,
-						"y": 790
-					},
-					"data": {
-						"type": "delay",
-						"label": "HUD join-blue press",
-						"seconds": 0.05,
-						"pulse": 0.3
 					},
 					"class": "w-[150px]"
 				},
@@ -391,21 +361,6 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "dbstart",
-					"type": "delay",
-					"position": {
-						"x": 160,
-						"y": 940
-					},
-					"data": {
-						"type": "delay",
-						"label": "HUD start press",
-						"seconds": 0.05,
-						"pulse": 0.3
-					},
-					"class": "w-[150px]"
-				},
-				{
 					"id": "bnew",
 					"type": "fbbutton",
 					"position": {
@@ -445,21 +400,6 @@
 						"label": "HUD new-match",
 						"element": "fb-new-match",
 						"perPlayer": true
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "dbnew",
-					"type": "delay",
-					"position": {
-						"x": 160,
-						"y": 1090
-					},
-					"data": {
-						"type": "delay",
-						"label": "HUD new-match press",
-						"seconds": 0.05,
-						"pulse": 0.3
 					},
 					"class": "w-[150px]"
 				},
@@ -1044,21 +984,6 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "bnewover",
-					"type": "fbbutton",
-					"position": {
-						"x": 280,
-						"y": 1840
-					},
-					"data": {
-						"type": "fbbutton",
-						"label": "Button: new-match (fb-new-match)",
-						"action": "new-match",
-						"physical": false
-					},
-					"class": "w-[150px]"
-				},
-				{
 					"id": "hbnewover",
 					"type": "hudbutton",
 					"position": {
@@ -1074,36 +999,6 @@
 					"class": "w-[150px]"
 				},
 				{
-					"id": "dbnewover",
-					"type": "delay",
-					"position": {
-						"x": 160,
-						"y": 1840
-					},
-					"data": {
-						"type": "delay",
-						"label": "HUD fb-new-match press",
-						"seconds": 0.05,
-						"pulse": 0.3
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "bnewpause",
-					"type": "fbbutton",
-					"position": {
-						"x": 280,
-						"y": 1990
-					},
-					"data": {
-						"type": "fbbutton",
-						"label": "Button: new-match (fb-new-match-pause)",
-						"action": "new-match",
-						"physical": false
-					},
-					"class": "w-[150px]"
-				},
-				{
 					"id": "hbnewpause",
 					"type": "hudbutton",
 					"position": {
@@ -1115,21 +1010,6 @@
 						"label": "HUD fb-new-match-pause",
 						"element": "fb-new-match-pause",
 						"perPlayer": true
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "dbnewpause",
-					"type": "delay",
-					"position": {
-						"x": 160,
-						"y": 1990
-					},
-					"data": {
-						"type": "delay",
-						"label": "HUD fb-new-match-pause press",
-						"seconds": 0.05,
-						"pulse": 0.3
 					},
 					"class": "w-[150px]"
 				},
@@ -1160,21 +1040,6 @@
 						"label": "HUD fb-rematch",
 						"element": "fb-rematch",
 						"perPlayer": true
-					},
-					"class": "w-[150px]"
-				},
-				{
-					"id": "dbrematch",
-					"type": "delay",
-					"position": {
-						"x": 160,
-						"y": 2140
-					},
-					"data": {
-						"type": "delay",
-						"label": "HUD fb-rematch press",
-						"seconds": 0.05,
-						"pulse": 0.3
 					},
 					"class": "w-[150px]"
 				},
@@ -1854,28 +1719,19 @@
 							"bjoinr",
 							"selbjoinr",
 							"hbjoinr",
-							"dbjoinr",
 							"bjoinb",
 							"selbjoinb",
 							"hbjoinb",
-							"dbjoinb",
 							"bstart",
 							"selbstart",
 							"hbstart",
-							"dbstart",
 							"bnew",
 							"selbnew",
 							"hbnew",
-							"dbnew",
-							"bnewover",
 							"hbnewover",
-							"dbnewover",
-							"bnewpause",
 							"hbnewpause",
-							"dbnewpause",
 							"brematch",
-							"hbrematch",
-							"dbrematch"
+							"hbrematch"
 						],
 						"inputs": [],
 						"outputs": []
@@ -1964,14 +1820,8 @@
 					"target": "selbjoinr"
 				},
 				{
-					"id": "e-hbjoinr-dbjoinr.trigger",
+					"id": "e-hbjoinr-bjoinr.press",
 					"source": "hbjoinr",
-					"target": "dbjoinr",
-					"targetHandle": "trigger"
-				},
-				{
-					"id": "e-dbjoinr-bjoinr.press",
-					"source": "dbjoinr",
 					"target": "bjoinr",
 					"targetHandle": "press"
 				},
@@ -1981,14 +1831,8 @@
 					"target": "selbjoinb"
 				},
 				{
-					"id": "e-hbjoinb-dbjoinb.trigger",
+					"id": "e-hbjoinb-bjoinb.press",
 					"source": "hbjoinb",
-					"target": "dbjoinb",
-					"targetHandle": "trigger"
-				},
-				{
-					"id": "e-dbjoinb-bjoinb.press",
-					"source": "dbjoinb",
 					"target": "bjoinb",
 					"targetHandle": "press"
 				},
@@ -1998,14 +1842,8 @@
 					"target": "selbstart"
 				},
 				{
-					"id": "e-hbstart-dbstart.trigger",
+					"id": "e-hbstart-bstart.press",
 					"source": "hbstart",
-					"target": "dbstart",
-					"targetHandle": "trigger"
-				},
-				{
-					"id": "e-dbstart-bstart.press",
-					"source": "dbstart",
 					"target": "bstart",
 					"targetHandle": "press"
 				},
@@ -2015,14 +1853,8 @@
 					"target": "selbnew"
 				},
 				{
-					"id": "e-hbnew-dbnew.trigger",
+					"id": "e-hbnew-bnew.press",
 					"source": "hbnew",
-					"target": "dbnew",
-					"targetHandle": "trigger"
-				},
-				{
-					"id": "e-dbnew-bnew.press",
-					"source": "dbnew",
 					"target": "bnew",
 					"targetHandle": "press"
 				},
@@ -2127,37 +1959,15 @@
 					"target": "sellampblue10"
 				},
 				{
-					"id": "e-bnewover-selbnew",
-					"source": "bnewover",
-					"target": "selbnew"
-				},
-				{
-					"id": "e-hbnewover-dbnewover.trigger",
+					"id": "e-hbnewover-bnew.press",
 					"source": "hbnewover",
-					"target": "dbnewover",
-					"targetHandle": "trigger"
-				},
-				{
-					"id": "e-dbnewover-bnewover.press",
-					"source": "dbnewover",
-					"target": "bnewover",
+					"target": "bnew",
 					"targetHandle": "press"
 				},
 				{
-					"id": "e-bnewpause-selbnew",
-					"source": "bnewpause",
-					"target": "selbnew"
-				},
-				{
-					"id": "e-hbnewpause-dbnewpause.trigger",
+					"id": "e-hbnewpause-bnew.press",
 					"source": "hbnewpause",
-					"target": "dbnewpause",
-					"targetHandle": "trigger"
-				},
-				{
-					"id": "e-dbnewpause-bnewpause.press",
-					"source": "dbnewpause",
-					"target": "bnewpause",
+					"target": "bnew",
 					"targetHandle": "press"
 				},
 				{
@@ -2166,14 +1976,8 @@
 					"target": "selbnew"
 				},
 				{
-					"id": "e-hbrematch-dbrematch.trigger",
+					"id": "e-hbrematch-brematch.press",
 					"source": "hbrematch",
-					"target": "dbrematch",
-					"targetHandle": "trigger"
-				},
-				{
-					"id": "e-dbrematch-brematch.press",
-					"source": "dbrematch",
 					"target": "brematch",
 					"targetHandle": "press"
 				},
