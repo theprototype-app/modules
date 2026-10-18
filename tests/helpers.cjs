@@ -107,7 +107,25 @@ async function openModules(page) {
 	await page.waitForTimeout(400);
 	// the tab label grows a count once a module is installed ("User (1)"), so a
 	// SECOND install on the same peer must match the prefix (the author script's rule)
-	await page.getByRole('tab', { name: /^User/ }).click();
+	try {
+		await page.getByRole('tab', { name: /^User/ }).click({ timeout: 30000 });
+	} catch (e) {
+		// core 48 G1: fx-car-blocks stopped here on every 1.35-1.38 build (local and deployed) — say WHAT was on
+		// screen instead of a bare timeout
+		const seen = await page
+			.evaluate(() => {
+				let open;
+				window.__stores.modulesOpen.subscribe((v) => (open = v))();
+				const dialogs = [...document.querySelectorAll('dialog[open], [role="dialog"]')].map((d) => d.id || d.getAttribute('aria-label') || d.className.slice(0, 40));
+				const toasts = [...document.querySelectorAll('.tp-toast-text')].map((x) => x.textContent.trim().slice(0, 80));
+				const tabs = [...document.querySelectorAll('[role="tab"]')].map((x) => x.textContent.trim());
+				return { modulesOpen: open, dialogs, toasts, tabs, managerInDom: !!document.querySelector('#modules-modal, #module-manager') };
+			})
+			.catch((err) => ({ evaluateFailed: String(err.message).slice(0, 120) }));
+		console.log('  (openModules) the manager did not open: ' + JSON.stringify(seen));
+		if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'open-modules-failed.png') }).catch(() => {});
+		throw e;
+	}
 	await page.waitForTimeout(200);
 }
 
@@ -118,7 +136,10 @@ const loadedIds = (page) =>
 async function connect(from, to, settleMs = 9000) {
 	await from.page.locator('input[placeholder="Enter peer ID to connect"]').fill(to.id);
 	await from.page.getByRole('button', { name: 'Connect', exact: true }).click();
-	await to.page.getByRole('button', { name: 'Approve' }).click({ timeout: 30000 });
+	// a CLOUD build (every Pages deploy) asks the host for a role — "View only" / "Editor access" /
+	// "Reject" — and draws no button named "Approve"; "Editor access" is the plain build's Approve
+	// (core 48 G1: every flight dialling a deployed build stopped here)
+	await to.page.getByRole('button', { name: /^(Approve|Editor access)$/ }).first().click({ timeout: 30000 });
 	await from.page.waitForTimeout(settleMs);
 }
 
