@@ -64,7 +64,12 @@ async function setupPage(browser, name, options = {}) {
 	page.on('pageerror', (err) => console.log(`[${name} pageerror] ` + err.stack));
 	await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
 	await page.waitForTimeout(4000);
-	await page.waitForFunction(() => window.__stores && !!window.__stores.moduleSDK, { timeout: 30000 });
+	// core 43-tests: a THIRD page in one browser boots in ~50 s on a loaded e2e box (the two
+	// already rendering software GL starve it — no error, just slow), so a 30 s cap killed every
+	// three-peer flight (untangle, dungeon-realms) at its late joiner. Same state, longer wait.
+	// (the options are the THIRD argument — passed second they were the page function's `arg`
+	// and Playwright's default 30 s applied whatever the number said)
+	await page.waitForFunction(() => window.__stores && !!window.__stores.moduleSDK, null, { timeout: 90000 });
 	const id = await page.evaluate(
 		() => new Promise((r) => window.__stores.peers.subscribe((p) => r(p?.peer?.id))())
 	);
@@ -102,7 +107,25 @@ async function openModules(page) {
 	await page.waitForTimeout(400);
 	// the tab label grows a count once a module is installed ("User (1)"), so a
 	// SECOND install on the same peer must match the prefix (the author script's rule)
-	await page.getByRole('tab', { name: /^User/ }).click();
+	try {
+		await page.getByRole('tab', { name: /^User/ }).click({ timeout: 30000 });
+	} catch (e) {
+		// core 48 G1: fx-car-blocks stopped here on every 1.35-1.38 build (local and deployed) — say WHAT was on
+		// screen instead of a bare timeout
+		const seen = await page
+			.evaluate(() => {
+				let open;
+				window.__stores.modulesOpen.subscribe((v) => (open = v))();
+				const dialogs = [...document.querySelectorAll('dialog[open], [role="dialog"]')].map((d) => d.id || d.getAttribute('aria-label') || d.className.slice(0, 40));
+				const toasts = [...document.querySelectorAll('.tp-toast-text')].map((x) => x.textContent.trim().slice(0, 80));
+				const tabs = [...document.querySelectorAll('[role="tab"]')].map((x) => x.textContent.trim());
+				return { modulesOpen: open, dialogs, toasts, tabs, managerInDom: !!document.querySelector('#modules-modal, #module-manager') };
+			})
+			.catch((err) => ({ evaluateFailed: String(err.message).slice(0, 120) }));
+		console.log('  (openModules) the manager did not open: ' + JSON.stringify(seen));
+		if (process.env.SHOTS_DIR) await page.screenshot({ path: path.join(process.env.SHOTS_DIR, 'open-modules-failed.png') }).catch(() => {});
+		throw e;
+	}
 	await page.waitForTimeout(200);
 }
 
@@ -113,7 +136,10 @@ const loadedIds = (page) =>
 async function connect(from, to, settleMs = 9000) {
 	await from.page.locator('input[placeholder="Enter peer ID to connect"]').fill(to.id);
 	await from.page.getByRole('button', { name: 'Connect', exact: true }).click();
-	await to.page.getByRole('button', { name: 'Approve' }).click({ timeout: 30000 });
+	// a CLOUD build (every Pages deploy) asks the host for a role — "View only" / "Editor access" /
+	// "Reject" — and draws no button named "Approve"; "Editor access" is the plain build's Approve
+	// (core 48 G1: every flight dialling a deployed build stopped here)
+	await to.page.getByRole('button', { name: /^(Approve|Editor access)$/ }).first().click({ timeout: 30000 });
 	await from.page.waitForTimeout(settleMs);
 }
 
@@ -409,6 +435,22 @@ async function leavePlay(peer) {
 	return (await locked()) !== true;
 }
 
+/**
+ * `setupPage` for a LATE page while `others` are already up (core 43-tests): every page in one
+ * headless browser draws software GL continuously, and on a loaded e2e box the two already
+ * drawing starve a third page's boot. Their DRAWING is paused through the app's own overload-guard
+ * pause for the length of the boot and resumed after — sessions, sockets and stores keep running.
+ * Only where the flight asserts nothing about what those pages draw during the boot.
+ */
+async function setupPageQuiet(browser, name, others, options = {}) {
+	for (const peer of others) await peer.page.evaluate(() => window.__stores.overloadGuard.pauseRendering('e2e: another page boots'));
+	try {
+		return await setupPage(browser, name, options);
+	} finally {
+		for (const peer of others) await peer.page.evaluate(() => window.__stores.overloadGuard.resumeRendering()).catch(() => {});
+	}
+}
+
 module.exports = {
 	leavePlay,
 	URL,
@@ -419,6 +461,7 @@ module.exports = {
 	check,
 	launch,
 	setupPage,
+	setupPageQuiet,
 	installModule,
 	loadedIds,
 	connect,

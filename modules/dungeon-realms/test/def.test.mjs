@@ -15,15 +15,19 @@ export function run(check) {
 	check(screen('over').elements.some((e) => e.kind === 'button' && /again/i.test(e.label)), '  victory offers Play again');
 	const menuNode = g.nodes.find((n) => n.type === 'drmenu');
 	check(menuNode?.data.show === 'never', 'the module DOM menu stands down (show: never) — exactly ONE menu');
-	// every HUD button reaches a Realms Button through a Delay (DEVX #22), perPlayer
-	const viaDelay = MENU_BUTTONS.every(([element, action]) => {
+	// 48 D2: every HUD button wires STRAIGHT into its action's Realms Button (perPlayer), one
+	// Realms Button per action — no Delay bridge (a HUD Button reads as a pulse since core 1.23,
+	// several into one `press` OR since 1.39)
+	const direct = MENU_BUTTONS.every(([element, action]) => {
 		const hb = g.nodes.find((n) => n.type === 'hudbutton' && n.data.element === element && n.data.perPlayer === true);
-		const e1 = hb && g.edges.find((e) => e.source === hb.id && e.targetHandle === 'trigger' && g.nodes.find((n) => n.id === e.target)?.type === 'delay');
-		const e2 = e1 && g.edges.find((e) => e.source === e1.target && e.targetHandle === 'press');
-		return !!e2 && g.nodes.find((n) => n.id === e2.target)?.data.action === action;
+		const e = hb && g.edges.find((x) => x.source === hb.id && x.targetHandle === 'press');
+		const target = e && g.nodes.find((n) => n.id === e.target);
+		return target?.type === 'drbutton' && target.data.action === action;
 	});
-	check(viaDelay, 'every menu HUD button (perPlayer) -> Delay -> Realms Button with its action');
-	check(!g.edges.some((e) => e.targetHandle === 'press' && g.nodes.find((n) => n.id === e.source)?.type === 'hudbutton'), '  counterfactual: no HUD button wires STRAIGHT into press (it would read undefined)');
+	check(direct, 'every menu HUD button (perPlayer) wires straight into the Realms Button of its action');
+	const actions = new Set(MENU_BUTTONS.map(([, action]) => action));
+	check(g.nodes.filter((n) => n.type === 'drbutton').length === actions.size, '  one Realms Button per action (' + actions.size + '), the extra buttons fanned into its `press`');
+	check(!g.edges.some((e) => e.targetHandle === 'press' && g.nodes.find((n) => n.id === e.source)?.type === 'delay'), '  counterfactual: no Delay bridge feeds a `press` any more')
 	check(def.env.preset === 'custom' && def.env.exposure >= 0.9 && def.env.background?.top && def.env.ground, 'the standard shell: a custom sky (gradient + ground), exposure >= 0.9');
 	check(def.post.effects.map((e) => e.kind).join() === 'ao,tonemapping,bloom,smaa', '  post AO -> AgX -> bloom -> SMAA');
 	check(!!def.view && def.thumb.camera === NAMES.card && def.objects.some((o) => o.type === 'camera' && o.name === NAMES.card), '  view + thumb.camera (a camera object in the def)');

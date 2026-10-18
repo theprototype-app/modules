@@ -52,16 +52,16 @@ export function run(check) {
 	const physical = withHud.nodes.filter((n) => n.type === 'fbbutton' && n.data.physical !== false);
 	check(physical.length === 4 && new Set(physical.map((n) => withHud.edges.find((e) => e.source === n.id && !e.targetHandle)?.target)).size === 4, '30b: exactly four PHYSICAL Match Buttons, one per button object');
 	check(withHud.nodes.some((n) => n.type === 'fbbutton' && n.data.action === 'rematch' && n.data.physical === false), '  the Rematch node is HUD-only (physical: false)');
-	// THE BRIDGE: a hudbutton has no runtime value in core, so it must reach a Match
-	// Button THROUGH a Delay (which re-emits the stamp as a pulse). A direct edge would
-	// read `undefined` in the module and silently do nothing — the bug this guards.
-	const viaDelay = (/** @type {any} */ n) => {
-		const mid = withHud.edges.find((e) => e.source === n.id && e.targetHandle === 'trigger');
-		const delay = mid && withHud.nodes.find((x) => x.id === mid.target && x.type === 'delay');
-		return !!delay && withHud.edges.some((e) => e.source === delay.id && e.targetHandle === 'press');
-	};
-	check(fbButtons.every(viaDelay), '  every HUD button reaches a Match Button `press` through a Delay');
-	check(!withHud.edges.some((e) => fbButtons.some((n) => n.id === e.source) && e.targetHandle === 'press'), '  counterfactual: no HUD button wires STRAIGHT into a module input (it would read undefined)');
+	// THE HUD-BUTTON WIRES (48 D2): a HUD Button reads as a pulse in a module input (core 1.23)
+	// and several into one `press` OR (core 1.39), so each goes STRAIGHT into its Match Button —
+	// no Delay bridge, and the extra New match buttons share the one New match node
+	const direct = (/** @type {any} */ n) =>
+		withHud.edges.some((e) => e.source === n.id && e.targetHandle === 'press' && withHud.nodes.find((x) => x.id === e.target)?.type === 'fbbutton');
+	check(fbButtons.every(direct), '  every HUD button wires straight into a Match Button `press`');
+	check(!withHud.edges.some((e) => e.targetHandle === 'press' && withHud.nodes.find((x) => x.id === e.source)?.type === 'delay'), '  counterfactual: no Delay bridge feeds a `press` any more');
+	const newMatch = withHud.nodes.filter((n) => n.type === 'fbbutton' && n.data.action === 'new-match');
+	const intoNew = withHud.edges.filter((e) => e.target === newMatch[0]?.id && e.targetHandle === 'press');
+	check(newMatch.length === 1 && intoNew.length === 3, '  ONE New match Match Button, its three HUD buttons fanned into `press` (' + newMatch.length + ' nodes, ' + intoNew.length + ' wires)');
 	check(withHud.nodes.some((n) => n.type === 'keypress' && n.data.code === 'KeyP') && withHud.nodes.filter((n) => n.type === 'hudscreen').length === 3, '  the pause menu rows (P toggles, resume hides, quit hides + menu)');
 	const records = withHud.nodes.find((n) => n.type === 'fbrecords');
 	check(records.data.element === 'fb-sheet,fb-sheet-play' && records.data.logElement === 'fb-log', '  Records feeds both sheet lists and the log list');

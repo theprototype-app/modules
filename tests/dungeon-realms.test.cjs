@@ -10,7 +10,7 @@
 //   npm run pack -- dungeon && npm run pack -- dungeon-realms
 //   APP_URL=https://theprototype.app:5216/ node tests/dungeon-realms.test.cjs
 
-const { launch, setupPage, installModule, connect, check, eventually, finish, run, leavePlay } = require('./helpers.cjs');
+const { launch, setupPage, setupPageQuiet, installModule, connect, check, eventually, finish, run, leavePlay } = require('./helpers.cjs');
 
 /** one serializable snapshot of the Kit world + the Realms game on a page */
 function snap(page) {
@@ -273,7 +273,7 @@ run(async () => {
 	await A.page.evaluate(() => (window.__dungeonRealms.api.music.current = () => 'dungeon'));
 	await A.page.evaluate(() => window.__stores.editorMode.set('edit'));
 	await eventually(() => A.page.evaluate(() => window.__dungeonRealms.game.isPlaying()), (v) => v === false, '  back in Edit: not a game view');
-	const C = await setupPage(browser, 'C');
+	const C = await setupPageQuiet(browser, 'C', [A, B]);
 	await installModule(C, 'dungeon');
 	await installModule(C, 'dungeon-realms');
 	await connect(C, A);

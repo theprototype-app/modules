@@ -38,5 +38,18 @@
 	},
 	"allowScripts": {
 		"esbuild@0.28.2": true
+	},
+	"packageManager": "npm@11.17.0",
+	"devEngines": {
+		"runtime": {
+			"name": "node",
+			"version": "24.19.0",
+			"onFail": "warn"
+		},
+		"packageManager": {
+			"name": "npm",
+			"version": "11.17.0",
+			"onFail": "warn"
+		}
 	}
 }
