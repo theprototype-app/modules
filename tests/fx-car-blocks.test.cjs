@@ -67,7 +67,9 @@ h.run(async () => {
 	h.check(mean < 0.25, `the two peers' piles agree closely (mean ${mean.toFixed(3)} m)`);
 
 	// a late joiner replays the last drop from its seed
-	const C = await h.setupPage(browser, 'C');
+	// a third page boots while A and B draw 100 bodies each: pause their drawing for the boot (the
+	// untangle / dungeon-realms recipe) — the 3rd setupPage timed out here on the 1.36/1.37 unions
+	const C = await h.setupPageQuiet(browser, 'C', [A, B]);
 	await h.installModule(C, 'blocks');
 	await h.connect(C, A);
 	await h.eventually(() => blocks(C), (s) => s?.count === 100, 'a late joiner (C) rebuilds the last drop', 20000);
