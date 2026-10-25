@@ -841,6 +841,8 @@ function synthSpec(api) {
 		label: 'Synth',
 		icon: '🎛️',
 		group: 'Music Voice',
+		// 75 MU1: core's MIDI input sends `gate: 0` + an `off` on key up (the VR trigger's shape)
+		heldNotes: true,
 		ports: { in: [], out: [{ id: 'out', label: 'Out', kind: 'audio' }] },
 		params: [
 			{
@@ -859,7 +861,7 @@ function synthSpec(api) {
 			{ key: 'decay', label: 'Decay', kind: 'range', min: 0.01, max: 2, step: 0.01, default: 0.15, unit: 's' },
 			{ key: 'sustain', label: 'Sustain', kind: 'range', min: 0, max: 1, step: 0.01, default: 0.6 },
 			{ key: 'release', label: 'Release', kind: 'range', min: 0.02, max: 4, step: 0.01, default: 0.4, unit: 's' },
-			{ key: 'cutoff', label: 'Cutoff', kind: 'range', min: 40, max: 16000, step: 1, default: 2500, unit: 'Hz' },
+			{ key: 'cutoff', label: 'Cutoff', kind: 'range', min: 40, max: 16000, step: 1, default: 2500, unit: 'Hz', scale: 'log' },
 			{ key: 'resonance', label: 'Resonance', kind: 'range', min: 0.1, max: 20, step: 0.1, default: 1 },
 			{ key: 'level', label: 'Level', kind: 'range', min: 0, max: 1, step: 0.01, default: 0.5 },
 			{ key: 'polyphony', label: 'Polyphony', kind: 'range', min: 1, max: 16, step: 1, default: 8 },

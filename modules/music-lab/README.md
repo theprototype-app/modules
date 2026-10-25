@@ -23,6 +23,13 @@ default 40 — the distance voice chat carries).
 
 Every one of them is live: `onParam` adjusts the running graph and never rebuilds it.
 
+## MIDI keyboards (0.3.0)
+
+Plug in a MIDI keyboard and press **Connect MIDI keyboard** in the Music toolbox (a core release with Web MIDI input):
+the Piano declares `heldNotes`, so a key sounds for as long as it is held and its release
+ends it, exactly as on every peer. A click on a key still plays the Piano's own short note
+(0.35 s). A held note is released after 10 s regardless. Flight: `tests/music-midi.test.cjs`.
+
 ## How it replicates
 
 Nothing in this module sends a message. A note goes out through `api.audio.note`,

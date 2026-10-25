@@ -25,6 +25,9 @@ const BLACK_MIDI = { 0: 61, 1: 63, 3: 66, 4: 68, 5: 70 }; // after C, D, F, G, A
 const KEY_STEP = 0.24;
 const KEY_DIP = 0.02;
 const KEY_DIP_MS = 150;
+/** a click on a key (no `gate`) plays this long; a held MIDI note is released after HOLD_LIMIT_S anyway */
+const PIANO_NOTE_S = 0.35;
+const HOLD_LIMIT_S = 10;
 
 /** How often the panners are re-aimed. 20 Hz is far more than a speaker being
  * carried across a room needs, and the app's own AudioListener update is 10 Hz. */
@@ -246,6 +249,25 @@ function speakerSpec(api) {
 	};
 }
 
+/**
+ * 75 MU1: stop a piano voice ONCE (an engine voice's stop is one-shot) at audio time `when`,
+ * and drop it from the handle after its release tail.
+ * @param {any} api @param {any} handle @param {any} entry @param {number} when
+ */
+function releasePianoVoice(api, handle, entry, when) {
+	if (entry.released) return;
+	entry.released = true;
+	clearTimeout(entry.timer);
+	entry.voice.stop(when);
+	const now = api.audio.context()?.currentTime ?? when;
+	const tail = Math.max(0, when - now) + Number(handle.params.release ?? 0.4) + 0.3;
+	setTimeout(() => {
+		const index = handle.voices.indexOf(entry);
+		if (index >= 0) handle.voices.splice(index, 1);
+		entry.voice.dispose();
+	}, tail * 1000);
+}
+
 /** @param {any} api */
 function pianoSpec(api) {
 	return {
@@ -253,6 +275,8 @@ function pianoSpec(api) {
 		label: 'Piano',
 		icon: '🎹',
 		group: 'Music Lab',
+		// 75 MU1: a MIDI key plays for as long as it is down (onNote takes `gate: 0` + `off`)
+		heldNotes: true,
 		ports: { in: [], out: [{ id: 'out', label: 'Out', kind: 'audio' }] },
 		params: [
 			{ key: 'level', label: 'Level', kind: 'range', min: 0, max: 1, step: 0.01, default: 0.8 },
@@ -286,9 +310,10 @@ function pianoSpec(api) {
 				/** @type {any[]} */
 				voices: [],
 				dispose() {
-					for (const voice of this.voices) {
+					for (const entry of this.voices) {
+						clearTimeout(entry.timer);
 						try {
-							voice.dispose();
+							entry.voice.dispose();
 						} catch {
 							/* already disposed */
 						}
@@ -308,12 +333,20 @@ function pianoSpec(api) {
 		 * two peers' notes tens of milliseconds apart, which is audible as a flam.
 		 * @param {any} handle @param {any} event @param {any} node
 		 */
-		onNote(handle, { note, velocity, at }, node) {
+		onNote(handle, { note, velocity, at, gate, off }, node) {
+			const n = Number(note);
+			const t = api.audio.timeFor(typeof at === 'number' ? at : Date.now());
+			// 75 MU1: an `off` releases the HELD voices of that pitch (a MIDI key let go); it
+			// never makes a sound of its own
+			if (off) {
+				for (const v of handle.voices) if (v.note === n && v.held) releasePianoVoice(api, handle, v, t);
+				return;
+			}
 			const level = Number(handle.params.level ?? 0.8);
 			const gain = Math.max(0.001, Math.min(1, Number(velocity ?? 1))) * level;
 			const voice = api.audio.voice({
 				type: handle.params.wave ?? 'triangle',
-				freq: 440 * Math.pow(2, (Number(note) - 69) / 12),
+				freq: 440 * Math.pow(2, (n - 69) / 12),
 				gain,
 				attack: 0.005,
 				decay: 0.08,
@@ -322,16 +355,14 @@ function pianoSpec(api) {
 				destination: handle.output
 			});
 			if (!voice) return;
-			const t = api.audio.timeFor(typeof at === 'number' ? at : Date.now());
 			voice.start(t);
-			voice.stop(t + 0.35);
-			handle.voices.push(voice);
-			// polyphony is a LIST of voices, each cleaned up after its own release
-			setTimeout(() => {
-				const index = handle.voices.indexOf(voice);
-				if (index >= 0) handle.voices.splice(index, 1);
-				voice.dispose();
-			}, 1000);
+			// `gate` seconds when given; 0 = held until its `off` (HOLD_LIMIT_S at most); absent
+			// = the piano's own short note, as a click on a key plays it
+			const hold = typeof gate === 'number' ? gate : PIANO_NOTE_S;
+			const entry = { voice, note: n, held: hold <= 0, released: false, timer: /** @type {any} */ (null) };
+			handle.voices.push(entry);
+			if (hold > 0) releasePianoVoice(api, handle, entry, t + hold);
+			else entry.timer = setTimeout(() => releasePianoVoice(api, handle, entry, api.audio.context()?.currentTime ?? t), HOLD_LIMIT_S * 1000);
 			dipKey(node, Number(note));
 		},
 		/** @param {any} three */

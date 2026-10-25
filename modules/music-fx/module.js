@@ -429,7 +429,7 @@ function filterSpec() {
 					{ value: 'notch', label: 'Notch' }
 				]
 			},
-			{ key: 'cutoff', label: 'Cutoff', kind: 'range', min: 40, max: 16000, step: 1, default: 8000, unit: 'Hz' },
+			{ key: 'cutoff', label: 'Cutoff', kind: 'range', min: 40, max: 16000, step: 1, default: 8000, unit: 'Hz', scale: 'log' },
 			{ key: 'q', label: 'Q', kind: 'range', min: 0.1, max: 20, step: 0.1, default: 1 },
 			{ key: 'mix', label: 'Mix', kind: 'range', min: 0, max: 1, step: 0.01, default: 1 }
 		],
