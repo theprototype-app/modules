@@ -193,7 +193,7 @@
 	{
 		"id": "music-fx",
 		"name": "Music FX",
-		"version": "0.2.0",
+		"version": "0.2.1",
 		"description": "A four-channel mixer and five pedals - delay, reverb, filter, distortion, bitcrush - as audio devices. Cable them in any order; re-plug to re-order. Stomp a footswitch or press a mute button (a VR sweep flips them too).",
 		"author": "theprototype-app",
 		"source": "modules/music-fx",
@@ -208,7 +208,7 @@
 	{
 		"id": "music-lab",
 		"name": "Music Lab",
-		"version": "0.2.1",
+		"version": "0.3.0",
 		"description": "A Piano, a Speaker, a Transport, a Drum machine and Sampler pads as audio devices: cable them, paint a beat, press Play - every peer hears the same beat.",
 		"author": "theprototype-app",
 		"source": "modules/music-lab",
@@ -222,7 +222,7 @@
 	{
 		"id": "music-voice",
 		"name": "Music Voice",
-		"version": "0.1.1",
+		"version": "0.1.2",
 		"description": "A Mic, a Looper, a Synth and a Theremin as audio devices: sing into the graph, loop what is patched in on the bar, play chords, wave a hand - every peer hears the same thing.",
 		"author": "theprototype-app",
 		"source": "modules/music-voice",

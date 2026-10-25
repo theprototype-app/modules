@@ -26,7 +26,11 @@ Four audio devices on the engine: a **Mic**, a **Looper**, a **Synth** and a **T
   release, cutoff, resonance, level, polyphony (the oldest voice is stolen), gate (the note
   length of a click). One octave of keys on the face; a key is a replicated note, synthesized
   on every peer at the stamped time. In VR the pressing hand's trigger holds the note and its
-  release ends it (an `off` note); a held note is released after 10 s regardless.
+  release ends it (an `off` note); a held note is released after 10 s regardless. A MIDI
+  keyboard (a core with Web MIDI input, Music toolbox ▸ Connect MIDI keyboard) holds a note for as long as its
+  key is down — the spec declares `heldNotes` (0.1.2). Its `cutoff` declares `scale: 'log'`, so
+  the controls sweep it in ratios on a core that reads that. The core piano roll plays it too, at
+  each note's drawn length.
 - **Theremin** - VR-native. In VR a frame task reads `api.vrHand(hand)`: hand height above the
   body = pitch (four octaves over a metre), horizontal distance from the body = volume (loud at
   the body, silent past 0.8 m). The pose is written as `api.audio.previewParams` at ~15 Hz -

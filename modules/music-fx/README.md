@@ -29,6 +29,10 @@ are for, and every peer watches them move.
 `in → dry → out` and `in → effect → wet → out`. `mix` 0 is a bypass, `mix` 1 is fully
 wet. The filter defaults to fully wet; the others to a blend.
 
+The filter's `cutoff` declares `scale: 'log'` (0.2.1): on a core that reads it (Inspector, Music
+toolbox, the VR knob) equal travel is an equal ratio, so 40-400 Hz gets as much of the control
+as 1.6-16 kHz. An older core moves it linearly; the stored number is the same either way.
+
 ## Stomp it, mute it (0.2.0)
 
 Every pedal has a `bypass` toggle: a click on its footswitch (or the LED) stomps it, fully
