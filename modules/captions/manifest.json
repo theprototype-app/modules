@@ -1,0 +1,9 @@
+{
+	"id": "captions",
+	"name": "Captions (in-browser)",
+	"version": "1.0.0",
+	"format": 1,
+	"description": "Speech to captions on this device: Moonshine (English) in the browser for Timeline auto-captions and live subtitles. Downloads ~40 MB once.",
+	"entry": "module.js",
+	"files": ["module.js", "THIRD_PARTY_LICENSES.txt"]
+}

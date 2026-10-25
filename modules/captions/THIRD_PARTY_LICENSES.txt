@@ -1,0 +1,25 @@
+Captions (in-browser) — third-party software
+============================================
+
+This module ships NO third-party code in its zip. On install it downloads, at pinned versions,
+and checks each file against its SHA-384 before use (module.js `RUNTIME`):
+
+  transformers.js 4.3.1 (Hugging Face) — Apache License 2.0
+    https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1/dist/transformers.min.js
+    https://github.com/huggingface/transformers.js
+  ONNX Runtime Web 1.31.0-dev.20260914-8d85527a0 (Microsoft) — MIT License
+    https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.0-dev.20260914-8d85527a0/dist/ort-wasm-simd-threaded.jsep.mjs
+    https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.0-dev.20260914-8d85527a0/dist/ort-wasm-simd-threaded.jsep.wasm
+    https://github.com/microsoft/onnxruntime
+
+and the speech model, from huggingface.co:
+
+  Moonshine tiny / base, ENGLISH (Useful Sensors) — MIT License
+    https://huggingface.co/onnx-community/moonshine-tiny-ONNX  (ONNX export of UsefulSensors/moonshine-tiny)
+    https://huggingface.co/onnx-community/moonshine-base-ONNX  (ONNX export of UsefulSensors/moonshine-base)
+    https://github.com/usefulsensors/moonshine
+
+Moonshine's NON-English models are published under a non-commercial community licence; this
+module does not use them (other languages go to the app's speech-to-text server presets).
+The Apache-2.0 and MIT licence texts are at https://www.apache.org/licenses/LICENSE-2.0 and
+https://opensource.org/license/mit.
