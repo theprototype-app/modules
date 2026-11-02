@@ -373,7 +373,8 @@ h.run(async () => {
 	const C = await h.setupPage(browser, 'C', { audio: true });
 	await h.installModule(C, 'music-voice');
 	await inPage(C.page, SINK);
-	await h.connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	await h.connect(C, B);
 	await h.eventually(() => docOf(C.page, lp.looper).then((d) => d?.loop ?? null), (v) => v === loop1.loop, '6.1 C holds the looper\'s loop hash and bar from the handshake');
 	await h.eventually(() => handleOf(C.page, lp.looper, 'return h.buffer && h.doc.loop === arg.hash ? h.trim.edge : -1', { hash: loop1.loop }).catch(() => -1), (v) => v === trimA.edge, '6.2 C pulled the bytes and cut the same samples', 25000);
 	await wait(C.page, 500);

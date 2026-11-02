@@ -263,7 +263,8 @@ h.run(async () => {
 	console.log('\n=== 7. a late joiner walks into the finished rig ===');
 	const C = await h.setupPage(browser, 'C', { audio: true });
 	await h.installModule(C, 'music-lab');
-	await h.connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	await h.connect(C, B);
 	await h.eventually(
 		() => built(C.page),
 		(list) => list.some((d) => d.builtAs === KIND_PIANO) && list.some((d) => d.builtAs === KIND_SPEAKER),
