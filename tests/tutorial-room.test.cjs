@@ -95,7 +95,8 @@ h.run(async () => {
 
 	const C = await h.setupPage(browser, 'C');
 	await h.installModule(C, 'tutorial-room');
-	await h.connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	await h.connect(C, B);
 	await h.eventually(() => room(C.page), (r) => r && r.stands === 5, 'a late joiner builds the room from state sync', 15000);
 	await h.eventually(
 		() => room(C.page),
