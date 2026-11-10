@@ -133,8 +133,30 @@ const loadedIds = (page) =>
 	page.evaluate(() => window.__stores.moduleSDK.loadedModules.map((m) => m.id));
 
 /** Connect `from` to `to` (approve on `to`), then let the mesh settle. */
+/**
+ * The dial field. Up to core 1.64 it sits in the Connect pill; from 1.65 (Invite first) it shows after
+ * Join…, and on a narrow window the pill is squeezed to its status dot first — core helpers' openDial.
+ */
+async function openDial(page) {
+	const field = page.locator('input[placeholder="Enter peer ID to connect"]');
+	const squeezedDot = page.locator('#connect-squeeze-dot');
+	const join = page.locator('#connect-join');
+	// Join… is drawn only while the pill is idle, and a peer that has just lost its last conn takes a few
+	// seconds to get there (colocation-phone U: the headset dials again after the phone left) — the old
+	// always-there field simply waited, so poll for either (30 s, the old fill's own timeout)
+	for (const until = Date.now() + 30000; Date.now() < until; await page.waitForTimeout(250)) {
+		if (await field.isVisible().catch(() => false)) return field;
+		if (await squeezedDot.isVisible().catch(() => false)) await squeezedDot.click().catch(() => {});
+		if (await join.isVisible().catch(() => false)) {
+			await join.click().catch(() => {});
+			await field.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+		}
+	}
+	return field;
+}
+
 async function connect(from, to, settleMs = 9000) {
-	await from.page.locator('input[placeholder="Enter peer ID to connect"]').fill(to.id);
+	await (await openDial(from.page)).fill(to.id);
 	await from.page.getByRole('button', { name: 'Connect', exact: true }).click();
 	// a CLOUD build (every Pages deploy) asks the host for a role — "View only" / "Editor access" /
 	// "Reject" — and draws no button named "Approve"; "Editor access" is the plain build's Approve
