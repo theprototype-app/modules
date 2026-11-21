@@ -1,6 +1,6 @@
 // The template def — pure (30-visuals-mod): the standard shell and the menu decision, held to
 // what the def actually says. The HUD menu is the ONE menu: the module's DOM card stands down.
-import { realmsDef, realmsHud, realmsGraph, MENU_BUTTONS, NAMES } from '../src/def.js';
+import { realmsDef, realmsHud, realmsGraph, archObjects, ARCH_Z, MENU_BUTTONS, NAMES } from '../src/def.js';
 
 export function run(check) {
 	const def = realmsDef({ x: 10, z: -2 });
@@ -35,4 +35,14 @@ export function run(check) {
 	const ground = def.objects.find((o) => o.name === NAMES.ground);
 	check(!!ground && ground.pos[1] > 0 && ground.pos[1] < 0.015 && ground.size[0] >= 200 && ground.pick === 'through', 'a real ground over the editor grid and under the Kit\'s tiles (select-through)');
 	check(JSON.stringify(realmsDef({ x: 10, z: -2 })) === JSON.stringify(def), 'the def is deterministic');
+	// 80a-fix4-ui h (fix-batch-4): core 1.54.3 moved the arch 2.5 m north in the scene (scenes c56e3e6) — floor 1
+	// spawns at the entrance room's centre and the arch stood on it. The def says the same, or a re-author brings it
+	// back: the arch group stands ARCH_Z north of the entrance, the ground stays centred on it
+	const at = (name) => archObjects({ x: 53.5, z: -1.5 }).find((o) => o.name === name)?.pos;
+	check(ARCH_Z === 2.5, 'h the arch offset is 2.5 m');
+	check([NAMES.plinth, NAMES.left, NAMES.right, NAMES.lintel, NAMES.lantern, NAMES.light].every((n) => at(n)?.[2] === 1), '  h the arch, plinth, lantern and light stand at z = 1 for the shipped entrance (53.5, -1.5), as scene.tpscene has them');
+	check(JSON.stringify(at(NAMES.card)) === '[58.5,4.6,7]' && at(NAMES.ground)?.[2] === -1.5, '  h the card camera moved with it (58.5, 4.6, 7); the ground did not');
+	check(def.view.target[2] === -2 + ARCH_Z && def.view.pos[2] === -2 + ARCH_Z + 11, '  h the editor view looks at the arch, not the spawn');
+	const plinth = at(NAMES.plinth);
+	check(!!plinth && Math.hypot(plinth[0] - 53.5, plinth[2] + 1.5) - 1.4 >= 1.0, '  h the spawn (the entrance centre) is at least 1 m clear of the plinth edge');
 }
