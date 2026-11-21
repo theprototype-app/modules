@@ -249,7 +249,9 @@ run(async () => {
 	// late joiner: installs, connects, rebuilds {seed, params, floorIndex}
 	const C = await setupPage(browser, 'C');
 	await installModule(C, 'dungeon');
-	await connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	check(await leavePlay(B), '(premise) B stepped out of Play');
+	await connect(C, B);
 	await eventually(
 		() => snap(C.page),
 		(s) => !!s && s.seed === 4242 && s.floorIndex === 2 && s.checksum === a2.checksum,

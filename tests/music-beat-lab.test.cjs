@@ -211,7 +211,8 @@ h.run(async () => {
 	console.log('\n=== 4. a late joiner lands in phase ===');
 	const C = await h.setupPage(browser, 'C', { audio: true });
 	await h.installModule(C, 'music-lab');
-	await h.connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	await h.connect(C, B);
 	await h.eventually(() => patternOf(C.page, ids.d), (v) => v === KICKS, '4.1 C holds the pattern from the handshake');
 	await h.eventually(() => playingOf(C.page), (v) => v === true, '4.2 and the running transport');
 	await C.page.waitForTimeout(1200);

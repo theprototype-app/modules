@@ -261,7 +261,10 @@ h.run(async () => {
 	await A.page.waitForTimeout(400);
 	const C = await h.setupPage(browser, 'C');
 	await h.installModule(C, 'health');
-	await h.connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	await setPlay(B, null);
+	await h.connect(C, B);
+	await setPlay(B, true);
 	await setPlay(A, true);
 	await h.eventually(() => nodesOf(C, 'health'), (n) => n.length === 2, 'the joiner holds both chains', 20000);
 	const joinerView = async () => ({

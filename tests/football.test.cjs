@@ -309,9 +309,11 @@ run(async () => {
 
 	// ---- 14. a late joiner reads the same match ----------------------------------------------------------------
 	check(await leavePlay(A), '(premise) A stepped out of Play (core 1.18: through the pause menu)');
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	check(await leavePlay(B), '(premise) B stepped out of Play');
 	const C = await setupPage(browser, 'C');
 	await installModule(C, 'football');
-	await connect(C, A);
+	await connect(C, B);
 	await eventually(
 		() => snap(C.page),
 		(s) => !!s && s.score.blue === 2 && s.slots.red[0] === A.id && s.slots.blue[0] === B.id && s.outcome?.winner === 'blue' && s.ball === ball,
@@ -319,6 +321,9 @@ run(async () => {
 		30000
 	);
 	await eventually(() => rowOf(C.page, 'goals', B.id), (v) => v === 2, '14.2 C sees B\'s goals row (peerVars re-announced)');
+	// B goes back into Play for the rest of the flight (it left only to answer C's request)
+	await B.page.locator('#play-button').click();
+	await eventually(() => B.page.evaluate(() => { let v; window.__stores.isLocked.subscribe((x) => (v = x))(); return v; }), (v) => v === true, '(premise) B is back in Play', 12000);
 
 	// ---- 15. new match resets the score, keeps the sheet -----------------------------------------------------------
 	await A.page.evaluate(() => window.__football.game.act('new-match'));
