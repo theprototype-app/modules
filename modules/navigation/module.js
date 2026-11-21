@@ -353,6 +353,24 @@ var r2 = (v) => Math.round(v * 100) / 100;
 var dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 var dxz2 = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
 var wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+function heardPeers(me, heard, now) {
+  return [...heard].filter(([id, at]) => id !== me && now - at <= BEAT_TTL).map(([id]) => id);
+}
+function isHeardByAll(me, heard, info, now) {
+  for (const id of heardPeers(me, heard, now)) {
+    const hears = info.get(id)?.hears;
+    if (hears && !hears.has(me)) return false;
+  }
+  return true;
+}
+function elect({ me, active, heard, info, now }) {
+  const ids = [];
+  if (active && isHeardByAll(me, heard, info, now)) ids.push(me);
+  for (const id of heardPeers(me, heard, now)) if (info.get(id)?.ok !== false) ids.push(id);
+  if (!ids.length) return null;
+  ids.sort();
+  return ids[0];
+}
 function createRuntime(api) {
   const THREE = api.THREE;
   const client = makeWorkerClient(api);
@@ -362,6 +380,7 @@ function createRuntime(api) {
   const shown = /* @__PURE__ */ new Map();
   const agents = /* @__PURE__ */ new Map();
   const activePeers = /* @__PURE__ */ new Map();
+  const beatInfo = /* @__PURE__ */ new Map();
   const eventTarget = /* @__PURE__ */ new Map();
   const noiseNodes = /* @__PURE__ */ new Map();
   const noiseStamps = /* @__PURE__ */ new Map();
@@ -430,19 +449,15 @@ function createRuntime(api) {
   function authorityId() {
     const roster = new Set((api.peerIds?.() ?? []).map(String));
     const now = Date.now();
-    const ids = [];
-    if (active()) ids.push(me());
-    for (const [id, at] of activePeers) {
+    for (const [id, at] of activePeers)
       if (now - at > BEAT_TTL || roster.size && !roster.has(id)) {
         activePeers.delete(id);
-        continue;
+        beatInfo.delete(id);
       }
-      if (id !== me()) ids.push(id);
-    }
-    if (!ids.length) return null;
-    ids.sort();
-    return ids[0];
+    return elect({ me: me(), active: active(), heard: activePeers, info: beatInfo, now });
   }
+  const hearsNow = () => heardPeers(me(), activePeers, Date.now());
+  const heardByAll = () => isHeardByAll(me(), activePeers, beatInfo, Date.now());
   const isAuthority = () => authorityId() === me() && active();
   function objectInput(node, handle, edges, byId) {
     for (const e of edges) {
@@ -595,7 +610,7 @@ function createRuntime(api) {
     const out = [];
     const now = Date.now();
     for (const p of api.players?.() ?? []) {
-      if (p.me ? !active() : !(now - (activePeers.get(String(p.id)) ?? -Infinity) <= BEAT_TTL)) continue;
+      if (p.me ? !active() : !(p.playing || now - (activePeers.get(String(p.id)) ?? -Infinity) <= BEAT_TTL)) continue;
       const raw = [p.pos[0], p.pos[1] - 1.6, p.pos[2]];
       const snap = playerFeet.get(p.id);
       const feet = snap && dxz2(snap, raw) < 0.6 && Math.abs(snap[1] - raw[1]) < 0.9 ? snap : raw;
@@ -1021,7 +1036,7 @@ function createRuntime(api) {
     const on = active();
     if (on !== wasActive || on && now - lastBeat > BEAT_MS) {
       lastBeat = now;
-      api.send({ op: on ? "here" : "gone", from: me() });
+      api.send(on ? { op: "here", from: me(), hears: hearsNow(), ok: heardByAll() } : { op: "gone", from: me() });
     }
     if (on !== wasActive && !on) {
       agents.clear();
@@ -1063,9 +1078,16 @@ function createRuntime(api) {
     }
   }
   api.onMessage((msg) => {
-    if (msg?.op === "here" && msg.from) activePeers.set(String(msg.from), Date.now());
-    else if (msg?.op === "gone" && msg.from) activePeers.delete(String(msg.from));
-    else if (msg?.op === "snap") {
+    if (msg?.op === "here" && msg.from) {
+      const from = String(msg.from);
+      const first = !activePeers.has(from);
+      activePeers.set(from, Date.now());
+      beatInfo.set(from, { hears: Array.isArray(msg.hears) ? new Set(msg.hears.map(String)) : null, ok: msg.ok !== false });
+      if (first) lastBeat = 0;
+    } else if (msg?.op === "gone" && msg.from) {
+      activePeers.delete(String(msg.from));
+      beatInfo.delete(String(msg.from));
+    } else if (msg?.op === "snap") {
       if (msg.from) activePeers.set(String(msg.from), Date.now());
       applySnapshot(msg);
     }
@@ -1128,6 +1150,10 @@ function createRuntime(api) {
         frame,
         authority: authorityId(),
         me: me(),
+        // who this peer hears playing (id, ms since its last beat or snapshot) and the roster it filters by
+        heard: [...activePeers].map(([id, at]) => [id, Date.now() - at, beatInfo.get(id)?.ok ?? null]),
+        heardByAll: heardByAll(),
+        roster: (api.peerIds?.() ?? []).map(String),
         active: active(),
         bake: { ...bake, debug: bake.debug ? { triangles: bake.debug.indices.length / 3 } : null },
         obstacles: obstacles.length,

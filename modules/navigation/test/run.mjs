@@ -11,6 +11,7 @@ import { initRecast, NavWorld, pathLength } from '../src/navCore.js';
 import { newBrain, think, normalizeNpc, inCone, yawToward } from '../src/brain.js';
 import { specToData, dataToSpec } from '../src/sheet.js';
 import { arena } from './geo.mjs';
+import { elect, isHeardByAll } from '../src/runtime.js';
 
 let failures = 0;
 let passes = 0;
@@ -149,6 +150,26 @@ const d = specToData({ sight: { angle: 400, range: 15 }, hearing: 3, attack: { r
 check(d.sightAngle === 360 && d.sightRange === 15 && d.hearing === 3 && d.attackRange === 2 && !('run' in d), 'the recipe clamps and keeps only what was given');
 const back = dataToSpec({ ...d, path: 'abc' });
 check(back.sight.angle === 360 && back.path === 'abc', 'and reads back in the agent shape');
+
+// ---- 61-int: the election needs the authority to be HEARD -----------------------------------
+{
+	const now = 100000;
+	const fresh = (ids) => new Map(ids.map((id) => [id, now - 100]));
+	const info = (rows) => new Map(Object.entries(rows).map(([id, r]) => [id, { hears: r.hears ? new Set(r.hears) : null, ok: r.ok ?? true }]));
+	// host "b" hears nobody (it refuses the viewer's module messages); viewer "a" hears the host
+	check(elect({ me: 'b', active: true, heard: new Map(), info: new Map(), now }) === 'b', 'a host that hears nobody steps');
+	check(!isHeardByAll('a', fresh(['b']), info({ b: { hears: [] } }), now), 'a viewer the host does not hear is not heard by all');
+	check(elect({ me: 'a', active: true, heard: fresh(['b']), info: info({ b: { hears: [] } }), now }) === 'b', 'so the viewer (lower id) leaves the crowd to the host: ONE stepper');
+	// two editors hear each other: the lowest id, the same answer on both
+	const both = info({ a: { hears: ['b'] }, b: { hears: ['a'] } });
+	check(elect({ me: 'a', active: true, heard: fresh(['b']), info: both, now }) === 'a' && elect({ me: 'b', active: true, heard: fresh(['a']), info: both, now }) === 'a', 'two editors that hear each other agree on the lowest id');
+	// a peer whose own beat says it cannot step is not elected by the others
+	check(elect({ me: 'b', active: true, heard: fresh(['a']), info: info({ a: { hears: ['b'], ok: false } }), now }) === 'b', 'a peer that says it is not heard is never elected');
+	// an older peer that does not list whom it hears counts as hearing everyone (the old rule)
+	check(elect({ me: 'a', active: true, heard: fresh(['b']), info: info({ b: {} }), now }) === 'a', 'an older peer (no hears list): the lowest id, as before');
+	// a stale beat drops out; nobody plays -> null
+	check(elect({ me: 'a', active: false, heard: new Map([['b', now - 9000]]), info: new Map(), now }) === null, 'nobody playing: no authority');
+}
 
 console.log('\n' + passes + ' passed, ' + failures + ' failed');
 process.exit(failures ? 1 : 0);

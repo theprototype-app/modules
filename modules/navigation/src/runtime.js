@@ -3,7 +3,10 @@
 //
 // AUTHORITY. One peer steps the crowd: the lowest peer id among the peers that are in Play or
 // Interact right now (each active peer says so with a 2 s heartbeat). Everyone computes the same
-// answer from the same roster, so no message elects it. A peer in Edit never steps (its tab may
+// answer from the same roster, so no message elects it. A peer must also be HEARD to step: each
+// heartbeat lists the peers its sender hears, and a peer that some playing peer does not hear
+// (a viewer: the roles gate refuses its module messages) never elects itself — else it would step
+// a second crowd beside the one the host steps (61-int: split brain with a Test with players bot). A peer in Edit never steps (its tab may
 // be busy with an edit tool) — but an NPC still moves for a player while the authority edits,
 // because the authority IS a player then. When nobody plays, the NPCs rest at their editor pose.
 //
@@ -43,6 +46,35 @@ const dxz = (/** @type {number[]} */ a, /** @type {number[]} */ b) => Math.hypot
 const wrapAngle = (/** @type {number} */ a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** @param {any} api */
+/** the playing peers `me` hears (a fresh heartbeat or snapshot)
+ * @param {string} me @param {Map<string, number>} heard @param {number} now */
+export function heardPeers(me, heard, now) {
+	return [...heard].filter(([id, at]) => id !== me && now - at <= BEAT_TTL).map(([id]) => id);
+}
+/** may `me` step? Only if every playing peer it hears hears it back (an older peer that does not list whom it
+ * hears counts as hearing everyone). Pure, for the unit test.
+ * @param {string} me @param {Map<string, number>} heard @param {Map<string, {hears: Set<string> | null, ok: boolean}>} info @param {number} now */
+export function isHeardByAll(me, heard, info, now) {
+	for (const id of heardPeers(me, heard, now)) {
+		const hears = info.get(id)?.hears;
+		if (hears && !hears.has(me)) return false;
+	}
+	return true;
+}
+/** THE election: the lowest id among this peer (if it plays and is heard by all) and the fresh peers whose own
+ * last heartbeat did not say they cannot step. Pure, for the unit test.
+ * @param {{me: string, active: boolean, heard: Map<string, number>, info: Map<string, {hears: Set<string> | null, ok: boolean}>, now: number}} o
+ * @returns {string | null} */
+export function elect({ me, active, heard, info, now }) {
+	/** @type {string[]} */
+	const ids = [];
+	if (active && isHeardByAll(me, heard, info, now)) ids.push(me);
+	for (const id of heardPeers(me, heard, now)) if (info.get(id)?.ok !== false) ids.push(id);
+	if (!ids.length) return null;
+	ids.sort();
+	return ids[0];
+}
+
 export function createRuntime(api) {
 	const THREE = api.THREE;
 	const client = makeWorkerClient(api);
@@ -57,6 +89,9 @@ export function createRuntime(api) {
 	const agents = new Map();
 	/** peerId -> last heartbeat (ms) @type {Map<string, number>} */
 	const activePeers = new Map();
+	/** peerId -> what its last heartbeat said: the peers it hears (null = an older peer that does not say) and
+	 * whether it can step (heard by every playing peer it hears) @type {Map<string, {hears: Set<string> | null, ok: boolean}>} */
+	const beatInfo = new Map();
 	/** node id -> the npc uuid an On NPC Event / NPC State listens to (null = any) @type {Map<string, string | null>} */
 	const eventTarget = new Map();
 	/** Make Noise nodes: id -> {sources: string[], at: string|null, loudness} @type {Map<string, any>} */
@@ -136,24 +171,19 @@ export function createRuntime(api) {
 			return false;
 		}
 	}
-	/** the authority among the active peers (null = nobody plays) */
+	/** the authority among the active peers (null = nobody plays); drops stale or departed peers */
 	function authorityId() {
 		const roster = new Set((api.peerIds?.() ?? []).map(String));
 		const now = Date.now();
-		/** @type {string[]} */
-		const ids = [];
-		if (active()) ids.push(me());
-		for (const [id, at] of activePeers) {
+		for (const [id, at] of activePeers)
 			if (now - at > BEAT_TTL || (roster.size && !roster.has(id))) {
 				activePeers.delete(id);
-				continue;
+				beatInfo.delete(id);
 			}
-			if (id !== me()) ids.push(id);
-		}
-		if (!ids.length) return null;
-		ids.sort();
-		return ids[0];
+		return elect({ me: me(), active: active(), heard: activePeers, info: beatInfo, now });
 	}
+	const hearsNow = () => heardPeers(me(), activePeers, Date.now());
+	const heardByAll = () => isHeardByAll(me(), activePeers, beatInfo, Date.now());
 	const isAuthority = () => authorityId() === me() && active();
 
 	// ---- the graph: which nodes exist, what they listen to ------------------------------------
@@ -338,7 +368,8 @@ export function createRuntime(api) {
 		for (const p of api.players?.() ?? []) {
 			// enemies hunt PLAYERS: this peer while it plays, a peer whose "I play" heartbeat is fresh —
 			// never someone editing the scene (an editor's avatar flies about, or waits at the origin)
-			if (p.me ? !active() : !(now - (activePeers.get(String(p.id)) ?? -Infinity) <= BEAT_TTL)) continue;
+			// (core's presence also counts: a viewer's heartbeat is refused by the roles gate, its `playmode` is not)
+			if (p.me ? !active() : !(p.playing || now - (activePeers.get(String(p.id)) ?? -Infinity) <= BEAT_TTL)) continue;
 			// the probe snaps the feet to the navmesh; trust it only when the player really stands
 			// there (a player on a pillar or a ledge keeps their own feet, so they read unreachable)
 			const raw = [p.pos[0], p.pos[1] - 1.6, p.pos[2]];
@@ -800,7 +831,7 @@ export function createRuntime(api) {
 		const on = active();
 		if (on !== wasActive || (on && now - lastBeat > BEAT_MS)) {
 			lastBeat = now;
-			api.send({ op: on ? 'here' : 'gone', from: me() });
+			api.send(on ? { op: 'here', from: me(), hears: hearsNow(), ok: heardByAll() } : { op: 'gone', from: me() });
 		}
 		if (on !== wasActive && !on) {
 			// back to Edit: the NPCs rest at their editor pose; the next Play starts from home
@@ -845,8 +876,17 @@ export function createRuntime(api) {
 	}
 
 	api.onMessage((/** @type {any} */ msg) => {
-		if (msg?.op === 'here' && msg.from) activePeers.set(String(msg.from), Date.now());
-		else if (msg?.op === 'gone' && msg.from) activePeers.delete(String(msg.from));
+		if (msg?.op === 'here' && msg.from) {
+			const from = String(msg.from);
+			const first = !activePeers.has(from);
+			activePeers.set(from, Date.now());
+			beatInfo.set(from, { hears: Array.isArray(msg.hears) ? new Set(msg.hears.map(String)) : null, ok: msg.ok !== false });
+			// a new voice: beat back now, so it learns it is heard without waiting out BEAT_MS
+			if (first) lastBeat = 0;
+		} else if (msg?.op === 'gone' && msg.from) {
+			activePeers.delete(String(msg.from));
+			beatInfo.delete(String(msg.from));
+		}
 		else if (msg?.op === 'snap') {
 			if (msg.from) activePeers.set(String(msg.from), Date.now());
 			applySnapshot(msg);
@@ -913,6 +953,10 @@ export function createRuntime(api) {
 				frame,
 				authority: authorityId(),
 				me: me(),
+				// who this peer hears playing (id, ms since its last beat or snapshot) and the roster it filters by
+				heard: [...activePeers].map(([id, at]) => [id, Date.now() - at, beatInfo.get(id)?.ok ?? null]),
+				heardByAll: heardByAll(),
+				roster: (api.peerIds?.() ?? []).map(String),
 				active: active(),
 				bake: { ...bake, debug: bake.debug ? { triangles: bake.debug.indices.length / 3 } : null },
 				obstacles: obstacles.length,
