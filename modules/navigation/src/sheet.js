@@ -196,6 +196,9 @@ export function registerSheet(api, rt) {
 		pathLabel.textContent = 'Patrol';
 		const select = document.createElement('select');
 		select.id = 'nav-sheet-path';
+		// the toolbox kit styles no <select>: the app's own field look (a native one paints white on a dark panel)
+		select.style.cssText =
+			'flex:1 1 auto;min-width:0;padding:4px 6px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:var(--surface-inset);color:var(--text-2);color-scheme:dark light';
 		const opts = [
 			['none', 'None (guard this spot)'],
 			['new', 'New loop around it'],
@@ -288,18 +291,24 @@ export function registerSheet(api, rt) {
 			['overlay', 'Navmesh overlay', 'nav-sheet-overlay'],
 			['debug', 'NPC debug view (Play)', 'nav-sheet-debug']
 		])) {
+			// the kit's .tbx-check is the CHECKBOX itself; the row is a .tbx-row label (61-int docs shot: the class on
+			// the label drew a 14 px white box with the words spilling over the status line)
 			const row = document.createElement('label');
-			row.className = 'tbx-check';
+			row.className = 'tbx-row';
+			row.style.cursor = 'pointer';
+			row.style.fontSize = '12px';
 			const box = document.createElement('input');
 			box.type = 'checkbox';
+			box.className = 'tbx-check';
 			box.id = idAttr;
 			box.checked = !!rt.want[key];
 			box.onchange = () => setWant(key, box.checked);
-			row.append(box, document.createTextNode(' ' + text));
+			row.append(box, document.createTextNode(text));
 			el.append(row);
 		}
 		statusLine = document.createElement('div');
-		statusLine.className = 'tbx-hint';
+		statusLine.className = 'tbx-row';
+		statusLine.style.cssText = 'font-size:11px;color:var(--text-muted);line-height:1.35';
 		statusLine.id = 'nav-sheet-status';
 		statusLine.textContent = statusText();
 		el.append(statusLine);
