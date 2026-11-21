@@ -52,6 +52,10 @@ async function setupPage(browser, name, options = {}) {
 		localStorage.setItem('hasSeenWelcome', 'true');
 		if (peerConfig) localStorage.setItem('peerServerConfig', peerConfig);
 	}, PEER_CONFIG);
+	// E2E_NO_ERROR_REPORTS=1 (core 48-int): a deployed build sends REAL anonymous error reports, and a flight
+	// against theprototype.pages.dev must not feed the release's error-spike check (a flight's own choice wins)
+	if (process.env.E2E_NO_ERROR_REPORTS === '1')
+		await ctx.addInitScript(() => localStorage.getItem('errorReports:send') ?? localStorage.setItem('errorReports:send', 'false'));
 	// options.audio installs the destination TAP before any app code runs, so
 	// everything the app plays can be measured (see audioMetrics).
 	if (options.audio) await ctx.addInitScript(AUDIO_TAP_SOURCE);

@@ -234,6 +234,22 @@
 		]
 	},
 	{
+		"id": "navigation",
+		"name": "Navigation",
+		"version": "1.0.0",
+		"description": "Enemies that walk: a navmesh baked from your scene, Move To / Chase / Patrol / Flee / Wander nodes, and guards that see, hear, chase, attack and give up. Right-click an object, Make this an enemy.",
+		"author": "theprototype-app",
+		"source": "modules/navigation",
+		"zip": "navigation.zip",
+		"category": "game",
+		"tags": [
+			"game",
+			"npc",
+			"navigation",
+			"flow"
+		]
+	},
+	{
 		"id": "piano",
 		"name": "Piano",
 		"version": "1.1.1",
