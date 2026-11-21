@@ -304,7 +304,13 @@ export class NavWorld {
 				}
 			}
 		}
-		this.crowd.update(Math.min(0.1, Math.max(0, dt)));
+		// the REAL elapsed time, in substeps: a slow frame (a phone, a busy tab) must not slow the walk
+		let left = Math.min(0.5, Math.max(0, dt));
+		while (left > 1e-4) {
+			const h = Math.min(1 / 30, left);
+			this.crowd.update(h);
+			left -= h;
+		}
 		return { tilesChanged };
 	}
 

@@ -71,6 +71,8 @@ export const STATES = ['idle', 'patrol', 'alert', 'chase', 'attack', 'return'];
 export const BRAIN_EVENTS = ['spotted', 'heard', 'attack', 'lost', 'gaveup', 'returned'];
 
 const dxz = (/** @type {number[]} */ a, /** @type {number[]} */ b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
+/** the longest an alert search may run, s (a noise across a big map) */
+const ALERT_CAP = 60;
 
 /** is `p` inside the cone of a viewer at `from` facing `yaw`? An NPC's front is its +Z axis (three's
  * Object3D.lookAt convention, and what glTF / VRM / Mixamo characters face), so yaw 0 looks along +Z.
@@ -106,6 +108,8 @@ export function newBrain(home, yaw = 0) {
 		lastAttack: -Infinity,
 		/** where a noise came from (alert) */
 		noise: /** @type {number[] | null} */ (null),
+		/** when it reached the noise and started looking around (-Infinity = not yet) */
+		searchAt: -Infinity,
 		label: 'idle'
 	};
 }
@@ -163,10 +167,15 @@ export function think(b, w) {
 		}
 		b.lastPos = [...seen.pos];
 		b.lastSeen = now;
-		if (seen.d <= p.attackRange) enter('attack');
-		else if (b.state !== 'attack' || seen.d > p.attackRange * 1.25) enter('chase');
+		// attack range is a reach: the target must be about level with it (not on a ledge above)
+		const level = Math.abs(seen.pos[1] - pos[1]) <= 1.2;
+		if (seen.d <= p.attackRange && level) enter('attack');
+		else if (b.state !== 'attack' || seen.d > p.attackRange * 1.25 || !level) enter('chase');
 	} else if (heard && calm) {
-		if (b.state !== 'alert' || !b.noise || dxz(b.noise, heard.pos) > 1) events.push({ name: 'heard' });
+		if (b.state !== 'alert' || !b.noise || dxz(b.noise, heard.pos) > 1) {
+			events.push({ name: 'heard' });
+			b.searchAt = -Infinity;
+		}
 		b.noise = [...heard.pos];
 		enter('alert');
 	} else if (heard && (b.state === 'chase' || b.state === 'attack')) {
@@ -185,7 +194,8 @@ export function think(b, w) {
 			enter('return');
 		}
 	}
-	if (b.state === 'alert' && now - b.since > p.alert + p.giveUp + 8) enter('return');
+	// a search that can never end (a noise it cannot walk to, a path round the whole map) gives up
+	if (b.state === 'alert' && (now - b.since > ALERT_CAP || (w.reach && !w.reach.ok && now - b.since > p.alert + p.giveUp))) enter('return');
 	// --- what to do ----------------------------------------------------------------------------
 	const home = w.patrol ?? b.home;
 	let goal = /** @type {number[] | null} */ (null);
@@ -199,6 +209,8 @@ export function think(b, w) {
 			else enter('idle');
 			goal = home;
 			label = b.state === 'patrol' ? 'patrol' : 'idle: guarding';
+			// back at its post a guard turns to the way it was set to watch
+			if (b.state === 'idle' && dxz(pos, home) < 0.7) face = [home[0] + Math.sin(b.homeYaw) * 5, home[1], home[2] + Math.cos(b.homeYaw) * 5];
 			break;
 		}
 		case 'alert': {
@@ -210,9 +222,16 @@ export function think(b, w) {
 			} else {
 				goal = b.noise;
 				label = 'alert: going to look';
-				if (b.noise && dxz(pos, b.noise) < 1 && waited > p.alert + 1.5) {
-					enter('return');
-					goal = home;
+				// there: look around for giveUp s, then walk back
+				if (b.noise && dxz(pos, b.noise) < 1.2) {
+					if (!Number.isFinite(b.searchAt)) b.searchAt = now;
+					goal = null;
+					label = 'alert: looking around';
+					if (now - b.searchAt >= p.giveUp) {
+						events.push({ name: 'gaveup' });
+						enter('return');
+						goal = home;
+					}
 				}
 			}
 			break;

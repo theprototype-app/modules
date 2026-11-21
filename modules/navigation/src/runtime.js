@@ -63,7 +63,7 @@ export function createRuntime(api) {
 	const noiseNodes = new Map();
 	/** a source node's last stamp seen (Make Noise edge detection) @type {Map<string, number>} */
 	const noiseStamps = new Map();
-	/** @type {{pos: number[], loudness: number, until: number}[]} */
+	/** @type {{pos: number[], loudness: number, until: number, heardBy?: boolean}[]} */
 	let noises = [];
 	/** players' feet, from the worker's probe @type {Map<string, number[]>} */
 	const playerFeet = new Map();
@@ -333,8 +333,16 @@ export function createRuntime(api) {
 	function playersNow() {
 		/** @type {{id: string, pos: number[], head: number[]}[]} */
 		const out = [];
+		const now = Date.now();
 		for (const p of api.players?.() ?? []) {
-			const feet = playerFeet.get(p.id) ?? [p.pos[0], p.pos[1] - 1.6, p.pos[2]];
+			// enemies hunt PLAYERS: this peer while it plays, a peer whose "I play" heartbeat is fresh —
+			// never someone editing the scene (an editor's avatar flies about, or waits at the origin)
+			if (p.me ? !active() : !(now - (activePeers.get(String(p.id)) ?? -Infinity) <= BEAT_TTL)) continue;
+			// the probe snaps the feet to the navmesh; trust it only when the player really stands
+			// there (a player on a pillar or a ledge keeps their own feet, so they read unreachable)
+			const raw = [p.pos[0], p.pos[1] - 1.6, p.pos[2]];
+			const snap = playerFeet.get(p.id);
+			const feet = snap && dxz(snap, raw) < 0.6 && Math.abs(snap[1] - raw[1]) < 0.9 ? snap : raw;
 			out.push({ id: p.id, pos: feet, head: p.pos });
 		}
 		return out;
@@ -454,7 +462,8 @@ export function createRuntime(api) {
 	/** Patrol: the current waypoint of a Path (live — editing the path changes the patrol) */
 	function waypoint(/** @type {any} */ a, /** @type {string} */ pathUuid, advance = true) {
 		const info = pathUuid ? api.paths?.of(pathUuid) : null;
-		const pts = info?.points;
+		// 78's points are {pos, ...extras} (WORLD); an array is accepted too
+		const pts = info?.points?.map((/** @type {any} */ q) => (Array.isArray(q) ? q : q?.pos)).filter((/** @type {any} */ q) => Array.isArray(q));
 		if (!pts?.length) return null;
 		const n = pts.length;
 		if (a.wp < 0 || a.wp >= n || a.wpPath !== pathUuid) {
@@ -476,7 +485,8 @@ export function createRuntime(api) {
 
 	/** gather the noises heard this think: Make Noise pulses, knocks, running players */
 	function collectNoises(/** @type {number} */ now, /** @type {any[]} */ players) {
-		noises = noises.filter((n) => n.until > now);
+		// a noise lives its time AND at least one think (a slow frame must not swallow it)
+		noises = noises.filter((n) => n.until > now || !n.heardBy);
 		for (const [id, node] of noiseNodes) {
 			for (const src of node.sources) {
 				const t = api.flow.triggerStamp(src);
@@ -623,6 +633,7 @@ export function createRuntime(api) {
 			}
 			a.label = label;
 		}
+		for (const n of noises) n.heardBy = true;
 		// drop agents whose node is gone (the effect stopped calling)
 		for (const uuid of [...agents.keys()]) if (!seen.has(uuid)) agents.delete(uuid);
 		// one batched reachability ask for every agent that needs it (G6)
@@ -658,17 +669,19 @@ export function createRuntime(api) {
 	function step(/** @type {number} */ now) {
 		if (stepping || bake.status !== 'ready') return;
 		stepping = true;
-		const dt = lastStepAt ? Math.min(0.1, (now - lastStepAt) / 1000) : 1 / 60;
+		const dt = lastStepAt ? Math.min(0.5, (now - lastStepAt) / 1000) : 1 / 60;
 		lastStepAt = now;
 		const list = [];
 		let n = 0;
 		for (const a of agents.values()) {
 			if (n++ >= caps.npcs) break;
-			// stop AT the goal (no jitter): park inside 0.3 m, walk again only past 0.8 m
+			// stop AT the goal (no jitter): park inside one radius, walk again only 0.5 m further out
 			let goal = a.crowdGoal;
 			if (goal) {
 				const d = dxz(a.feet, goal);
-				if (a.stopped ? d < 0.8 : d < 0.3) {
+				// the crowd slows to a crawl inside ~2 radii of a goal: park within one radius
+				const park = Math.max(0.3, a.radius);
+				if (a.stopped ? d < park + 0.5 : d < park) {
 					a.stopped = true;
 					goal = null;
 				} else a.stopped = false;
@@ -801,7 +814,8 @@ export function createRuntime(api) {
 			if (!auth) agents.clear();
 			notify();
 		}
-		if (needMesh() && bake.status === 'idle' && !baking) scheduleRebake(300);
+		// the FIRST bake: armed once (re-arming every frame would clear the timer before it ever fired)
+		if (needMesh() && bake.status === 'idle' && !baking && !rebakeTimer) scheduleRebake(300);
 		if (needMesh() && now - lastWatch > WATCH_MS) {
 			lastWatch = now;
 			watch().catch(() => {});
@@ -823,7 +837,10 @@ export function createRuntime(api) {
 					stats.snapsSent++;
 				}
 			}
-		} else ease(dt);
+		} else {
+			lastStepAt = 0; // the next stepper's first step must not count the time it was not stepping
+			ease(dt);
+		}
 	}
 
 	api.onMessage((/** @type {any} */ msg) => {
@@ -891,6 +908,8 @@ export function createRuntime(api) {
 		debug() {
 			return {
 				navNodes,
+				seen: [...seen.values()].map((e) => ({ uuid: e.uuid, type: e.type, frame: e.frame })),
+				frame,
 				authority: authorityId(),
 				me: me(),
 				active: active(),

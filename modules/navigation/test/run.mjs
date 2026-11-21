@@ -90,6 +90,28 @@ check(o.state === 'alert' && o.goal === null && o.face?.[0] === 4, 'still listen
 t += 1;
 o = run({ noises: [] });
 check(o.state === 'alert' && o.goal?.[0] === 4, 'then it goes to look');
+// the search: walk to the noise (a long walk is not cut short), look around giveUp s, walk back
+{
+	const sb = newBrain([0, 0, 0], 0);
+	const go = (/** @type {number} */ now, /** @type {any} */ opts) => think(sb, { now, pos: [0, 0, 0], yaw: 0, p, players: [], see: clear, noises: [], patrol: null, ...opts });
+	go(0, { noises: [{ pos: [12, 0, 0], loudness: 3 }] });
+	const far = go(20, { pos: [6, 0, 0] });
+	check(far.state === 'alert' && far.goal?.[0] === 12, 'a search 20 s long is still walking to the noise');
+	const there = go(21, { pos: [11.5, 0, 0] });
+	check(there.state === 'alert' && there.goal === null && /looking around/.test(there.label), 'at the noise it looks around');
+	const done = go(21 + p.giveUp + 0.1, { pos: [11.5, 0, 0] });
+	check(done.state === 'return' && done.events.some((e) => e.name === 'gaveup'), 'then it gives up and walks back');
+	const sb2 = newBrain([0, 0, 0], 0);
+	think(sb2, { now: 0, pos: [0, 0, 0], yaw: 0, p, players: [], see: clear, noises: [{ pos: [12, 0, 0], loudness: 3 }], patrol: null });
+	const stuck = think(sb2, { now: p.alert + p.giveUp + 0.2, pos: [3, 0, 0], yaw: 0, p, players: [], see: clear, noises: [], patrol: null, reach: { ok: false, why: 'blocked' } });
+	check(stuck.state === 'return', 'a noise it cannot walk to: it gives the search up');
+	const hb = newBrain([0, 0, 0], Math.PI / 2);
+	const post = think(hb, { now: 0, pos: [0.2, 0, 0], yaw: 0, p, players: [], see: clear, noises: [], patrol: null });
+	check(post.state === 'idle' && !!post.face && post.face[0] > 4 && Math.abs(post.face[2]) < 0.01, 'back at its post a guard turns to its home facing');
+	const lb = newBrain([0, 0, 0], 0);
+	const up = think(lb, { now: 0, pos: [0, 0, 0], yaw: 0, p, players: [{ id: 'p1', pos: [0, 3, 1] }], see: clear, noises: [], patrol: null });
+	check(up.state === 'chase', 'a player on a ledge 3 m above, in attack range on the ground plan, is chased, not attacked');
+}
 const quiet = newBrain([0, 0, 0], 0);
 const r9 = think(quiet, { now: 0, pos: [0, 0, 0], yaw: 0, p, players: [], see: clear, noises: [{ pos: [9, 0, 0], loudness: 1 }], patrol: null });
 check(r9.state === 'idle', 'a noise beyond hearing is not heard');

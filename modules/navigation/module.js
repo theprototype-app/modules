@@ -49,6 +49,7 @@ function normalizeNpc(raw) {
 }
 var STATES = ["idle", "patrol", "alert", "chase", "attack", "return"];
 var dxz = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
+var ALERT_CAP = 60;
 function inCone(from, yaw, p, angleDeg, range) {
   const d = dxz(from, p);
   if (d > range) return false;
@@ -84,6 +85,8 @@ function newBrain(home, yaw = 0) {
       /** @type {number[] | null} */
       null
     ),
+    /** when it reached the noise and started looking around (-Infinity = not yet) */
+    searchAt: -Infinity,
     label: "idle"
   };
 }
@@ -120,10 +123,14 @@ function think(b, w) {
     }
     b.lastPos = [...seen.pos];
     b.lastSeen = now;
-    if (seen.d <= p.attackRange) enter("attack");
-    else if (b.state !== "attack" || seen.d > p.attackRange * 1.25) enter("chase");
+    const level = Math.abs(seen.pos[1] - pos[1]) <= 1.2;
+    if (seen.d <= p.attackRange && level) enter("attack");
+    else if (b.state !== "attack" || seen.d > p.attackRange * 1.25 || !level) enter("chase");
   } else if (heard && calm) {
-    if (b.state !== "alert" || !b.noise || dxz(b.noise, heard.pos) > 1) events.push({ name: "heard" });
+    if (b.state !== "alert" || !b.noise || dxz(b.noise, heard.pos) > 1) {
+      events.push({ name: "heard" });
+      b.searchAt = -Infinity;
+    }
     b.noise = [...heard.pos];
     enter("alert");
   } else if (heard && (b.state === "chase" || b.state === "attack")) {
@@ -141,7 +148,7 @@ function think(b, w) {
       enter("return");
     }
   }
-  if (b.state === "alert" && now - b.since > p.alert + p.giveUp + 8) enter("return");
+  if (b.state === "alert" && (now - b.since > ALERT_CAP || w.reach && !w.reach.ok && now - b.since > p.alert + p.giveUp)) enter("return");
   const home = w.patrol ?? b.home;
   let goal = (
     /** @type {number[] | null} */
@@ -160,6 +167,7 @@ function think(b, w) {
       else enter("idle");
       goal = home;
       label = b.state === "patrol" ? "patrol" : "idle: guarding";
+      if (b.state === "idle" && dxz(pos, home) < 0.7) face = [home[0] + Math.sin(b.homeYaw) * 5, home[1], home[2] + Math.cos(b.homeYaw) * 5];
       break;
     }
     case "alert": {
@@ -171,9 +179,15 @@ function think(b, w) {
       } else {
         goal = b.noise;
         label = "alert: going to look";
-        if (b.noise && dxz(pos, b.noise) < 1 && waited > p.alert + 1.5) {
-          enter("return");
-          goal = home;
+        if (b.noise && dxz(pos, b.noise) < 1.2) {
+          if (!Number.isFinite(b.searchAt)) b.searchAt = now;
+          goal = null;
+          label = "alert: looking around";
+          if (now - b.searchAt >= p.giveUp) {
+            events.push({ name: "gaveup" });
+            enter("return");
+            goal = home;
+          }
         }
       }
       break;
@@ -579,8 +593,12 @@ function createRuntime(api) {
   }
   function playersNow() {
     const out = [];
+    const now = Date.now();
     for (const p of api.players?.() ?? []) {
-      const feet = playerFeet.get(p.id) ?? [p.pos[0], p.pos[1] - 1.6, p.pos[2]];
+      if (p.me ? !active() : !(now - (activePeers.get(String(p.id)) ?? -Infinity) <= BEAT_TTL)) continue;
+      const raw = [p.pos[0], p.pos[1] - 1.6, p.pos[2]];
+      const snap = playerFeet.get(p.id);
+      const feet = snap && dxz2(snap, raw) < 0.6 && Math.abs(snap[1] - raw[1]) < 0.9 ? snap : raw;
       out.push({ id: p.id, pos: feet, head: p.pos });
     }
     return out;
@@ -703,7 +721,7 @@ function createRuntime(api) {
   }
   function waypoint(a, pathUuid, advance = true) {
     const info = pathUuid ? api.paths?.of(pathUuid) : null;
-    const pts = info?.points;
+    const pts = info?.points?.map((q) => Array.isArray(q) ? q : q?.pos).filter((q) => Array.isArray(q));
     if (!pts?.length) return null;
     const n = pts.length;
     if (a.wp < 0 || a.wp >= n || a.wpPath !== pathUuid) {
@@ -722,7 +740,7 @@ function createRuntime(api) {
     return pts[a.wp];
   }
   function collectNoises(now, players) {
-    noises = noises.filter((n) => n.until > now);
+    noises = noises.filter((n) => n.until > now || !n.heardBy);
     for (const [id, node] of noiseNodes) {
       for (const src of node.sources) {
         const t = api.flow.triggerStamp(src);
@@ -860,6 +878,7 @@ function createRuntime(api) {
       }
       a.label = label;
     }
+    for (const n of noises) n.heardBy = true;
     for (const uuid of [...agents.keys()]) if (!seen.has(uuid)) agents.delete(uuid);
     const due = [...agents.values()].filter((a) => a.reachDue && a.target);
     if (due.length && bake.status === "ready") {
@@ -889,7 +908,7 @@ function createRuntime(api) {
   function step(now) {
     if (stepping || bake.status !== "ready") return;
     stepping = true;
-    const dt = lastStepAt ? Math.min(0.1, (now - lastStepAt) / 1e3) : 1 / 60;
+    const dt = lastStepAt ? Math.min(0.5, (now - lastStepAt) / 1e3) : 1 / 60;
     lastStepAt = now;
     const list = [];
     let n = 0;
@@ -898,7 +917,8 @@ function createRuntime(api) {
       let goal = a.crowdGoal;
       if (goal) {
         const d = dxz2(a.feet, goal);
-        if (a.stopped ? d < 0.8 : d < 0.3) {
+        const park = Math.max(0.3, a.radius);
+        if (a.stopped ? d < park + 0.5 : d < park) {
           a.stopped = true;
           goal = null;
         } else a.stopped = false;
@@ -1014,7 +1034,7 @@ function createRuntime(api) {
       if (!auth) agents.clear();
       notify();
     }
-    if (needMesh() && bake.status === "idle" && !baking) scheduleRebake(300);
+    if (needMesh() && bake.status === "idle" && !baking && !rebakeTimer) scheduleRebake(300);
     if (needMesh() && now - lastWatch > WATCH_MS) {
       lastWatch = now;
       watch().catch(() => {
@@ -1037,7 +1057,10 @@ function createRuntime(api) {
           stats.snapsSent++;
         }
       }
-    } else ease(dt);
+    } else {
+      lastStepAt = 0;
+      ease(dt);
+    }
   }
   api.onMessage((msg) => {
     if (msg?.op === "here" && msg.from) activePeers.set(String(msg.from), Date.now());
@@ -1101,6 +1124,8 @@ function createRuntime(api) {
     debug() {
       return {
         navNodes,
+        seen: [...seen.values()].map((e) => ({ uuid: e.uuid, type: e.type, frame: e.frame })),
+        frame,
         authority: authorityId(),
         me: me(),
         active: active(),
