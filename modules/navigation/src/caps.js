@@ -1,8 +1,12 @@
 // navigation — G8: the device caps, enforced with a clear message.
 //
-// Numbers measured on the test devices (see the docs fragment and the lane's evidence folder):
-// NPC count = how many enemies step at once, crowd = agents per navmesh, bake = triangles read
-// into one bake, rebake = the slowest bake we let a scene re-run on every edit.
+// NPC count = how many enemies step at once, bake = triangles read into one bake, rebake = the
+// slowest bake we let a scene re-run on every edit.
+// MEASURED 2026-11-21 on the Steam Deck (headless Chromium, the worker's own clock, default bake
+// settings): bake 50k tris 0.24 s, 100k 0.44 s, 200k 1.1 s, 400k 2.2 s, 600k 3.4 s; the crowd step
+// (+ read) 0.12 ms for 8 agents, 0.29 ms for 64, 0.52 ms for 128 — recast is not what limits the
+// NPC count, the main-thread senses (sight rays) are. Phone and headset numbers are PROVISIONAL
+// until measured on the devices (the HONOR's Chrome would not start, the Quest needs a wear).
 // A device that is over a cap keeps working: the extra enemies stand still and the toast says
 // so once, a bake past the triangle cap reads the first part of the scene and says so.
 

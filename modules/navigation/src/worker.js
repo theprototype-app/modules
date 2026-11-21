@@ -44,9 +44,12 @@ async function handle(msg) {
 			}
 			for (const key of [...world.agents.keys()]) if (!keep.has(key)) world.removeAgent(key);
 			if (msg.obstacles) world.syncObstacles(msg.obstacles);
+			const t0 = performance.now();
 			const { tilesChanged } = world.step(msg.dt ?? 1 / 30);
 			/** @type {any} */
 			const out = { agents: world.read(), tilesChanged, full: world.agents.size >= world.maxAgents };
+			// the worker's own cost (step + read): a reply can wait on a busy main thread, so round trips overstate it
+			out.stepMs = performance.now() - t0;
 			// players' FEET: a camera or an avatar head snapped down to the walkable ground under it
 			if (msg.probe) out.probes = msg.probe.map((/** @type {any} */ q) => ({ key: q.key, point: world.closest(q.p, [1, 2.5, 1])?.point ?? null }));
 			if (tilesChanged && msg.wantDebug) {
