@@ -127,10 +127,11 @@ export function createRuntime(api) {
 
 	// ---- who is playing, who steps ------------------------------------------------------------
 
-	/** this peer is in Play or Interact (game feel) */
+	/** this peer is in Play, Interact (game feel) or a VR session */
 	function active() {
 		try {
-			return !!api.isPlaying?.() || api.editorMode?.() === 'interact';
+			// a headset is a player too: core has no Play state inside a VR session
+			return !!api.isPlaying?.() || api.editorMode?.() === 'interact' || !!api.isVR?.();
 		} catch {
 			return false;
 		}

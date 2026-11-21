@@ -422,7 +422,7 @@ function createRuntime(api) {
   };
   function active() {
     try {
-      return !!api.isPlaying?.() || api.editorMode?.() === "interact";
+      return !!api.isPlaying?.() || api.editorMode?.() === "interact" || !!api.isVR?.();
     } catch {
       return false;
     }
@@ -1689,6 +1689,7 @@ function registerSheet(api, rt) {
     go.className = "tbx-primary";
     go.id = "nav-sheet-apply";
     go.textContent = node ? "Update enemy" : "Make enemy";
+    go.style.minHeight = "40px";
     go.onclick = async () => {
       go.disabled = true;
       const spec = {
@@ -1716,6 +1717,7 @@ function registerSheet(api, rt) {
       rm.className = "tbx-danger";
       rm.id = "nav-sheet-remove";
       rm.textContent = "Not an enemy";
+      rm.style.minHeight = "40px";
       rm.onclick = async () => {
         const r = await applyEnemy(api, object.uuid, { remove: true });
         api.toast("error" in r ? r.error : r.note);
