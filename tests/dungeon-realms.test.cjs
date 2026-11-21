@@ -276,7 +276,9 @@ run(async () => {
 	const C = await setupPageQuiet(browser, 'C', [A, B]);
 	await installModule(C, 'dungeon');
 	await installModule(C, 'dungeon-realms');
-	await connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	check(await leavePlay(B), '(premise) B stepped out of Play');
+	await connect(C, B);
 	await eventually(
 		() => snap(C.page),
 		(s) => s.floorIndex === 2 && s.checksum === a2.checksum && s.started && s.collected === a2.collected && s.gameFloor === 2 && s.overlay,

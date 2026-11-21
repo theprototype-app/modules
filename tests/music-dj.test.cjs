@@ -184,7 +184,8 @@ h.run(async () => {
 	const C = await h.setupPage(browser, 'C', { audio: true });
 	await h.installModule(C, 'music-dj');
 	await inPage(C.page, SINK);
-	await h.connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	await h.connect(C, B);
 	await h.eventually(() => docOf(C.page, ids.l).then((d) => d?.playing ?? null), (v) => v === true, '6.1 C holds the playing deck from the handshake');
 	await h.eventually(() => posOf(C.page, ids.l).then((p) => p?.decoded ?? false), (v) => v === true, '6.2 C pulled and decoded the track', 20000);
 	await C.page.waitForTimeout(400);

@@ -106,7 +106,8 @@ run(async () => {
 	check((await snap(A.page)).crossings > 0, '(premise) the board is still tangled');
 	const C = await setupPageQuiet(browser, 'C', [A, B]);
 	await installModule(C, 'untangle');
-	await connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	await connect(C, B);
 	const aEnd = await snap(A.page);
 	await eventually(() => snap(C.page), (s) => !!s && s.level === 2 && JSON.stringify(s.positions) === JSON.stringify(aEnd.positions), 'late joiner C has level 2 and A\'s exact positions', 30000);
 	await A.page.waitForTimeout(1500);
@@ -157,7 +158,7 @@ run(async () => {
 	await C.ctx.close(); // four live WebGL pages starve headless Chromium; C has done its part
 	const D = await setupPage(browser, 'D');
 	await installModule(D, 'untangle');
-	await connect(D, A);
+	await connect(D, B);
 	await eventually(() => snap(D.page), (s) => !!s && s.mode === '3d' && s.level === 4 && JSON.stringify(s.positions) === JSON.stringify(g2.positions), 'P3.12 late joiner D gets the globe: mode, level and A\'s exact 3D positions', 30000);
 	check((await A.page.evaluate(() => window.__untangle.progress()))['3d'].solved.includes(3), 'P3.13 A banked globe level 3 in the 3D progress');
 	await D.ctx.close();

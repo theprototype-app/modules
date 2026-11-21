@@ -230,7 +230,10 @@ h.run(async () => {
 	const C = await h.setupPage(browser, 'C');
 	await h.installModule(C, 'health');
 	await h.installModule(C, 'waves');
-	await h.connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	await setPlay(B, null);
+	await h.connect(C, B);
+	await setPlay(B, true);
 	await setPlay(A, true);
 	await h.eventually(() => snapshot(C), (s) => s?.wave === 2 && s.enemies.length === 3, 'the joiner reads WAVE 2 — the counts arrived in the triggers handshake', 25000);
 	const cE = (await snapshot(C)).enemies;

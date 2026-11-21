@@ -3,7 +3,7 @@
 	"version": "1.0.0",
 	"private": true,
 	"license": "MIT",
-	"description": "Optional/community modules for theprototype.app \u2014 one folder per module under modules/.",
+	"description": "Optional/community modules for theprototype.app — one folder per module under modules/.",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/theprototype-app/modules.git"
@@ -22,12 +22,16 @@
 		"build:untangle": "esbuild modules/untangle/src/index.js --bundle --format=esm --outfile=modules/untangle/module.js && node modules/untangle/emit-def.mjs",
 		"test:untangle": "node modules/untangle/test/run.mjs",
 		"build:health": "esbuild modules/health/src/index.js --bundle --format=esm --outfile=modules/health/module.js",
+		"build:navigation": "esbuild modules/navigation/src/worker.js --bundle --format=iife --minify --alias:@recast-navigation/wasm=./node_modules/@recast-navigation/wasm/dist/recast-navigation.wasm.js --outfile=modules/navigation/assets/nav-worker.js && node -e \"require('fs').copyFileSync('node_modules/@recast-navigation/wasm/dist/recast-navigation.wasm.wasm','modules/navigation/assets/recast.wasm')\" && esbuild modules/navigation/src/index.js --bundle --format=esm --outfile=modules/navigation/module.js",
+		"test:navigation": "node modules/navigation/test/run.mjs",
 		"test:health": "node modules/health/test/run.mjs",
 		"build:waves": "node modules/waves/build-gltf.mjs && esbuild modules/waves/src/index.js --bundle --format=esm --outfile=modules/waves/module.js && node modules/waves/emit-def.mjs",
 		"test:waves": "node modules/waves/test/run.mjs",
 		"test:smart-unwrap": "node modules/smart-unwrap/test/run.mjs"
 	},
 	"devDependencies": {
+		"@recast-navigation/core": "0.43.1",
+		"@recast-navigation/generators": "0.43.1",
 		"esbuild": "0.28.2",
 		"fflate": "^0.8.3",
 		"playwright": "^1.62.0",

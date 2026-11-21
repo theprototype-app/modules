@@ -495,7 +495,8 @@ h.run(async () => {
 	const C = await h.setupPage(browser, 'C', { audio: true });
 	await h.installModule(C, 'music-fx');
 	await inPage(C.page, TEST_KINDS);
-	await h.connect(C, A);
+	// the session host decides who joins (A joined B, so B is the host): the late joiner dials B
+	await h.connect(C, B);
 	await h.eventually(
 		() => built(C.page),
 		(list) => PEDALS.every((p) => isBuilt(list, pedal[p], K(p))) && isBuilt(list, mixer, K('mixer')) && isBuilt(list, src, 'fx-src') && isBuilt(list, sink, 'fx-sink'),
