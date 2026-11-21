@@ -34,12 +34,19 @@ export const MENU_BUTTONS = [
 const PANEL = { bg: 'rgba(12, 16, 24, 0.9)', radius: 14, border: '1px solid rgba(103, 232, 249, 0.25)' };
 const BUTTON = (bg) => ({ size: 15, weight: '600', bg, color: '#ffffff', radius: 10 });
 
+/** the arch's offset north (+z) of the entrance room's centre, where floor 1 spawns */
+export const ARCH_Z = 2.5;
+
 /**
  * The entrance arch + plinth in the replicated objectsGroup, centred on the entrance
  * room the seed produces (players spawn there). @param {{x: number, z: number}} entrance
  */
 export function archObjects(entrance) {
-	const { x, z } = entrance;
+	// 54i h (scenes c56e3e6, core 1.54.3): floor 1 spawns at the entrance room's centre, so an arch centred there
+	// stood every player on the plinth with a pillar in their face. The arch, plinth, lantern, light and the card
+	// camera stand ARCH_Z (2.5 m) north of it, inside the room; the ground stays centred on the entrance
+	const { x } = entrance;
+	const z = entrance.z + ARCH_Z;
 	const stone = 0x6a6660;
 	const glow = 0x67e8f9;
 	return [
@@ -56,7 +63,7 @@ export function archObjects(entrance) {
 		// 30: the ground the dungeon stands on — the TEMPLATE's (the Kit's tiles top at +0.015, this
 		// sits between them and the editor grid at 0; a ground inside the Kit's own group stalled
 		// a third peer's page in the Kit's flight). Select-through: a click lands on the level
-		{ type: 'plane', name: NAMES.ground, size: [400, 400], pos: [x, 0.006, z], rot: [-Math.PI / 2, 0, 0], color: 0x3a3440, roughness: 1, pick: 'through' },
+		{ type: 'plane', name: NAMES.ground, size: [400, 400], pos: [x, 0.006, entrance.z], rot: [-Math.PI / 2, 0, 0], color: 0x3a3440, roughness: 1, pick: 'through' },
 		// the Games-tab card's camera: over the entrance hall's wall, down onto the arch
 		{ type: 'camera', name: NAMES.card, pos: [x + 5, 4.6, z + 6], lookAt: [x, 0.9, z - 0.5], fov: 55 }
 	];
@@ -295,7 +302,7 @@ export function realmsDef(entrance, opts = {}) {
 		hud: realmsHud(),
 		objects: archObjects(entrance),
 		// the editor camera opens on the arch; the card renders the module's world too
-		view: { pos: [entrance.x + 9, 7, entrance.z + 11], target: [entrance.x, 1, entrance.z] },
+		view: { pos: [entrance.x + 9, 7, entrance.z + ARCH_Z + 11], target: [entrance.x, 1, entrance.z + ARCH_Z] },
 		thumb: { camera: NAMES.card, sceneGroups: ['dungeon-module'] }
 	};
 }
