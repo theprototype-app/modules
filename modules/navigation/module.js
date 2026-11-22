@@ -393,11 +393,15 @@ function createRuntime(api) {
       "idle"
     ),
     ms: 0,
+    /** jump / climb links baked in (92 row 5: the Navmesh node's ledge / jump) */
+    links: 0,
     triangles: 0,
     area: 0,
     error: "",
     truncated: false,
     signature: "",
+    /** the Navmesh node settings the last bake used (JSON) */
+    settingsKey: "",
     at: 0,
     /** @type {{positions: Float32Array, indices: Uint32Array} | null} */
     debug: null,
@@ -517,10 +521,13 @@ function createRuntime(api) {
         bake.version++;
         return;
       }
-      const r = await client.call("bake", { positions: geo.positions, indices: geo.indices, bake: bakeSettings(), maxAgents: caps.npcs }, [geo.positions.buffer, geo.indices.buffer]);
+      const settings = bakeSettings();
+      bake.settingsKey = JSON.stringify(settings);
+      const r = await client.call("bake", { positions: geo.positions, indices: geo.indices, bake: settings, maxAgents: caps.npcs }, [geo.positions.buffer, geo.indices.buffer]);
       Object.assign(bake, {
         status: r.baked ? "ready" : "failed",
         ms: Math.round(r.ms ?? 0),
+        links: r.links ?? 0,
         triangles: r.triangles ?? geo.triangles,
         area: r.area ?? 0,
         error: r.baked ? "" : String(r.error ?? "bake failed"),
@@ -558,8 +565,10 @@ function createRuntime(api) {
       obstaclesDirty = true;
       notify();
     }
-    if (geo.signature !== bake.signature) {
+    const settingsKey = JSON.stringify(bakeSettings());
+    if (geo.signature !== bake.signature || settingsKey !== bake.settingsKey) {
       bake.signature = geo.signature;
+      bake.settingsKey = settingsKey;
       scheduleRebake(Math.max(1200, Math.min(1e4, bake.ms * 3, caps.rebakeMs * 2)));
     }
   }
@@ -1180,7 +1189,12 @@ var BAKE_DEFAULTS = Object.freeze({
   /** the highest step an NPC walks up, m */
   climb: 0.45,
   /** the steepest slope, degrees */
-  slope: 45
+  slope: 45,
+  /** the highest LEDGE an NPC climbs up (and drops back down), m — 0 = off. Above `climb` it adds
+   * climb links where a ledge is in reach (92 row 5) */
+  ledge: 0,
+  /** the widest GAP an NPC jumps, m (the empty space between the two lips) — 0 = off */
+  jump: 0
 });
 
 // modules/navigation/src/nodes.js
@@ -1279,7 +1293,9 @@ function registerNodes(api, rt) {
           { key: "radius", kind: "range", min: 0.1, max: 2, step: 0.05 },
           { key: "height", kind: "range", min: 0.4, max: 4, step: 0.1 },
           { key: "climb", kind: "range", min: 0, max: 2, step: 0.05 },
-          { key: "slope", kind: "range", min: 5, max: 70, step: 1 }
+          { key: "slope", kind: "range", min: 5, max: 70, step: 1 },
+          { key: "ledge", kind: "range", min: 0, max: 3, step: 0.05 },
+          { key: "jump", kind: "range", min: 0, max: 4, step: 0.05 }
         ]
       }
     ]
@@ -1661,7 +1677,7 @@ function registerSheet(api, rt) {
   let statusLine = null;
   const statusText = () => {
     const b = rt.bake;
-    const base = b.status === "ready" ? "Navmesh: " + Math.round(b.area) + " m\xB2 walkable, baked in " + b.ms + " ms" + (b.truncated ? " (scene cut at the device cap)" : "") : b.status === "baking" ? "Navmesh: baking\u2026" : b.status === "failed" ? "Navmesh: failed \u2014 " + b.error : b.status === "empty" ? "Navmesh: nothing to walk on" : "Navmesh: bakes when you play";
+    const base = b.status === "ready" ? "Navmesh: " + Math.round(b.area) + " m\xB2 walkable, baked in " + b.ms + " ms" + (b.links ? ", " + b.links + " jump / climb links" : "") + (b.truncated ? " (scene cut at the device cap)" : "") : b.status === "baking" ? "Navmesh: baking\u2026" : b.status === "failed" ? "Navmesh: failed \u2014 " + b.error : b.status === "empty" ? "Navmesh: nothing to walk on" : "Navmesh: bakes when you play";
     return base + " \xB7 " + rt.caps.kind + " cap " + rt.caps.npcs + " enemies";
   };
   function renderForm(el, object) {

@@ -12,14 +12,21 @@
 //   'too far'   a path exists but is longer than the walker's limit
 // The crowd is then sent to that closest point and STOPS there (no re-request every frame: the main
 // half re-asks only when the target moves or a second passes), so an NPC never jitters in place.
+//
+// 92 row 5 (links.js): an NPC STANDS ON THE GROUND (the bake's own triangles under it, not the
+// navmesh plane, which can sit inside a step), and with the Navmesh node's `ledge` / `jump` above 0
+// the bake adds off-mesh links: the crowd climbs a low ledge or jumps a gap, shown as a climb or a
+// parabolic arc (`read`).
 
 import {
 	init as recastInit,
 	Crowd,
+	TileCacheMeshProcess,
 	NavMeshQuery,
 	getNavMeshPositionsAndIndices
 } from '@recast-navigation/core';
 import { generateTileCache } from '@recast-navigation/generators';
+import { TriGrid, findLinks, linkPose } from './links.js';
 
 import { BAKE_DEFAULTS, normalizeBake } from './bakeDefaults.js';
 export { BAKE_DEFAULTS, normalizeBake };
@@ -89,23 +96,111 @@ export class NavWorld {
 		const positions = input.positions instanceof Float32Array ? input.positions : new Float32Array(input.positions);
 		const indices = input.indices instanceof Uint32Array ? input.indices : new Uint32Array(input.indices);
 		this.inputTriangles = indices.length / 3;
+		const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+		const s = this.settings;
+		const linking = s.jump > 0 || s.ledge > s.climb;
+		/** the jump / climb links as Detour off-mesh connections: empty for the first build (so that build
+		 * is the plain one, byte for byte), filled once found, then every tile is rebuilt. The process
+		 * lives as long as the tile cache: an obstacle's tile rebuild runs it again and keeps the links. */
+		/** @type {any[]} */
+		const cons = [];
+		const process = linking
+			? new TileCacheMeshProcess((/** @type {any} */ params, /** @type {any} */ areas, /** @type {any} */ flags) => {
+					for (let i = 0; i < params.polyCount(); ++i) {
+						areas.set(i, 0);
+						flags.set(i, 1);
+					}
+					if (cons.length) params.setOffMeshConnections(cons);
+				})
+			: null;
+		const config = process ? { ...recastConfig(s), tileCacheMeshProcess: process } : recastConfig(s);
 		/** @type {any} */
-		const res = generateTileCache(/** @type {any} */ (positions), /** @type {any} */ (indices), /** @type {any} */ (recastConfig(this.settings)));
-		this.bakeMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
+		const res = generateTileCache(/** @type {any} */ (positions), /** @type {any} */ (indices), /** @type {any} */ (config));
 		this.ok = !!res.success;
 		this.error = res.success ? '' : String(res.error ?? 'bake failed');
 		this.tileCache = res.tileCache;
 		this.navMesh = res.navMesh;
+		this.meshProcess = process;
 		this.maxAgents = Math.max(1, Math.min(256, input.maxAgents ?? 64));
-		/** key -> {agent, goal, params} @type {Map<string, any>} */
+		/** key -> {agent, goal, params, link} @type {Map<string, any>} */
 		this.agents = new Map();
 		/** key -> {ref, kind, pos, size} @type {Map<string, any>} */
 		this.obstacles = new Map();
 		this.dirtyTiles = false;
-		if (!this.ok) return;
+		/** the jump / climb links baked in (92 row 5) @type {import('./links.js').Link[]} */
+		this.links = [];
+		this.linkMs = 0;
+		this.linkProbes = 0;
+		if (!this.ok) {
+			this.bakeMs = now() - t0;
+			return;
+		}
 		this.query = new NavMeshQuery(this.navMesh);
 		this.query.defaultQueryHalfExtents = { x: 1, y: 2, z: 1 };
+		// the ground under an NPC (and the link clearance rays): the bake's own triangles
+		this.grid = new TriGrid(positions, indices);
+		if (linking) {
+			const l0 = now();
+			// the walk check's own query: a small node pool, so two ends that are NOT joined (the very
+			// case a link is for) give up after a few hundred polygons instead of searching the scene
+			this.walkQuery = new NavMeshQuery(this.navMesh, { maxNodes: 256 });
+			const found = findLinks(this, this.grid, s);
+			this.walkQuery.destroy();
+			this.walkQuery = null;
+			this.linkProbes = found.probes;
+			if (found.links.length) {
+				const rad = Math.max(0.2, s.cell * 2);
+				found.links.forEach((L, i) => cons.push({ startPosition: v3(L.a), endPosition: v3(L.b), radius: rad, bidirectional: true, userId: i + 1 }));
+				/** @type {Set<string>} */
+				const done = new Set();
+				for (let i = 0; i < this.navMesh.getMaxTiles(); i++) {
+					const h = this.navMesh.getTile(i).header();
+					if (!h) continue;
+					const key = h.x() + ',' + h.y();
+					if (done.has(key)) continue;
+					done.add(key);
+					this.tileCache.buildNavMeshTilesAt(h.x(), h.y(), this.navMesh);
+				}
+				this.links = found.links;
+			}
+			this.linkMs = now() - l0;
+		}
+		this.bakeMs = now() - t0;
 		this.crowd = new Crowd(this.navMesh, { maxAgents: this.maxAgents, maxAgentRadius: Math.max(1, this.settings.radius * 2) });
+	}
+
+	/** is there a SHORT walk from a to b (at most `limit` m)? The link search asks before adding a link
+	 * (links.js); a small node pool, so a pair that is not joined gives up fast @param {number[]} a @param {number[]} b @param {number} limit */
+	shortWalk(a, b, limit) {
+		const q = this.walkQuery ?? this.query;
+		const half = { x: 0.5, y: 1, z: 0.5 };
+		const s = q.findClosestPoint(v3(a), { halfExtents: half });
+		const e = q.findClosestPoint(v3(b), { halfExtents: half });
+		if (!s.success || !e.success || !s.polyRef || !e.polyRef) return false;
+		if (s.polyRef === e.polyRef) return true;
+		const fp = q.findPath(s.polyRef, e.polyRef, s.point, e.point, { maxPathPolys: 128 });
+		const whole = fp.success && fp.polys.size > 0 && fp.polys.get(fp.polys.size - 1) === e.polyRef;
+		if (!whole) {
+			fp.polys?.destroy?.();
+			return false;
+		}
+		const sp = q.findStraightPath(s.point, e.point, fp.polys, { maxStraightPathPoints: 64 });
+		fp.polys.destroy();
+		/** @type {number[][]} */
+		const pts = [];
+		if (sp.success) for (let i = 0; i < sp.straightPathCount; i++) pts.push([sp.straightPath.get(i * 3), sp.straightPath.get(i * 3 + 1), sp.straightPath.get(i * 3 + 2)]);
+		sp.straightPath?.destroy?.();
+		sp.straightPathFlags?.destroy?.();
+		sp.straightPathRefs?.destroy?.();
+		return pts.length > 1 && pathLength(pts) <= limit;
+	}
+
+	/** the ground under a navmesh point: the first bake triangle below navmesh height + climb (the
+	 * navmesh plane can sit up to `climb` off a step), or the navmesh height when nothing is there
+	 * @param {number[]} p */
+	groundY(p) {
+		const c = this.settings.climb;
+		return this.grid?.groundAt(p[0], p[2], p[1] + c + 0.1, p[1] - c - 0.3) ?? p[1];
 	}
 
 	/** walkable triangles for the overlay (world space) */
@@ -309,16 +404,65 @@ export class NavWorld {
 		while (left > 1e-4) {
 			const h = Math.min(1 / 30, left);
 			this.crowd.update(h);
+			if (this.links.length) this.trackLinks(h);
 			left -= h;
 		}
 		return { tilesChanged };
 	}
 
-	/** every agent's live state @returns {{key: string, pos: number[], vel: number[], corners: number[][]}[]} */
+	/** after each crowd update of `h` s: which agents just stepped onto a link (Detour's OFFMESH state),
+	 * the end they set off from (the end nearest them) and Detour's own clock for it: the traversal
+	 * starts the update it triggers (t = h) and lasts tmax = dist2D(start, end) / maxSpeed / 2, the
+	 * first 15 % spent sliding onto the start point (dtCrowd::update) @param {number} h */
+	trackLinks(h) {
+		for (const e of this.agents.values()) {
+			if (e.agent.state() !== 2) {
+				e.link = null;
+				continue;
+			}
+			if (e.link) {
+				e.link.t += h;
+				continue;
+			}
+			const p = arr(e.agent.position());
+			let best = null;
+			let bd = Infinity;
+			for (const L of this.links) {
+				const da = Math.hypot(L.a[0] - p[0], L.a[1] - p[1], L.a[2] - p[2]);
+				const db = Math.hypot(L.b[0] - p[0], L.b[1] - p[1], L.b[2] - p[2]);
+				if (da < bd) [bd, best] = [da, { L, from: 'a' }];
+				if (db < bd) [bd, best] = [db, { L, from: 'b' }];
+			}
+			if (best) e.link = { ...best, t: h, tmax: Math.max(1e-3, (dxz(best.L.a, best.L.b) / e.params.maxSpeed) * 0.5) };
+		}
+	}
+
+	/** where an agent SHOWS: on a link, on its climb or arc (links.js linkPose); else on the ground
+	 * under it @param {any} e @returns {{pos: number[], vel: number[], link: '' | 'jump' | 'climb'}} */
+	pose(e) {
+		const p = arr(e.agent.position());
+		const k = e.link;
+		if (k && e.agent.state() === 2) {
+			const ta = k.tmax * 0.15;
+			const S = k.from === 'a' ? k.L.a : k.L.b;
+			const E = k.from === 'a' ? k.L.b : k.L.a;
+			const len = dxz(S, E) || 1;
+			const sp = e.params.maxSpeed;
+			const vel = [((E[0] - S[0]) / len) * sp, 0, ((E[2] - S[2]) / len) * sp];
+			// still sliding onto the start point: on the ground
+			if (k.t < ta) return { pos: [p[0], this.groundY(p), p[2]], vel, link: k.L.kind };
+			const u = Math.min(1, (k.t - ta) / (k.tmax - ta));
+			return { pos: linkPose(k.L, k.from, u, p), vel, link: k.L.kind };
+		}
+		return { pos: [p[0], this.groundY(p), p[2]], vel: arr(e.agent.velocity()), link: '' };
+	}
+
+	/** every agent's live state @returns {{key: string, pos: number[], vel: number[], corners: number[][], link: '' | 'jump' | 'climb'}[]} */
 	read() {
 		const out = [];
 		for (const [key, e] of this.agents) {
-			out.push({ key, pos: arr(e.agent.position()), vel: arr(e.agent.velocity()), corners: e.goal ? e.agent.corners().map(arr) : [] });
+			const { pos, vel, link } = this.pose(e);
+			out.push({ key, pos, vel, corners: e.goal ? e.agent.corners().map(arr) : [], link });
 		}
 		return out;
 	}
@@ -329,6 +473,7 @@ export class NavWorld {
 			this.query?.destroy();
 			this.tileCache?.destroy();
 			this.navMesh?.destroy();
+			this.meshProcess = null;
 		} catch {
 			/* already gone */
 		}

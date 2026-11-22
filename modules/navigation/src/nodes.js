@@ -14,8 +14,9 @@
 //                      "unreachable" by its reason (off mesh / blocked / too far).
 //   navstate   VALUE   NPC State: the state number (0 idle … 5 return), or 1/0 for chasing / alert /
 //                      reachable, read from the replicated snapshot (every peer reads the same).
-//   navmesh    VALUE   Navmesh: the bake settings (cell size, agent radius / height / climb / slope)
-//                      — one in the scene graph; without it the defaults bake.
+//   navmesh    VALUE   Navmesh: the bake settings (cell size, agent radius / height / climb / slope,
+//                      and `ledge` / `jump`: the highest ledge NPCs climb and the widest gap they
+//                      jump, m, 0 = off) — one in the scene graph; without it the defaults bake.
 //
 // Every effect has an `enabled` input: wire a Latch or a Gate into it to switch a behaviour on and
 // off (one object may carry several; the highest in the list above wins while enabled).
@@ -121,7 +122,9 @@ export function registerNodes(api, rt) {
 					{ key: 'radius', kind: 'range', min: 0.1, max: 2, step: 0.05 },
 					{ key: 'height', kind: 'range', min: 0.4, max: 4, step: 0.1 },
 					{ key: 'climb', kind: 'range', min: 0, max: 2, step: 0.05 },
-					{ key: 'slope', kind: 'range', min: 5, max: 70, step: 1 }
+					{ key: 'slope', kind: 'range', min: 5, max: 70, step: 1 },
+					{ key: 'ledge', kind: 'range', min: 0, max: 3, step: 0.05 },
+					{ key: 'jump', kind: 'range', min: 0, max: 4, step: 0.05 }
 				]
 			}
 		]

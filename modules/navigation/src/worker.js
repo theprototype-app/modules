@@ -23,6 +23,8 @@ async function handle(msg) {
 			return {
 				baked: true,
 				ms: world.bakeMs,
+				links: world.links.length,
+				linkMs: world.linkMs,
 				triangles: world.inputTriangles,
 				area: world.area(),
 				debug: dbg,

@@ -13,7 +13,12 @@ export const BAKE_DEFAULTS = Object.freeze({
 	/** the highest step an NPC walks up, m */
 	climb: 0.45,
 	/** the steepest slope, degrees */
-	slope: 45
+	slope: 45,
+	/** the highest LEDGE an NPC climbs up (and drops back down), m — 0 = off. Above `climb` it adds
+	 * climb links where a ledge is in reach (92 row 5) */
+	ledge: 0,
+	/** the widest GAP an NPC jumps, m (the empty space between the two lips) — 0 = off */
+	jump: 0
 });
 
 /** @type {Record<string, number[]>} */
@@ -23,7 +28,9 @@ const CLAMP = {
 	radius: [0.1, 2],
 	height: [0.4, 4],
 	climb: [0, 2],
-	slope: [5, 70]
+	slope: [5, 70],
+	ledge: [0, 3],
+	jump: [0, 4]
 };
 
 /** @param {any} raw @returns {typeof BAKE_DEFAULTS} */
