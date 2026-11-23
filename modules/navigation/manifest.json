@@ -1,7 +1,7 @@
 {
 	"id": "navigation",
 	"name": "Navigation",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"format": 1,
 	"description": "Enemies that walk: a navmesh baked from your scene, Move To / Chase / Patrol / Flee / Wander nodes, and guards that see, hear, chase, attack and give up. Right-click an object, Make this an enemy.",
 	"entry": "module.js",
