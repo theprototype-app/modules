@@ -20,3 +20,24 @@ export function arena({ gap = true, size = 10 } = {}) {
 	boxTris([-8, 0, -8], [-6, 3, -6], pos, idx);
 	return { positions: new Float32Array(pos), indices: new Uint32Array(idx) };
 }
+
+// ---- 92 row 5: jump and climb arenas (fixed scenes) ---------------------------------------
+/** a 20 x 20 floor (top y 0) and a 6 x 8 platform at x 2..8 whose top is `rise` m up: a 0.3 m STEP
+ * (walkable at the default climb 0.45) or a 0.9 m LOW LEDGE (not walkable; a climb link when `ledge` allows) */
+export function ledgeArena({ rise = 0.9, size = 10 } = {}) {
+	const pos = [];
+	const idx = [];
+	boxTris([-size, -0.2, -size], [size, 0, size], pos, idx);
+	boxTris([2, 0, -4], [8, rise, 4], pos, idx);
+	return { positions: new Float32Array(pos), indices: new Uint32Array(idx) };
+}
+/** two 8 x 8 platforms, tops at y 0, with a `gap` m wide hole between them (x -gap/2 .. gap/2) and NO
+ * floor below (or a floor `below` m down): only a jump link joins them */
+export function gapArena({ gap = 1.2, below = 0 } = {}) {
+	const pos = [];
+	const idx = [];
+	boxTris([-8 - gap / 2, -0.5, -4], [-gap / 2, 0, 4], pos, idx);
+	boxTris([gap / 2, -0.5, -4], [8 + gap / 2, 0, 4], pos, idx);
+	if (below > 0) boxTris([-10, -below - 0.2, -10], [10, -below, 10], pos, idx);
+	return { positions: new Float32Array(pos), indices: new Uint32Array(idx) };
+}

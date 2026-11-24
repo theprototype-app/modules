@@ -108,11 +108,15 @@ export function createRuntime(api) {
 	const bake = {
 		status: /** @type {'idle' | 'baking' | 'ready' | 'empty' | 'failed'} */ ('idle'),
 		ms: 0,
+		/** jump / climb links baked in (92 row 5: the Navmesh node's ledge / jump) */
+		links: 0,
 		triangles: 0,
 		area: 0,
 		error: '',
 		truncated: false,
 		signature: '',
+		/** the Navmesh node settings the last bake used (JSON) */
+		settingsKey: '',
 		at: 0,
 		/** @type {{positions: Float32Array, indices: Uint32Array} | null} */
 		debug: null,
@@ -254,10 +258,13 @@ export function createRuntime(api) {
 				bake.version++;
 				return;
 			}
-			const r = await client.call('bake', { positions: geo.positions, indices: geo.indices, bake: bakeSettings(), maxAgents: caps.npcs }, [geo.positions.buffer, geo.indices.buffer]);
+			const settings = bakeSettings();
+			bake.settingsKey = JSON.stringify(settings);
+			const r = await client.call('bake', { positions: geo.positions, indices: geo.indices, bake: settings, maxAgents: caps.npcs }, [geo.positions.buffer, geo.indices.buffer]);
 			Object.assign(bake, {
 				status: r.baked ? 'ready' : 'failed',
 				ms: Math.round(r.ms ?? 0),
+				links: r.links ?? 0,
 				triangles: r.triangles ?? geo.triangles,
 				area: r.area ?? 0,
 				error: r.baked ? '' : String(r.error ?? 'bake failed'),
@@ -300,8 +307,11 @@ export function createRuntime(api) {
 			obstaclesDirty = true;
 			notify();
 		}
-		if (geo.signature !== bake.signature) {
+		// the Navmesh node's settings changed (a ledge / jump / climb tuned while playing): rebake too
+		const settingsKey = JSON.stringify(bakeSettings());
+		if (geo.signature !== bake.signature || settingsKey !== bake.settingsKey) {
 			bake.signature = geo.signature;
+			bake.settingsKey = settingsKey;
 			// debounced: a drag fires this every second; a slow bake waits longer between rebakes
 			scheduleRebake(Math.max(1200, Math.min(10000, bake.ms * 3, caps.rebakeMs * 2)));
 		}

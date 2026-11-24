@@ -171,7 +171,7 @@ export function registerSheet(api, rt) {
 		const b = rt.bake;
 		const base =
 			b.status === 'ready'
-				? 'Navmesh: ' + Math.round(b.area) + ' m² walkable, baked in ' + b.ms + ' ms' + (b.truncated ? ' (scene cut at the device cap)' : '')
+				? 'Navmesh: ' + Math.round(b.area) + ' m² walkable, baked in ' + b.ms + ' ms' + (b.links ? ', ' + b.links + ' jump / climb links' : '') + (b.truncated ? ' (scene cut at the device cap)' : '')
 				: b.status === 'baking'
 					? 'Navmesh: baking…'
 					: b.status === 'failed'
